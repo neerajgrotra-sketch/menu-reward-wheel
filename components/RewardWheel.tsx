@@ -4,9 +4,20 @@ import type { Reward } from '@/types/reward';
 
 const colors = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c', '#fef3c7', '#facc15'];
 
+function shortLabel(label: string) {
+  return label
+    .replace('Paneer', 'PNR')
+    .replace('Mango Lassi', 'Lassi')
+    .replace('Free ', 'Free\n')
+    .replace('$3 Lunch', '$3\nLunch')
+    .replace('App Deal', 'App\nDeal')
+    .replace('Chef Pick', 'Chef\nPick')
+    .replace('10% PNR', '10%\nPNR')
+    .replace('5% Off', '5%\nOff');
+}
+
 export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]; rotation: number; spinning: boolean }) {
   const segmentAngle = 360 / rewards.length;
-  const labelRadiusPercent = 30;
   const gradient = rewards
     .map((_, index) => `${colors[index % colors.length]} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
     .join(', ');
@@ -19,24 +30,21 @@ export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]
       >
         {rewards.map((reward, index) => {
           const segmentMidDeg = index * segmentAngle + segmentAngle / 2;
-          const radians = ((segmentMidDeg - 90) * Math.PI) / 180;
-          const x = 50 + Math.cos(radians) * labelRadiusPercent;
-          const y = 50 + Math.sin(radians) * labelRadiusPercent;
 
           return (
             <div
               key={reward.id}
-              className="absolute z-10 flex h-8 w-24 items-center justify-center rounded-full bg-white/85 px-2 text-center shadow-sm"
-              style={{
-                left: `${x}%`,
-                top: `${y}%`,
-                transform: `translate(-50%, -50%) rotate(${segmentMidDeg}deg)`,
-                transformOrigin: 'center center',
-              }}
+              className="absolute left-1/2 top-1/2 z-10 h-0 w-0"
+              style={{ transform: `rotate(${segmentMidDeg}deg)` }}
             >
-              <span className="block text-[10px] font-black uppercase leading-none tracking-tight text-stone-900">
-                {reward.label}
-              </span>
+              <div
+                className="absolute left-[62px] top-1/2 flex h-10 w-16 -translate-y-1/2 items-center justify-center text-center"
+                style={{ transform: `rotate(90deg)` }}
+              >
+                <span className="whitespace-pre-line rounded-md bg-white/55 px-1.5 py-1 text-[9px] font-black uppercase leading-[0.9] tracking-tight text-stone-900 shadow-sm">
+                  {shortLabel(reward.label)}
+                </span>
+              </div>
             </div>
           );
         })}
