@@ -1,23 +1,38 @@
 'use client';
 
-import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
+type Restaurant = {
+  id: string;
+  name: string;
+  slug: string;
+  brand_color: string | null;
+};
+
 export default function AdminPage() {
-  const params = useSearchParams();
-  const slug = params.get('slug');
-  const [restaurant, setRestaurant] = useState<any>(null);
+  const [slug, setSlug] = useState<string | null>(null);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    setSlug(searchParams.get('slug'));
+  }, []);
 
   useEffect(() => {
     async function load() {
       if (!slug) return;
       const supabase = createClient();
       const { data } = await supabase.from('restaurants').select('*').eq('slug', slug).single();
-      setRestaurant(data);
+      setRestaurant(data as Restaurant | null);
     }
+
     load();
   }, [slug]);
+
+  if (!slug) {
+    return <div className="p-6">Missing restaurant slug.</div>;
+  }
 
   if (!restaurant) {
     return <div className="p-6">Loading restaurant...</div>;
