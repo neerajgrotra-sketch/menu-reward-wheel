@@ -4,7 +4,7 @@ import { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { motion } from 'framer-motion';
 import { RewardWheel } from '@/components/RewardWheel';
-import { BarChart3, ChefHat, Flame, QrCode, ShieldCheck, Sparkles, Trophy, Zap } from 'lucide-react';
+import { BarChart3, ChefHat, Flame, QrCode, ShieldCheck, Sparkles, Trophy } from 'lucide-react';
 import type { Reward } from '@/types/reward';
 
 const landingRewards: Reward[] = [
@@ -59,8 +59,8 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 border-b border-orange-100 bg-[#FFF8F0]/90 px-4 py-3 backdrop-blur-xl sm:px-6">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <a href="#top" className="flex items-center gap-2 text-2xl font-black text-[#FF6B00]" aria-label="SpinBite home">
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#FF6B00] to-[#E63939] text-white shadow-lg">✦</span>
-            SpinBite
+            <span className="text-3xl leading-none">🎯</span>
+            <span>SpinBite</span>
           </a>
           <div className="hidden gap-7 text-sm font-bold md:flex">
             <a href="#product" className="hover:text-[#FF6B00]">Product</a>
@@ -99,12 +99,7 @@ export default function LandingPage() {
           <div className="rounded-[2rem] bg-white/80 p-4 shadow-2xl shadow-orange-200/60 ring-1 ring-orange-100">
             <RewardWheel rewards={landingRewards} rotation={rotation} spinning={spinning} />
           </div>
-          <button
-            onClick={spin}
-            disabled={spinning}
-            aria-label="Spin the demo wheel"
-            className="mt-6 w-full max-w-xs rounded-full bg-gradient-to-r from-[#00C853] to-[#00A846] px-8 py-4 text-lg font-black text-white shadow-xl shadow-green-200 transition active:scale-95 disabled:bg-stone-400"
-          >
+          <button onClick={spin} disabled={spinning} aria-label="Spin the demo wheel" className="mt-6 w-full max-w-xs rounded-full bg-gradient-to-r from-[#00C853] to-[#00A846] px-8 py-4 text-lg font-black text-white shadow-xl shadow-green-200 transition active:scale-95 disabled:bg-stone-400">
             {spinning ? 'Spinning...' : 'Spin the Wheel'}
           </button>
           {result && (
