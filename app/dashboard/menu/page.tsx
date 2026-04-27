@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { getWorkspace, saveWorkspace } from '@/lib/rewards';
+import type { RestaurantWorkspace } from '@/types/reward';
 
 export default function MenuPage() {
-  const workspace = getWorkspace();
+  const [workspace, setWorkspace] = useState<RestaurantWorkspace | null>(() => getWorkspace());
   const [name, setName] = useState('');
 
   if (!workspace) {
@@ -12,19 +13,25 @@ export default function MenuPage() {
   }
 
   function addItem() {
-    if (!name.trim()) return;
+    if (!workspace || !name.trim()) return;
 
-    workspace.menuItems.push({
-      id: 'm_' + Date.now(),
-      restaurantId: workspace.restaurant.id,
-      name,
-      category: 'General',
-      active: true,
-    });
+    const nextWorkspace: RestaurantWorkspace = {
+      ...workspace,
+      menuItems: [
+        ...workspace.menuItems,
+        {
+          id: 'm_' + Date.now(),
+          restaurantId: workspace.restaurant.id,
+          name: name.trim(),
+          category: 'General',
+          active: true,
+        },
+      ],
+    };
 
-    saveWorkspace(workspace);
+    saveWorkspace(nextWorkspace);
+    setWorkspace(nextWorkspace);
     setName('');
-    window.location.reload();
   }
 
   return (
@@ -35,7 +42,7 @@ export default function MenuPage() {
         <div className="mt-4 flex gap-2">
           <input
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(event) => setName(event.target.value)}
             placeholder="Add menu item"
             className="flex-1 rounded-xl border px-3 py-2"
           />
