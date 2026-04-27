@@ -8,6 +8,7 @@ type Restaurant = {
   name: string;
   slug: string;
   brand_color: string | null;
+  owner_name?: string;
 };
 
 export default function AdminPage() {
@@ -30,31 +31,49 @@ export default function AdminPage() {
     load();
   }, [slug]);
 
-  if (!slug) {
-    return <div className="p-6">Missing restaurant slug.</div>;
-  }
-
-  if (!restaurant) {
-    return <div className="p-6">Loading restaurant...</div>;
-  }
+  if (!restaurant) return <div className="p-6">Loading...</div>;
 
   return (
-    <main className="min-h-screen bg-orange-50 p-6 text-stone-950">
+    <main className="min-h-screen bg-[#FFF8F0] px-4 py-10">
       <div className="mx-auto max-w-md rounded-3xl bg-white p-6 shadow-xl">
-        <h1 className="text-2xl font-black">{restaurant.name}</h1>
-        <p className="mt-2 text-sm">/play/{restaurant.slug}</p>
+        <h1 className="text-2xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
+
+        <h2 className="mt-4 text-xl font-black">
+          Hello {restaurant.owner_name || 'there'} 👋
+        </h2>
+
+        <p className="mt-2 text-sm text-gray-600">
+          Welcome to <strong>{restaurant.name}</strong>
+        </p>
+
+        <div className="mt-4 rounded-xl bg-orange-50 p-3 text-sm">
+          Customer game link:
+          <div className="font-bold text-[#FF6B00] break-all">
+            {typeof window !== 'undefined' && window.location.origin}/play/{restaurant.slug}
+          </div>
+        </div>
 
         <div className="mt-6 space-y-3">
-          <a href={`/admin/menu?slug=${restaurant.slug}`} className="block rounded-2xl bg-stone-100 px-4 py-3 font-bold">
-            Build Menu
+          <a href={`/admin/restaurant?slug=${restaurant.slug}`} className="block rounded-xl bg-gray-200 p-3 text-center font-bold">
+            My Restaurant
           </a>
-          <a href={`/admin/promotions?slug=${restaurant.slug}`} className="block rounded-2xl bg-stone-100 px-4 py-3 font-bold">
-            Create Promotions
+
+          <a href={`/admin/menu?slug=${restaurant.slug}`} className="block rounded-xl bg-gray-200 p-3 text-center font-bold">
+            My Restaurant Menu
           </a>
-          <a href={`/play/${restaurant.slug}`} className="block rounded-2xl bg-green-600 px-4 py-3 text-center font-bold text-white">
+
+          <a href={`/admin/promotions?slug=${restaurant.slug}`} className="block rounded-xl bg-gray-200 p-3 text-center font-bold">
+            Create Promotion
+          </a>
+
+          <a href={`/play/${restaurant.slug}`} className="block rounded-xl bg-green-600 p-3 text-center font-bold text-white">
             Test Wheel
           </a>
         </div>
+
+        <button onClick={()=>window.location.href='/'} className="mt-6 w-full rounded-xl bg-red-500 p-3 text-white font-bold">
+          Logout
+        </button>
       </div>
     </main>
   );
