@@ -18,6 +18,7 @@ export default function RestaurantsPage() {
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
   const supabase = createClient();
 
   async function loadRestaurants() {
@@ -29,12 +30,13 @@ export default function RestaurantsPage() {
       return;
     }
 
-    const { data } = await supabase
+    const { data, error: loadError } = await supabase
       .from('restaurants')
       .select('id,name,slug,phone,address_line1,city,cuisine_type')
       .eq('owner_id', user.id)
       .order('created_at', { ascending: false });
 
+    if (loadError) setError(loadError.message);
     setRestaurants((data || []) as Restaurant[]);
     setLoading(false);
   }
@@ -55,7 +57,43 @@ export default function RestaurantsPage() {
     if (!confirmed) return;
 
     setDeletingId(restaurant.id);
-    await supabase.from('restaurants').delete().eq('id', restaurant.id);
+    setError('');
+
+    const rewardsDelete = await supabase.from('rewards').delete().eq('restaurant_id', restaurant.id);
+    if (rewardsDelete.error) {
+      setError(`Could not delete rewards: ${rewardsDelete.error.message}`);
+      setDeletingId(null);
+      return;
+    }
+
+    const promotionsDelete = await supabase.from('promotions').delete().eq('restaurant_id', restaurant.id);
+    if (promotionsDelete.error) {
+      setError(`Could not delete promotions: ${promotionsDelete.error.message}`);
+      setDeletingId(null);
+      return;
+    }
+
+    const menuItemsDelete = await supabase.from('menu_items').delete().eq('restaurant_id', restaurant.id);
+    if (menuItemsDelete.error) {
+      setError(`Could not delete menu items: ${menuItemsDelete.error.message}`);
+      setDeletingId(null);
+      return;
+    }
+
+    const menusDelete = await supabase.from('menus').delete().eq('restaurant_id', restaurant.id);
+    if (menusDelete.error) {
+      setError(`Could not delete menus: ${menusDelete.error.message}`);
+      setDeletingId(null);
+      return;
+    }
+
+    const restaurantDelete = await supabase.from('restaurants').delete().eq('id', restaurant.id);
+    if (restaurantDelete.error) {
+      setError(`Could not delete restaurant: ${restaurantDelete.error.message}`);
+      setDeletingId(null);
+      return;
+    }
+
     await loadRestaurants();
     setDeletingId(null);
   }
@@ -84,6 +122,8 @@ export default function RestaurantsPage() {
         <a href="/setup" className="mt-5 block rounded-3xl bg-green-600 p-5 text-center text-xl font-black text-white shadow-xl">
           + Add Restaurant
         </a>
+
+        {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
 
         <div className="mt-5 space-y-4">
           {restaurants.length === 0 && (
