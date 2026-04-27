@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
+import confetti from 'canvas-confetti';
 import { CountdownTimer } from '@/components/CountdownTimer';
 import { RewardWheel } from '@/components/RewardWheel';
 import { createCouponCode, getWorkspace, pickWeightedReward } from '@/lib/rewards';
@@ -47,6 +48,13 @@ export default function PlayPage() {
       setReward(selected);
       setCoupon(createCouponCode());
       setSpinning(false);
+
+      // 🎉 CONFETTI TRIGGER
+      confetti({
+        particleCount: 180,
+        spread: 100,
+        origin: { y: 0.6 },
+      });
     }, 2900);
   }
 
