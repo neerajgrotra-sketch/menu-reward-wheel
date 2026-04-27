@@ -11,16 +11,25 @@ type Restaurant = {
   owner_name?: string;
 };
 
+const welcomeMessages = [
+  'Ready to make today’s orders more exciting?',
+  'Let’s build a promotion that gets guests smiling.',
+  'What promotion are we launching today?',
+  'Let’s turn menu attention into real sales.',
+];
+
 export default function AdminPage() {
   const [slug, setSlug] = useState<string | null>(null);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState<Date | null>(null);
+  const [message, setMessage] = useState(welcomeMessages[0]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     setSlug(searchParams.get('slug'));
     setNow(new Date());
+    setMessage(welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)]);
   }, []);
 
   useEffect(() => {
@@ -60,12 +69,11 @@ export default function AdminPage() {
           Hello {restaurant.owner_name || 'there'} 👋
         </h2>
 
-        <p className="mt-2 text-sm text-gray-600">
-          Welcome to <strong>{restaurant.name}</strong>. What would you like to do today?
-        </p>
+        <p className="mt-2 text-sm font-semibold text-gray-600">{message}</p>
 
         <div className="mt-4 rounded-xl bg-orange-50 p-3 text-sm">
-          <p className="font-bold text-gray-700">Customer game link</p>
+          <p className="font-bold text-gray-700">Default customer game link</p>
+          <p className="mt-1 text-xs text-gray-500">Use this for quick testing. Published promotions will get their own links.</p>
           <div className="mt-1 break-all font-black text-[#FF6B00]">{gameLink}</div>
           <button onClick={copyGameLink} className="mt-3 w-full rounded-xl bg-[#FF6B00] px-4 py-2 font-black text-white">
             {copied ? 'Copied!' : 'Copy Link'}
@@ -74,15 +82,15 @@ export default function AdminPage() {
 
         <div className="mt-6 space-y-3">
           <a href={`/admin/restaurant?slug=${restaurant.slug}`} className="block rounded-xl bg-gray-200 p-3 text-center font-bold">
-            My Restaurant
+            Restaurants
           </a>
 
           <a href={`/admin/menu?slug=${restaurant.slug}`} className="block rounded-xl bg-gray-200 p-3 text-center font-bold">
-            My Restaurant Menu
+            Menus
           </a>
 
           <a href={`/admin/promotions?slug=${restaurant.slug}`} className="block rounded-xl bg-gray-200 p-3 text-center font-bold">
-            Create Promotion
+            Promotions
           </a>
 
           <a href={`/play/${restaurant.slug}`} className="block rounded-xl bg-green-600 p-3 text-center font-bold text-white">
