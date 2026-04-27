@@ -6,7 +6,7 @@ const colors = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c'
 
 export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]; rotation: number; spinning: boolean }) {
   const segmentAngle = 360 / rewards.length;
-  const labelRadius = 104;
+  const labelRadiusPercent = 30;
   const gradient = rewards
     .map((_, index) => `${colors[index % colors.length]} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
     .join(', ');
@@ -14,26 +14,29 @@ export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]
   return (
     <div className="relative mx-auto h-80 w-80 max-w-full rounded-full p-3 shadow-glow">
       <div
-        className="relative h-full w-full overflow-hidden rounded-full border-8 border-white shadow-2xl transition-transform duration-[2800ms] ease-out"
+        className="relative h-full w-full rounded-full border-8 border-white shadow-2xl transition-transform duration-[2800ms] ease-out"
         style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${rotation}deg)` }}
       >
         {rewards.map((reward, index) => {
-          const midAngle = index * segmentAngle + segmentAngle / 2 - 90;
+          const segmentMidDeg = index * segmentAngle + segmentAngle / 2;
+          const radians = ((segmentMidDeg - 90) * Math.PI) / 180;
+          const x = 50 + Math.cos(radians) * labelRadiusPercent;
+          const y = 50 + Math.sin(radians) * labelRadiusPercent;
 
           return (
             <div
               key={reward.id}
-              className="absolute left-1/2 top-1/2 z-10"
+              className="absolute z-10 flex h-8 w-24 items-center justify-center rounded-full bg-white/85 px-2 text-center shadow-sm"
               style={{
-                transform: `translate(-50%, -50%) rotate(${midAngle}deg) translateY(-${labelRadius}px)`,
+                left: `${x}%`,
+                top: `${y}%`,
+                transform: `translate(-50%, -50%) rotate(${segmentMidDeg}deg)`,
                 transformOrigin: 'center center',
               }}
             >
-              <div className="flex h-10 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/80 px-2 py-1 text-center shadow-sm">
-                <span className="block text-[11px] font-black uppercase leading-tight tracking-tight text-stone-900">
-                  {reward.label}
-                </span>
-              </div>
+              <span className="block text-[10px] font-black uppercase leading-none tracking-tight text-stone-900">
+                {reward.label}
+              </span>
             </div>
           );
         })}
