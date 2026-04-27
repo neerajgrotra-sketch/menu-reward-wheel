@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { createDefaultWorkspace, saveWorkspace } from '@/lib/rewards';
+import { createClient } from '@/lib/supabase/client';
 
 function slugify(value: string) {
   return value
@@ -16,14 +16,31 @@ export default function SetupPage() {
   const router = useRouter();
   const [name, setName] = useState('Demo Restaurant');
   const [brandColor, setBrandColor] = useState('#f97316');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  function createRestaurant() {
-    const workspace = createDefaultWorkspace();
-    workspace.restaurant.name = name.trim() || 'Demo Restaurant';
-    workspace.restaurant.slug = slugify(name) || 'demo-restaurant';
-    workspace.restaurant.brandColor = brandColor;
-    saveWorkspace(workspace);
-    router.push('/dashboard');
+  async function createRestaurant() {
+    const supabase = createClient();
+    const restaurantName = name.trim() || 'Demo Restaurant';
+    const slug = slugify(restaurantName) || 'demo-restaurant';
+
+    setSaving(true);
+    setError('');
+
+    const { error: insertError } = await supabase.from('restaurants').insert({
+      name: restaurantName,
+      slug,
+      brand_color: brandColor,
+    });
+
+    setSaving(false);
+
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+
+    router.push('/dashboard?slug=' + slug);
   }
 
   return (
@@ -54,8 +71,10 @@ export default function SetupPage() {
           <div className="mt-1 break-all font-black text-stone-950">/play/{slugify(name) || 'demo-restaurant'}</div>
         </div>
 
-        <button onClick={createRestaurant} className="mt-6 w-full rounded-3xl bg-green-600 px-6 py-4 text-lg font-black uppercase text-white shadow-xl">
-          Create Dashboard
+        {error && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
+
+        <button onClick={createRestaurant} disabled={saving} className="mt-6 w-full rounded-3xl bg-green-600 px-6 py-4 text-lg font-black uppercase text-white shadow-xl disabled:bg-stone-400">
+          {saving ? 'Saving...' : 'Create Dashboard'}
         </button>
       </section>
     </main>
