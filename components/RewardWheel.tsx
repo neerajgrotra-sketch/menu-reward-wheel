@@ -6,6 +6,7 @@ const colors = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c'
 
 export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]; rotation: number; spinning: boolean }) {
   const segmentAngle = 360 / rewards.length;
+  const labelRadius = 108;
 
   const gradient = rewards
     .map((_, index) => `${colors[index % colors.length]} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
@@ -19,22 +20,20 @@ export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]
       >
         {rewards.map((reward, index) => {
           const angle = index * segmentAngle + segmentAngle / 2;
+          const radians = (angle - 90) * (Math.PI / 180);
+          const x = Math.cos(radians) * labelRadius;
+          const y = Math.sin(radians) * labelRadius;
 
           return (
             <div
               key={reward.id}
-              className="absolute left-1/2 top-1/2"
-              style={{ transform: `rotate(${angle}deg)` }}
+              className="absolute left-1/2 top-1/2 z-10"
+              style={{ transform: `translate(${x}px, ${y}px) translate(-50%, -50%)` }}
             >
-              <div
-                className="absolute left-[70px] top-1/2 -translate-y-1/2"
-                style={{ transform: `rotate(${-angle}deg)` }}
-              >
-                <div className="rounded-md bg-white/80 px-2 py-1 text-center shadow-sm">
-                  <span className="block text-[10px] font-black uppercase leading-tight text-stone-900">
-                    {reward.label}
-                  </span>
-                </div>
+              <div className="rounded-md bg-white/85 px-2.5 py-1.5 text-center shadow-md backdrop-blur-sm">
+                <span className="block max-w-[74px] text-[10px] font-black uppercase leading-tight text-stone-900">
+                  {reward.label}
+                </span>
               </div>
             </div>
           );
