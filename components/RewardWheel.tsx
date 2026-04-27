@@ -6,7 +6,8 @@ const colors = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c'
 
 export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]; rotation: number; spinning: boolean }) {
   const segmentAngle = 360 / rewards.length;
-  const labelRadius = 108;
+  const labelRadius = 94;
+  const gradientStart = 90 - segmentAngle / 2;
 
   const gradient = rewards
     .map((_, index) => `${colors[index % colors.length]} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
@@ -16,25 +17,26 @@ export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]
     <div className="relative mx-auto h-80 w-80 max-w-full rounded-full p-3 shadow-glow">
       <div
         className="relative h-full w-full rounded-full border-8 border-white shadow-2xl transition-transform duration-[2800ms] ease-out"
-        style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${rotation}deg)` }}
+        style={{ background: `conic-gradient(from ${gradientStart}deg, ${gradient})`, transform: `rotate(${rotation}deg)` }}
       >
         {rewards.map((reward, index) => {
-          const angle = index * segmentAngle + segmentAngle / 2;
-          const radians = (angle - 90) * (Math.PI / 180);
+          const angle = index * segmentAngle;
+          const radians = angle * (Math.PI / 180);
           const x = Math.cos(radians) * labelRadius;
           const y = Math.sin(radians) * labelRadius;
 
           return (
             <div
               key={reward.id}
-              className="absolute left-1/2 top-1/2 z-10"
-              style={{ transform: `translate(${x}px, ${y}px) translate(-50%, -50%)` }}
+              className="absolute left-1/2 top-1/2 z-10 flex w-[82px] items-center justify-center text-center"
+              style={{
+                transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${angle}deg)`,
+                transformOrigin: 'center center',
+              }}
             >
-              <div className="rounded-md bg-white/85 px-2.5 py-1.5 text-center shadow-md backdrop-blur-sm">
-                <span className="block max-w-[74px] text-[10px] font-black uppercase leading-tight text-stone-900">
-                  {reward.label}
-                </span>
-              </div>
+              <span className="block text-[11px] font-black uppercase leading-tight tracking-tight text-stone-900">
+                {reward.label}
+              </span>
             </div>
           );
         })}
