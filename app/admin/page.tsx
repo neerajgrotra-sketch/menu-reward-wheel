@@ -114,6 +114,7 @@ export default function AdminPage() {
 
   const actionTiles = [
     { title: 'Create Promotion', copy: 'Launch a new campaign and build a reward wheel.', href: `/admin/promotions?slug=${restaurant.slug}`, icon: '🎯', primary: true },
+    { title: 'Menus', copy: 'Build breakfast, lunch, dinner, and special menus for promotions.', href: `/admin/menu?slug=${restaurant.slug}`, icon: '🍽️', primary: false },
     { title: 'View Promotions', copy: 'Manage campaigns, rewards, and customer links.', href: `/admin/promotions?slug=${restaurant.slug}`, icon: '🔥', primary: false },
     { title: 'Manage Restaurants', copy: 'Add locations and update restaurant profiles.', href: '/admin/restaurants', icon: '🏪', primary: false },
   ];
@@ -135,17 +136,8 @@ export default function AdminPage() {
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Today’s workspace</p>
           <h2 className="mt-3 text-4xl font-black leading-tight">{message}</h2>
           <p className="mt-3 text-sm font-semibold text-white/85">
-            Build restaurant promotions, publish QR-ready games, and start turning attention into orders.
+            Build promotions, publish QR-ready games, and start turning attention into orders.
           </p>
-          <div className="mt-6 rounded-2xl bg-white/15 p-4 backdrop-blur">
-            <p className="text-xs font-black uppercase tracking-wide text-white/70">Current restaurant</p>
-            <p className="mt-1 text-2xl font-black">{restaurant.name}</p>
-            {restaurants.length > 1 && (
-              <a href="/admin/restaurants" className="mt-2 inline-block text-sm font-black underline">
-                Switch restaurant
-              </a>
-            )}
-          </div>
         </div>
 
         <div className="mt-5 grid grid-cols-3 gap-3">
@@ -154,7 +146,7 @@ export default function AdminPage() {
           <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{counts.totalPromotions}</p><p className="text-xs font-bold text-stone-500">Total Promos</p></div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <div className="mt-5 grid gap-4 md:grid-cols-4">
           {actionTiles.map((tile) => (
             <a key={tile.title} href={tile.href} className={`rounded-3xl p-5 shadow-xl transition hover:-translate-y-1 ${tile.primary ? 'bg-green-600 text-white' : 'bg-white text-[#1F1F1F]'}`}>
               <div className="text-4xl">{tile.icon}</div>
