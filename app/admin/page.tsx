@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 type Restaurant = {
@@ -14,10 +14,13 @@ type Restaurant = {
 export default function AdminPage() {
   const [slug, setSlug] = useState<string | null>(null);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     setSlug(searchParams.get('slug'));
+    setNow(new Date());
   }, []);
 
   useEffect(() => {
@@ -31,26 +34,42 @@ export default function AdminPage() {
     load();
   }, [slug]);
 
+  const gameLink = useMemo(() => {
+    if (!restaurant || typeof window === 'undefined') return '';
+    return `${window.location.origin}/play/${restaurant.slug}`;
+  }, [restaurant]);
+
+  async function copyGameLink() {
+    if (!gameLink) return;
+    await navigator.clipboard.writeText(gameLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
   if (!restaurant) return <div className="p-6">Loading...</div>;
 
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-10">
       <div className="mx-auto max-w-md rounded-3xl bg-white p-6 shadow-xl">
-        <h1 className="text-2xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
+          {now && <p className="text-right text-xs font-bold text-gray-500">{now.toLocaleDateString()}<br />{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>}
+        </div>
 
         <h2 className="mt-4 text-xl font-black">
           Hello {restaurant.owner_name || 'there'} 👋
         </h2>
 
         <p className="mt-2 text-sm text-gray-600">
-          Welcome to <strong>{restaurant.name}</strong>
+          Welcome to <strong>{restaurant.name}</strong>. What would you like to do today?
         </p>
 
         <div className="mt-4 rounded-xl bg-orange-50 p-3 text-sm">
-          Customer game link:
-          <div className="font-bold text-[#FF6B00] break-all">
-            {typeof window !== 'undefined' && window.location.origin}/play/{restaurant.slug}
-          </div>
+          <p className="font-bold text-gray-700">Customer game link</p>
+          <div className="mt-1 break-all font-black text-[#FF6B00]">{gameLink}</div>
+          <button onClick={copyGameLink} className="mt-3 w-full rounded-xl bg-[#FF6B00] px-4 py-2 font-black text-white">
+            {copied ? 'Copied!' : 'Copy Link'}
+          </button>
         </div>
 
         <div className="mt-6 space-y-3">
@@ -67,11 +86,11 @@ export default function AdminPage() {
           </a>
 
           <a href={`/play/${restaurant.slug}`} className="block rounded-xl bg-green-600 p-3 text-center font-bold text-white">
-            Test Wheel
+            Test Promotion
           </a>
         </div>
 
-        <button onClick={()=>window.location.href='/'} className="mt-6 w-full rounded-xl bg-red-500 p-3 text-white font-bold">
+        <button onClick={() => (window.location.href = '/')} className="mt-6 w-full rounded-xl bg-red-500 p-3 font-bold text-white">
           Logout
         </button>
       </div>
