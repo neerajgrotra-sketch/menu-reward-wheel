@@ -14,12 +14,24 @@ export default function AuthPage() {
     const supabase = createClient();
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
+
     if (!user) {
       window.location.href = '/auth';
       return;
     }
 
-    const { data } = await supabase.from('restaurants').select('id').eq('owner_id', user.id).limit(1);
+    await supabase
+      .from('restaurants')
+      .update({ owner_id: user.id })
+      .is('owner_id', null)
+      .eq('contact_email', user.email || email.trim());
+
+    const { data } = await supabase
+      .from('restaurants')
+      .select('id')
+      .eq('owner_id', user.id)
+      .limit(1);
+
     window.location.href = data && data.length > 0 ? '/admin' : '/admin/restaurants';
   }
 
