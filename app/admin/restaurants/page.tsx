@@ -30,12 +30,13 @@ export default function RestaurantsPage() {
       return;
     }
 
-    const { data } = await supabase
+    const { data, error: loadError } = await supabase
       .from('restaurants')
       .select('id,name,slug,phone,address_line1,city,cuisine_type')
       .eq('owner_id', user.id)
       .order('created_at', { ascending: false });
 
+    if (loadError) setError(loadError.message);
     setRestaurants((data || []) as Restaurant[]);
     setLoading(false);
   }
@@ -88,6 +89,9 @@ export default function RestaurantsPage() {
         <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Manage Restaurants</p>
           <h2 className="mt-3 text-4xl font-black leading-tight">Add and manage your restaurant locations.</h2>
+          <p className="mt-3 text-sm font-semibold text-white/85">
+            Each restaurant can have its own menus, promotions, QR links, and reward wheels. Start by adding a restaurant, then build menus and promotions for that location.
+          </p>
         </div>
 
         <a href="/setup" className="mt-5 block rounded-3xl bg-green-600 p-5 text-center text-xl font-black text-white shadow-xl">
@@ -97,17 +101,59 @@ export default function RestaurantsPage() {
         {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
 
         <div className="mt-5 space-y-4">
-          {restaurants.map((restaurant) => {
+          {restaurants.length === 0 && (
+            <div className="rounded-3xl bg-white p-6 shadow-xl">
+              <p className="text-2xl font-black">No restaurants yet</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">
+                Add your first restaurant to begin creating menus, promotions, QR campaigns, and customer reward wheels.
+              </p>
+            </div>
+          )}
+
+          {restaurants.map((restaurant, index) => {
+            const address = [restaurant.address_line1, restaurant.city].filter(Boolean).join(', ');
+            const promotionLink = `/admin/promotions?slug=${restaurant.slug}`;
+
             return (
-              <article key={restaurant.id} className="overflow-hidden rounded-3xl bg-white shadow-xl p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-3xl font-black">{restaurant.name}</h3>
-                    <p className="mt-1 text-sm font-bold text-stone-500">/{restaurant.slug}</p>
+              <article key={restaurant.id} className="overflow-hidden rounded-3xl bg-white shadow-xl">
+                <div className="h-32 bg-gradient-to-br from-orange-200 via-amber-100 to-red-100 px-5 py-4">
+                  <div className="flex h-full items-start justify-between">
+                    <div className="rounded-2xl bg-white/80 px-3 py-2 text-sm font-black text-[#FF6B00] shadow">
+                      Location #{index + 1}
+                    </div>
+                    <div className="text-4xl">🍽️</div>
                   </div>
-                  <button onClick={() => deleteRestaurant(restaurant)} disabled={deletingId === restaurant.id} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
-                    {deletingId === restaurant.id ? 'Deleting...' : 'Delete'}
-                  </button>
+                </div>
+
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-3xl font-black">{restaurant.name}</h3>
+                      <p className="mt-1 break-all text-sm font-bold text-stone-500">/{restaurant.slug}</p>
+                    </div>
+                    <button onClick={() => deleteRestaurant(restaurant)} disabled={deletingId === restaurant.id} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">
+                      {deletingId === restaurant.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-2 text-sm font-semibold text-stone-600">
+                    <p>📍 {address || 'Address not added yet'}</p>
+                    <p>☎️ {restaurant.phone || 'Phone not added yet'}</p>
+                    <p>🍛 {restaurant.cuisine_type || 'Cuisine not added yet'}</p>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl bg-stone-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-stone-500">Current promotion workspace link</p>
+                    <p className="mt-1 break-all text-sm font-black text-[#FF6B00]">{promotionLink}</p>
+                    <button onClick={() => copyLink(restaurant)} className="mt-3 w-full rounded-2xl bg-[#FF6B00] px-4 py-3 font-black text-white">
+                      {copiedId === restaurant.id ? 'Copied!' : 'Copy Link'}
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <a href={`/admin?slug=${restaurant.slug}`} className="rounded-2xl bg-stone-200 px-4 py-3 text-center font-black">Open</a>
+                    <a href={`/admin/promotions?slug=${restaurant.slug}`} className="rounded-2xl bg-green-600 px-4 py-3 text-center font-black text-white">Promotions</a>
+                  </div>
                 </div>
               </article>
             );
