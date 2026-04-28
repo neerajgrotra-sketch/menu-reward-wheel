@@ -25,22 +25,44 @@ function wheelLabel(reward: WheelReward) {
 
 function demoRewards(): WheelReward[] {
   return [
-    { label: 'Lucky Bite', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: '15% Pasta', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: 'Free App', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: 'Free Drink', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: 'BOGO Dessert', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: '20% Off', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Lucky Bite', reward_type: 'custom', reward_value: null, weight: 60 },
+    { label: '15% Pasta', reward_type: 'custom', reward_value: null, weight: 30 },
+    { label: 'Free App', reward_type: 'custom', reward_value: null, weight: 10 },
+    { label: 'Free Drink', reward_type: 'custom', reward_value: null, weight: 30 },
+    { label: 'BOGO Dessert', reward_type: 'custom', reward_value: null, weight: 10 },
+    { label: '20% Off', reward_type: 'custom', reward_value: null, weight: 60 },
   ];
+}
+
+function buildSlices(rewards: WheelReward[]) {
+  const totalWeight = rewards.reduce((sum, reward) => sum + Math.max(reward.weight || 0, 0), 0) || rewards.length || 1;
+  let cursor = 0;
+
+  return rewards.map((reward, index) => {
+    const safeWeight = Math.max(reward.weight || 0, 0) || 1;
+    const size = (safeWeight / totalWeight) * 360;
+    const start = cursor;
+    const end = cursor + size;
+    const mid = start + size / 2;
+    cursor = end;
+
+    return {
+      reward,
+      index,
+      start,
+      end,
+      mid,
+      percentage: Math.round((safeWeight / totalWeight) * 100),
+    };
+  });
 }
 
 export default function SpinWheelPreview({ rewards, rotation = 0, spinning = false }: SpinWheelPreviewProps) {
   const visibleRewards = rewards.length > 0 ? rewards : demoRewards();
-  const segmentAngle = 360 / visibleRewards.length;
+  const slices = buildSlices(visibleRewards);
   const labelRadius = 76;
-  const gradientStart = 90 - segmentAngle / 2;
-  const gradient = visibleRewards
-    .map((_, index) => `${COLORS[index % COLORS.length]} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
+  const gradient = slices
+    .map((slice) => `${COLORS[slice.index % COLORS.length]} ${slice.start}deg ${slice.end}deg`)
     .join(', ');
 
   return (
@@ -49,26 +71,26 @@ export default function SpinWheelPreview({ rewards, rotation = 0, spinning = fal
         <div className="relative mx-auto h-64 w-64 max-w-full rounded-full p-2 sm:h-80 sm:w-80 sm:p-3">
           <div
             className="relative h-full w-full rounded-full border-[7px] border-white shadow-2xl transition-transform duration-[2800ms] ease-out sm:border-8"
-            style={{ background: `conic-gradient(from ${gradientStart}deg, ${gradient})`, transform: `rotate(${rotation}deg)` }}
+            style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${rotation}deg)` }}
           >
-            {visibleRewards.map((reward, index) => {
-              const angle = index * segmentAngle;
-              const radians = angle * (Math.PI / 180);
+            {slices.map((slice) => {
+              const radians = slice.mid * (Math.PI / 180);
               const radius = visibleRewards.length > 6 ? labelRadius - 6 : labelRadius;
               const x = Math.cos(radians) * radius;
               const y = Math.sin(radians) * radius;
+              const readableAngle = slice.mid > 90 && slice.mid < 270 ? slice.mid + 180 : slice.mid;
 
               return (
                 <div
-                  key={reward.id || `${reward.label}-${index}`}
+                  key={slice.reward.id || `${slice.reward.label}-${slice.index}`}
                   className="absolute left-1/2 top-1/2 z-10 flex w-[68px] items-center justify-center text-center sm:w-[82px]"
                   style={{
-                    transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${angle}deg)`,
+                    transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${readableAngle}deg)`,
                     transformOrigin: 'center center',
                   }}
                 >
                   <span className="block text-[9px] font-black uppercase leading-tight tracking-tight text-stone-900 sm:text-[11px]">
-                    {wheelLabel(reward)}
+                    {wheelLabel(slice.reward)}
                   </span>
                 </div>
               );
@@ -85,13 +107,13 @@ export default function SpinWheelPreview({ rewards, rotation = 0, spinning = fal
 
         {rewards.length > 0 && (
           <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-            {rewards.map((reward, index) => (
-              <div key={reward.id || `${reward.label}-${index}`} className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-black shadow-sm">
+            {slices.map((slice) => (
+              <div key={slice.reward.id || `${slice.reward.label}-${slice.index}`} className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-black shadow-sm">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                  <span className="truncate text-stone-800">{wheelLabel(reward)}</span>
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLORS[slice.index % COLORS.length] }} />
+                  <span className="truncate text-stone-800">{wheelLabel(slice.reward)}</span>
                 </div>
-                <span className="shrink-0 text-stone-400">{reward.weight}</span>
+                <span className="shrink-0 text-stone-500">{slice.percentage}%</span>
               </div>
             ))}
           </div>
