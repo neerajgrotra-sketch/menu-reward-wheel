@@ -1,133 +1,253 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
+type Restaurant = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+type Menu = {
+  id: string;
+  name: string;
+  menu_type?: string | null;
+  item_count?: number;
+};
+
+type MenuItem = {
+  id: string;
+  name: string;
+  price?: number | null;
+};
+
 export default function MenuPage() {
-  const supabase = createClient();
-  const [menus, setMenus] = useState<any[]>([]);
-  const [items, setItems] = useState<any[]>([]);
-  const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  const supabase = useMemo(() => createClient(), []);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [menus, setMenus] = useState<Menu[]>([]);
+  const [items, setItems] = useState<MenuItem[]>([]);
   const [newMenu, setNewMenu] = useState('');
-  const [newItem, setNewItem] = useState('');
-  const [selectedMenu, setSelectedMenu] = useState<string | null>(null);
+  const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemPrice, setNewItemPrice] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function init() {
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
+  async function loadMenus(restaurantId: string) {
+    const { data: menusData, error: menusError } = await supabase
+      .from('menus')
+      .select('id,name,menu_type')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
 
-      const { data: r } = await supabase
-        .from('restaurants')
-        .select('id')
-        .eq('owner_id', user?.id)
-        .limit(1)
-        .single();
-
-      if (r) {
-        setRestaurantId(r.id);
-
-        const { data: menusData } = await supabase
-          .from('menus')
-          .select('*')
-          .eq('restaurant_id', r.id);
-
-        setMenus(menusData || []);
-      }
+    if (menusError) {
+      setError(menusError.message);
+      return;
     }
 
-    init();
-  }, []);
+    const { data: itemData } = await supabase
+      .from('menu_items')
+      .select('id,menu_id')
+      .eq('restaurant_id', restaurantId);
 
-  async function addMenu() {
-    if (!newMenu || !restaurantId) return;
+    const counts = new Map<string, number>();
+    (itemData || []).forEach((item: any) => {
+      counts.set(item.menu_id, (counts.get(item.menu_id) || 0) + 1);
+    });
 
-    const { data } = await supabase
-      .from('menus')
-      .insert({ name: newMenu, restaurant_id: restaurantId })
-      .select();
-
-    setMenus([...menus, ...(data || [])]);
-    setNewMenu('');
+    setMenus((menusData || []).map((menu: any) => ({ ...menu, item_count: counts.get(menu.id) || 0 })));
   }
 
   async function loadItems(menuId: string) {
-    setSelectedMenu(menuId);
-
-    const { data } = await supabase
+    const { data, error: itemsError } = await supabase
       .from('menu_items')
-      .select('*')
-      .eq('menu_id', menuId);
+      .select('id,name,price')
+      .eq('menu_id', menuId)
+      .order('created_at', { ascending: false });
 
-    setItems(data || []);
+    if (itemsError) {
+      setError(itemsError.message);
+      return;
+    }
+
+    setItems((data || []) as MenuItem[]);
+  }
+
+  useEffect(() => {
+    async function init() {
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user;
+
+      if (!user) {
+        window.location.href = '/auth';
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const requestedSlug = params.get('slug');
+
+      let query = supabase
+        .from('restaurants')
+        .select('id,name,slug')
+        .eq('owner_id', user.id)
+        .limit(1);
+
+      if (requestedSlug) query = query.eq('slug', requestedSlug);
+
+      const { data: restaurantData, error: restaurantError } = await query.single();
+
+      if (restaurantError || !restaurantData) {
+        window.location.href = '/admin/restaurants';
+        return;
+      }
+
+      setRestaurant(restaurantData as Restaurant);
+      await loadMenus(restaurantData.id);
+      setLoading(false);
+    }
+
+    init();
+  }, [supabase]);
+
+  async function addMenu() {
+    if (!newMenu.trim() || !restaurant) return;
+    setError('');
+
+    const { error: insertError } = await supabase.from('menus').insert({
+      name: newMenu.trim(),
+      menu_type: newMenu.trim().toLowerCase(),
+      restaurant_id: restaurant.id,
+    });
+
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+
+    setNewMenu('');
+    await loadMenus(restaurant.id);
+  }
+
+  async function openEditor(menuId: string) {
+    setEditingMenuId(menuId);
+    setNewItemName('');
+    setNewItemPrice('');
+    await loadItems(menuId);
   }
 
   async function addItem() {
-    if (!newItem || !selectedMenu || !restaurantId) return;
+    if (!newItemName.trim() || !editingMenuId || !restaurant) return;
+    setError('');
 
-    const { data } = await supabase
-      .from('menu_items')
-      .insert({
-        name: newItem,
-        menu_id: selectedMenu,
-        restaurant_id: restaurantId,
-      })
-      .select();
+    const parsedPrice = newItemPrice.trim() ? Number(newItemPrice) : null;
 
-    setItems([...items, ...(data || [])]);
-    setNewItem('');
+    const { error: insertError } = await supabase.from('menu_items').insert({
+      name: newItemName.trim(),
+      price: Number.isFinite(parsedPrice as number) ? parsedPrice : null,
+      menu_id: editingMenuId,
+      restaurant_id: restaurant.id,
+    });
+
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+
+    setNewItemName('');
+    setNewItemPrice('');
+    await loadItems(editingMenuId);
+    await loadMenus(restaurant.id);
   }
 
+  async function deleteItem(itemId: string) {
+    if (!editingMenuId || !restaurant) return;
+    await supabase.from('menu_items').delete().eq('id', itemId);
+    await loadItems(editingMenuId);
+    await loadMenus(restaurant.id);
+  }
+
+  const editingMenu = menus.find((menu) => menu.id === editingMenuId);
+
+  if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6">Loading menus...</main>;
+
   return (
-    <main className="min-h-screen bg-[#FFF8F0] p-4">
-      <h1 className="text-3xl font-black text-[#FF6B00]">Menus</h1>
-
-      <div className="mt-4">
-        <input
-          value={newMenu}
-          onChange={(e) => setNewMenu(e.target.value)}
-          placeholder="Add menu (Breakfast, Lunch...)"
-          className="w-full p-3 rounded-xl border"
-        />
-        <button onClick={addMenu} className="mt-2 w-full bg-green-600 text-white p-3 rounded-xl font-bold">
-          Add Menu
-        </button>
-      </div>
-
-      <div className="mt-6 space-y-3">
-        {menus.map((menu) => (
-          <div key={menu.id} className="p-4 bg-white rounded-xl shadow">
-            <div className="flex justify-between">
-              <h2 className="font-bold">{menu.name}</h2>
-              <button onClick={() => loadItems(menu.id)} className="text-sm text-blue-500">Open</button>
-            </div>
+    <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
+      <section className="mx-auto max-w-5xl">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
+            <p className="mt-1 text-sm font-bold text-stone-500">Menu builder</p>
           </div>
-        ))}
-      </div>
+          <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a>
+        </div>
 
-      {selectedMenu && (
-        <div className="mt-6">
-          <h2 className="font-bold text-xl">Menu Items</h2>
+        <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Menus</p>
+          <h2 className="mt-3 text-4xl font-black leading-tight">Build menus for rewards and promotions.</h2>
+          <p className="mt-3 text-sm font-semibold text-white/85">
+            Create breakfast, lunch, dinner, or special menus. Promotions will later pull reward items directly from here.
+          </p>
+          {restaurant && <p className="mt-4 rounded-2xl bg-white/15 p-3 text-sm font-black">Restaurant: {restaurant.name}</p>}
+        </div>
 
-          <input
-            value={newItem}
-            onChange={(e) => setNewItem(e.target.value)}
-            placeholder="Add item"
-            className="w-full p-3 rounded-xl border mt-2"
-          />
-          <button onClick={addItem} className="mt-2 w-full bg-orange-500 text-white p-3 rounded-xl font-bold">
-            Add Item
-          </button>
-
-          <div className="mt-4 space-y-2">
-            {items.map((item) => (
-              <div key={item.id} className="p-3 bg-white rounded-xl shadow">
-                {item.name}
-              </div>
-            ))}
+        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+          <p className="text-sm font-black uppercase text-[#FF6B00]">Create Menu</p>
+          <div className="mt-3 flex gap-2">
+            <input value={newMenu} onChange={(event) => setNewMenu(event.target.value)} placeholder="Breakfast, Lunch, Dinner..." className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
+            <button onClick={addMenu} className="rounded-2xl bg-green-600 px-5 py-3 text-xl font-black text-white">+</button>
           </div>
         </div>
-      )}
+
+        {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
+
+        <div className="mt-5 space-y-4">
+          {menus.length === 0 && (
+            <div className="rounded-3xl bg-white p-6 shadow-xl">
+              <p className="text-2xl font-black">No menus yet</p>
+              <p className="mt-2 text-sm font-semibold text-stone-600">Create your first menu, then add items with names and optional prices.</p>
+            </div>
+          )}
+
+          {menus.map((menu) => (
+            <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-3xl font-black">{menu.name}</h3>
+                  <p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p>
+                </div>
+                <button onClick={() => openEditor(menu.id)} className="rounded-full bg-orange-50 px-4 py-3 text-sm font-black text-[#FF6B00]">
+                  ✏️ Edit
+                </button>
+              </div>
+
+              {editingMenuId === menu.id && (
+                <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4">
+                  <h4 className="text-xl font-black">Edit {editingMenu?.name}</h4>
+                  <div className="mt-3 grid grid-cols-[1fr_90px_48px] gap-2">
+                    <input value={newItemName} onChange={(event) => setNewItemName(event.target.value)} placeholder="Item name" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
+                    <input value={newItemPrice} onChange={(event) => setNewItemPrice(event.target.value)} placeholder="Price" inputMode="decimal" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
+                    <button onClick={addItem} className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white">+</button>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    {items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet.</p>}
+                    {items.map((item) => (
+                      <div key={item.id} className="flex items-center justify-between rounded-2xl bg-white p-3 shadow-sm">
+                        <div>
+                          <p className="font-black">{item.name}</p>
+                          <p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)}` : 'No price'}</p>
+                        </div>
+                        <button onClick={() => deleteItem(item.id)} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">Delete</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
