@@ -22,6 +22,14 @@ type MenuItem = {
   price?: number | null;
 };
 
+function parseCadPrice(value: string) {
+  const cleaned = value.replace('$', '').replace(',', '').trim();
+  if (!cleaned) return null;
+  const number = Number(cleaned);
+  if (!Number.isFinite(number)) return null;
+  return Math.round(number * 100) / 100;
+}
+
 export default function MenuPage() {
   const supabase = useMemo(() => createClient(), []);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -38,8 +46,7 @@ export default function MenuPage() {
     const { data: menusData, error: menusError } = await supabase
       .from('menus')
       .select('id,name,menu_type')
-      .eq('restaurant_id', restaurantId)
-      .order('created_at', { ascending: false });
+      .eq('restaurant_id', restaurantId);
 
     if (menusError) {
       setError(menusError.message);
@@ -63,8 +70,7 @@ export default function MenuPage() {
     const { data, error: itemsError } = await supabase
       .from('menu_items')
       .select('id,name,price')
-      .eq('menu_id', menuId)
-      .order('created_at', { ascending: false });
+      .eq('menu_id', menuId);
 
     if (itemsError) {
       setError(itemsError.message);
@@ -140,11 +146,11 @@ export default function MenuPage() {
     if (!newItemName.trim() || !editingMenuId || !restaurant) return;
     setError('');
 
-    const parsedPrice = newItemPrice.trim() ? Number(newItemPrice) : null;
+    const parsedPrice = parseCadPrice(newItemPrice);
 
     const { error: insertError } = await supabase.from('menu_items').insert({
       name: newItemName.trim(),
-      price: Number.isFinite(parsedPrice as number) ? parsedPrice : null,
+      price: parsedPrice,
       menu_id: editingMenuId,
       restaurant_id: restaurant.id,
     });
@@ -186,7 +192,7 @@ export default function MenuPage() {
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Menus</p>
           <h2 className="mt-3 text-4xl font-black leading-tight">Build menus for rewards and promotions.</h2>
           <p className="mt-3 text-sm font-semibold text-white/85">
-            Create breakfast, lunch, dinner, or special menus. Promotions will later pull reward items directly from here.
+            Add items with optional CAD prices. Promotions will later pull reward items directly from here.
           </p>
           {restaurant && <p className="mt-4 rounded-2xl bg-white/15 p-3 text-sm font-black">Restaurant: {restaurant.name}</p>}
         </div>
@@ -205,7 +211,7 @@ export default function MenuPage() {
           {menus.length === 0 && (
             <div className="rounded-3xl bg-white p-6 shadow-xl">
               <p className="text-2xl font-black">No menus yet</p>
-              <p className="mt-2 text-sm font-semibold text-stone-600">Create your first menu, then add items with names and optional prices.</p>
+              <p className="mt-2 text-sm font-semibold text-stone-600">Create your first menu, then add items with names and optional CAD prices.</p>
             </div>
           )}
 
@@ -224,11 +230,15 @@ export default function MenuPage() {
               {editingMenuId === menu.id && (
                 <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4">
                   <h4 className="text-xl font-black">Edit {editingMenu?.name}</h4>
-                  <div className="mt-3 grid grid-cols-[1fr_90px_48px] gap-2">
+                  <div className="mt-3 grid grid-cols-[1fr_110px_48px] gap-2">
                     <input value={newItemName} onChange={(event) => setNewItemName(event.target.value)} placeholder="Item name" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
-                    <input value={newItemPrice} onChange={(event) => setNewItemPrice(event.target.value)} placeholder="Price" inputMode="decimal" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                      <input value={newItemPrice} onChange={(event) => setNewItemPrice(event.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" inputMode="decimal" className="w-full rounded-2xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]" />
+                    </div>
                     <button onClick={addItem} className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white">+</button>
                   </div>
+                  <p className="mt-2 text-xs font-bold text-stone-500">Currency: CAD for MVP. Name is required; price is optional.</p>
 
                   <div className="mt-4 space-y-2">
                     {items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet.</p>}
@@ -236,7 +246,7 @@ export default function MenuPage() {
                       <div key={item.id} className="flex items-center justify-between rounded-2xl bg-white p-3 shadow-sm">
                         <div>
                           <p className="font-black">{item.name}</p>
-                          <p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)}` : 'No price'}</p>
+                          <p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p>
                         </div>
                         <button onClick={() => deleteItem(item.id)} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">Delete</button>
                       </div>
