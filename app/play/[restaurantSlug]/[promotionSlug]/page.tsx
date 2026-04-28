@@ -10,16 +10,32 @@ import { createClient } from '@/lib/supabase/client';
 import type { Reward } from '@/types/reward';
 
 type Restaurant = { id: string; name: string; slug: string };
-type Promotion = { id: string; name: string; slug: string; status: string; coupon_expiry_minutes: number };
-
-type DbReward = {
+type Promotion = {
   id: string;
-  label: string;
-  description: string | null;
-  terms: string | null;
-  weight: number;
-  active: boolean | null;
+  name: string;
+  slug: string;
+  status: string;
+  coupon_expiry_minutes?: number | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
 };
+
+type PromotionReward = {
+  id: string;
+  menu_item_id: string | null;
+  custom_name: string | null;
+  reward_type: 'free' | 'discount' | 'custom';
+  reward_value: number | null;
+  daily_limit: number | null;
+  weight: number | null;
+};
+
+function rewardLabel(reward: PromotionReward, menuItemName?: string) {
+  const baseName = reward.custom_name || menuItemName || 'Reward';
+  if (reward.reward_type === 'free') return `FREE ${baseName}`;
+  if (reward.reward_type === 'discount') return `${reward.reward_value || 0}% ${baseName}`;
+  return baseName;
+}
 
 export default function PromotionPlayPage() {
   const params = useParams();
@@ -40,9 +56,16 @@ export default function PromotionPlayPage() {
 
   useEffect(() => {
     async function load() {
+      setLoading(true);
+      setError('');
       const supabase = createClient();
 
-      const restaurantResult = await supabase.from('restaurants').select('id,name,slug').eq('slug', restaurantSlug).single();
+      const restaurantResult = await supabase
+        .from('restaurants')
+        .select('id,name,slug')
+        .eq('slug', restaurantSlug)
+        .single();
+
       if (restaurantResult.error || !restaurantResult.data) {
         setError('Restaurant not found.');
         setLoading(false);
@@ -54,7 +77,7 @@ export default function PromotionPlayPage() {
 
       const promotionResult = await supabase
         .from('promotions')
-        .select('id,name,slug,status,coupon_expiry_minutes')
+        .select('id,name,slug,status,coupon_expiry_minutes,starts_at,ends_at')
         .eq('restaurant_id', currentRestaurant.id)
         .eq('slug', promotionSlug)
         .single();
@@ -68,21 +91,51 @@ export default function PromotionPlayPage() {
       const currentPromotion = promotionResult.data as Promotion;
       setPromotion(currentPromotion);
 
-      const rewardsResult = await supabase
-        .from('rewards')
-        .select('id,label,description,terms,weight,active')
-        .eq('promotion_id', currentPromotion.id)
-        .eq('active', true)
-        .order('display_order', { ascending: true });
+      if (currentPromotion.status !== 'active') {
+        setError('This promotion is not live yet.');
+        setLoading(false);
+        return;
+      }
 
-      const mappedRewards: Reward[] = ((rewardsResult.data || []) as DbReward[]).map((item) => ({
-        id: item.id,
-        label: item.label,
-        description: item.description || item.label,
-        terms: item.terms || 'Standard terms apply.',
-        weight: item.weight || 1,
-        active: item.active !== false,
-      }));
+      const now = new Date();
+      if (currentPromotion.starts_at && now < new Date(currentPromotion.starts_at)) {
+        setError('This promotion has not started yet.');
+        setLoading(false);
+        return;
+      }
+
+      if (currentPromotion.ends_at && now > new Date(currentPromotion.ends_at)) {
+        setError('This promotion has ended.');
+        setLoading(false);
+        return;
+      }
+
+      const rewardsResult = await supabase
+        .from('promotion_rewards')
+        .select('id,menu_item_id,custom_name,reward_type,reward_value,daily_limit,weight')
+        .eq('promotion_id', currentPromotion.id)
+        .order('created_at', { ascending: true });
+
+      const rawRewards = (rewardsResult.data || []) as PromotionReward[];
+      const menuItemIds = rawRewards.map((item) => item.menu_item_id).filter(Boolean) as string[];
+      let menuNamesById: Record<string, string> = {};
+
+      if (menuItemIds.length > 0) {
+        const menuItemsResult = await supabase.from('menu_items').select('id,name').in('id', menuItemIds);
+        menuNamesById = Object.fromEntries((menuItemsResult.data || []).map((item: any) => [item.id, item.name]));
+      }
+
+      const mappedRewards: Reward[] = rawRewards.map((item) => {
+        const label = rewardLabel(item, item.menu_item_id ? menuNamesById[item.menu_item_id] : undefined);
+        return {
+          id: item.id,
+          label,
+          description: label,
+          terms: 'Show this code to staff before ordering. One reward per customer/session. Standard restaurant terms apply.',
+          weight: item.weight || 30,
+          active: true,
+        };
+      });
 
       setRewards(mappedRewards);
       setLoading(false);
@@ -113,10 +166,10 @@ export default function PromotionPlayPage() {
     }, 2900);
   }
 
-  if (loading) return <div className="p-6">Loading promotion...</div>;
-  if (error) return <div className="p-6">{error}</div>;
-  if (!restaurant || !promotion) return <div className="p-6">Promotion unavailable.</div>;
-  if (rewards.length < 2) return <div className="p-6">This promotion needs at least 2 active rewards before customers can play.</div>;
+  if (loading) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">Loading promotion...</div>;
+  if (error) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">{error}</div>;
+  if (!restaurant || !promotion) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">Promotion unavailable.</div>;
+  if (rewards.length < 2) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">This promotion needs at least 2 active rewards before customers can play.</div>;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-orange-50 to-amber-100 px-4 py-6 text-stone-950">
