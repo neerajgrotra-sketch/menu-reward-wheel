@@ -16,6 +16,7 @@ type SpinWheelPreviewProps = {
 };
 
 const COLORS = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c', '#fef3c7', '#facc15'];
+const MIN_LABEL_DEGREES = 36;
 
 function wheelLabel(reward: WheelReward) {
   if (reward.reward_type === 'free') return `FREE ${reward.label}`;
@@ -49,12 +50,18 @@ function buildSlices(rewards: WheelReward[]) {
     return {
       reward,
       index,
+      size,
       start,
       end,
       mid,
       percentage: Math.round((safeWeight / totalWeight) * 100),
     };
   });
+}
+
+export function getWeightedSliceMidpoint(rewards: WheelReward[], selectedIndex: number) {
+  const slices = buildSlices(rewards);
+  return slices[selectedIndex]?.mid ?? 0;
 }
 
 export default function SpinWheelPreview({ rewards, rotation = 0, spinning = false }: SpinWheelPreviewProps) {
@@ -74,6 +81,8 @@ export default function SpinWheelPreview({ rewards, rotation = 0, spinning = fal
             style={{ background: `conic-gradient(${gradient})`, transform: `rotate(${rotation}deg)` }}
           >
             {slices.map((slice) => {
+              if (slice.size < MIN_LABEL_DEGREES) return null;
+
               const radians = slice.mid * (Math.PI / 180);
               const radius = visibleRewards.length > 6 ? labelRadius - 6 : labelRadius;
               const x = Math.cos(radians) * radius;
