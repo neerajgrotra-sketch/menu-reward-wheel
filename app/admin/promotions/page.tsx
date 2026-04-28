@@ -30,8 +30,25 @@ export default function PromotionsPage() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const selectedRestaurant = restaurants.find((item) => item.id === selectedRestaurantId) || null;
+
+  async function loadPromotions(restaurantId: string) {
+    const supabase = createClient();
+    const { data, error: promotionError } = await supabase
+      .from('promotions')
+      .select('id,name,slug,status,created_at,restaurant_id')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false });
+
+    if (promotionError) {
+      setError(promotionError.message);
+      return;
+    }
+
+    setPromotions((data || []) as Promotion[]);
+  }
 
   useEffect(() => {
     async function loadRestaurants() {
@@ -73,28 +90,11 @@ export default function PromotionsPage() {
   }, []);
 
   useEffect(() => {
-    async function loadPromotions() {
-      if (!selectedRestaurantId) {
-        setPromotions([]);
-        return;
-      }
-
-      const supabase = createClient();
-      const { data, error: promotionError } = await supabase
-        .from('promotions')
-        .select('id,name,slug,status,created_at,restaurant_id')
-        .eq('restaurant_id', selectedRestaurantId)
-        .order('created_at', { ascending: false });
-
-      if (promotionError) {
-        setError(promotionError.message);
-        return;
-      }
-
-      setPromotions((data || []) as Promotion[]);
+    if (!selectedRestaurantId) {
+      setPromotions([]);
+      return;
     }
-
-    loadPromotions();
+    loadPromotions(selectedRestaurantId);
   }, [selectedRestaurantId]);
 
   async function addPromotion() {
@@ -118,6 +118,35 @@ export default function PromotionsPage() {
     window.location.href = `/admin/promotions/${insertResponse.data.id}`;
   }
 
+  async function deletePromotion(event: React.MouseEvent, promotion: Promotion) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const confirmed = window.confirm(`Delete ${promotion.name}? This will remove this promotion and its rewards.`);
+    if (!confirmed) return;
+
+    setDeletingId(promotion.id);
+    setError('');
+
+    const supabase = createClient();
+    const rewardDelete = await supabase.from('promotion_rewards').delete().eq('promotion_id', promotion.id);
+    if (rewardDelete.error) {
+      setError(rewardDelete.error.message);
+      setDeletingId(null);
+      return;
+    }
+
+    const promotionDelete = await supabase.from('promotions').delete().eq('id', promotion.id);
+    if (promotionDelete.error) {
+      setError(promotionDelete.error.message);
+      setDeletingId(null);
+      return;
+    }
+
+    if (selectedRestaurantId) await loadPromotions(selectedRestaurantId);
+    setDeletingId(null);
+  }
+
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
       <section className="mx-auto max-w-5xl">
@@ -134,15 +163,9 @@ export default function PromotionsPage() {
 
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">Step 1: Select Restaurant Location</p>
-          <select
-            value={selectedRestaurantId}
-            onChange={(event) => setSelectedRestaurantId(event.target.value)}
-            className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]"
-          >
+          <select value={selectedRestaurantId} onChange={(event) => setSelectedRestaurantId(event.target.value)} className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]">
             <option value="">Select restaurant/location...</option>
-            {restaurants.map((restaurant) => (
-              <option key={restaurant.id} value={restaurant.id}>{locationLabel(restaurant)}</option>
-            ))}
+            {restaurants.map((restaurant) => <option key={restaurant.id} value={restaurant.id}>{locationLabel(restaurant)}</option>)}
           </select>
           {selectedRestaurant && (
             <div className="mt-4 rounded-2xl bg-orange-50 p-4">
@@ -171,7 +194,12 @@ export default function PromotionsPage() {
             <a key={promotion.id} href={`/admin/promotions/${promotion.id}`} className="block rounded-3xl bg-white p-5 shadow-xl">
               <div className="flex items-start justify-between gap-4">
                 <div><h3 className="text-3xl font-black">{promotion.name}</h3><p className="mt-1 text-sm font-black uppercase text-stone-500">{promotion.status}</p></div>
-                <span className="rounded-full bg-orange-50 px-4 py-2 text-sm font-black text-[#FF6B00]">Build</span>
+                <div className="flex flex-col gap-2">
+                  <span className="rounded-full bg-orange-50 px-4 py-2 text-center text-sm font-black text-[#FF6B00]">Build</span>
+                  <button onClick={(event) => deletePromotion(event, promotion)} disabled={deletingId === promotion.id} className="rounded-full bg-red-50 px-4 py-2 text-sm font-black text-red-600">
+                    {deletingId === promotion.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
               </div>
               <p className="mt-4 break-all text-sm font-black text-[#FF6B00]">/play/{selectedRestaurant.slug}/{promotion.slug}</p>
             </a>
