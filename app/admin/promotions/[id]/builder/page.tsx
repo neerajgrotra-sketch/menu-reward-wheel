@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
-import SpinWheelPreview from '@/components/admin/SpinWheelPreview';
+import SpinWheelPreview, { getWeightedSliceMidpoint } from '@/components/admin/SpinWheelPreview';
 
 type RewardType = 'free' | 'discount' | 'custom';
 type WeightLabel = 'Common' | 'Normal' | 'Rare';
@@ -93,7 +93,7 @@ export default function PromotionBuilderPage() {
     setPromotion({ ...promotion, status: 'draft' }); setSaving(false); setSaved(true); return true;
   }
   async function launch() { if (errors.length || !promotion) return; setLaunching(true); const ok = await saveDraft(); if (!ok) { setLaunching(false); return; } const r = await createClient().from('promotions').update({ status: 'active' }).eq('id', promotion.id); if (r.error) setError(r.error.message); else setPromotion({ ...promotion, status: 'active' }); setLaunching(false); }
-  function testSpin() { if (!rewards.length || spinning) return; const idx = pick(rewards); const seg = 360 / rewards.length; const final = rotation + 5 * 360 + (-(idx * seg) - (rotation % 360)); setResult(''); setSpinning(true); setRotation(final); setTimeout(() => { setSpinning(false); setResult(rewards[idx]?.label || 'Reward'); confetti({ particleCount: 160, spread: 95, origin: { y: 0.62 } }); }, 2900); }
+  function testSpin() { if (!rewards.length || spinning) return; const idx = pick(rewards); const midpoint = getWeightedSliceMidpoint(rewards, idx); const final = rotation + 5 * 360 + (-midpoint - (rotation % 360)); setResult(''); setSpinning(true); setRotation(final); setTimeout(() => { setSpinning(false); setResult(rewards[idx]?.label || 'Reward'); confetti({ particleCount: 160, spread: 95, origin: { y: 0.62 } }); }, 2900); }
   async function copyLink() { const link = `${window.location.origin}/play/${restaurant.slug}/${promotion.slug}`; await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }
 
   if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6 font-black text-stone-700">Loading builder...</main>;
