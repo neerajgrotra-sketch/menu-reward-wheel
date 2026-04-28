@@ -26,6 +26,7 @@ function locationLabel(restaurant: Restaurant) {
 export default function PromotionsPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
+  const [selectedGame, setSelectedGame] = useState('wheel');
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -98,14 +99,14 @@ export default function PromotionsPage() {
   }, [selectedRestaurantId]);
 
   async function addPromotion() {
-    if (!selectedRestaurant || !name.trim()) return;
+    if (!selectedRestaurant || !name.trim() || !selectedGame) return;
     setSaving(true);
     setError('');
     const supabase = createClient();
     const promotionSlug = `${toSlug(name)}-${Date.now().toString().slice(-4)}`;
     const insertResponse = await supabase
       .from('promotions')
-      .insert({ restaurant_id: selectedRestaurant.id, name: name.trim(), slug: promotionSlug, status: 'draft', game_type: 'wheel' })
+      .insert({ restaurant_id: selectedRestaurant.id, name: name.trim(), slug: promotionSlug, status: 'draft', game_type: selectedGame })
       .select('id')
       .single();
 
@@ -147,6 +148,8 @@ export default function PromotionsPage() {
     setDeletingId(null);
   }
 
+  const canCreate = Boolean(selectedRestaurant && name.trim() && selectedGame && !saving);
+
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
       <section className="mx-auto max-w-5xl">
@@ -158,7 +161,7 @@ export default function PromotionsPage() {
         <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Promotions</p>
           <h2 className="mt-3 text-4xl font-black leading-tight">Create campaigns that turn diners into players.</h2>
-          <p className="mt-3 text-sm font-semibold text-white/85">Choose the exact restaurant location first, then build rewards, test the wheel, and publish the customer link.</p>
+          <p className="mt-3 text-sm font-semibold text-white/85">Choose the restaurant, name the campaign, select the game, then build rewards and publish.</p>
         </div>
 
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
@@ -177,12 +180,35 @@ export default function PromotionsPage() {
         </div>
 
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
-          <p className="text-sm font-black uppercase text-[#FF6B00]">Step 2: Create Promotion</p>
-          <div className="mt-3 flex gap-2">
-            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Halloween, Lunch Rush, Weekend Spin..." className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
-            <button onClick={addPromotion} disabled={saving || !name.trim() || !selectedRestaurant} className="rounded-2xl bg-green-600 px-5 py-3 text-xl font-black text-white disabled:bg-stone-400">+</button>
+          <p className="text-sm font-black uppercase text-[#FF6B00]">Step 2: Name Promotion</p>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Halloween, Lunch Rush, Weekend Spin..." className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 font-semibold outline-none focus:border-[#FF6B00]" />
+        </div>
+
+        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+          <p className="text-sm font-black uppercase text-[#FF6B00]">Step 3: Select Game Type</p>
+          <button onClick={() => setSelectedGame('wheel')} className={`mt-3 w-full rounded-3xl border-2 p-5 text-left transition ${selectedGame === 'wheel' ? 'border-green-600 bg-green-50' : 'border-stone-200 bg-white'}`}>
+            <div className="flex items-start gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[#FF6B00] text-3xl text-white">🎡</div>
+              <div>
+                <p className="text-2xl font-black">Spin Wheel</p>
+                <p className="mt-1 text-sm font-bold text-stone-600">Customers scan a QR code, spin a branded wheel, and win configured rewards like free items, discounts, or custom offers.</p>
+                <p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p>
+              </div>
+            </div>
+          </button>
+          <div className="mt-3 rounded-3xl border border-dashed border-stone-300 p-5 opacity-60">
+            <p className="text-xl font-black">More games coming soon</p>
+            <p className="mt-1 text-sm font-bold text-stone-600">Scratch cards, menu quests, daily bite challenges, and other game formats can use the same reward engine later.</p>
           </div>
+        </div>
+
+        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+          <p className="text-sm font-black uppercase text-[#FF6B00]">Step 4: Create Promotion</p>
+          <button onClick={addPromotion} disabled={!canCreate} className="mt-3 w-full rounded-3xl bg-green-600 px-5 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400">
+            {saving ? 'Creating...' : 'Create Promotion & Start Building'}
+          </button>
           {!selectedRestaurant && <p className="mt-3 text-sm font-bold text-stone-500">Select a restaurant location before creating a promotion.</p>}
+          {selectedRestaurant && !name.trim() && <p className="mt-3 text-sm font-bold text-stone-500">Enter a promotion name.</p>}
         </div>
 
         {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
