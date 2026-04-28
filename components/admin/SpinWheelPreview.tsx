@@ -37,48 +37,49 @@ function demoRewards(): WheelReward[] {
 export default function SpinWheelPreview({ rewards, rotation = 0, spinning = false }: SpinWheelPreviewProps) {
   const visibleRewards = rewards.length > 0 ? rewards : demoRewards();
   const segmentAngle = 360 / visibleRewards.length;
-  const labelRadius = 94;
+  const labelRadius = 76;
   const gradientStart = 90 - segmentAngle / 2;
   const gradient = visibleRewards
     .map((_, index) => `${COLORS[index % COLORS.length]} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
     .join(', ');
 
   return (
-    <div className="w-full">
-      <div className="mx-auto flex w-full max-w-sm flex-col items-center gap-4">
-        <div className="relative mx-auto h-80 w-80 max-w-full rounded-full p-3 shadow-glow">
+    <div className="w-full overflow-visible">
+      <div className="mx-auto flex w-full max-w-[18rem] flex-col items-center gap-3 sm:max-w-sm sm:gap-4">
+        <div className="relative mx-auto h-64 w-64 max-w-full rounded-full p-2 sm:h-80 sm:w-80 sm:p-3">
           <div
-            className="relative h-full w-full rounded-full border-8 border-white shadow-2xl transition-transform duration-[2800ms] ease-out"
+            className="relative h-full w-full rounded-full border-[7px] border-white shadow-2xl transition-transform duration-[2800ms] ease-out sm:border-8"
             style={{ background: `conic-gradient(from ${gradientStart}deg, ${gradient})`, transform: `rotate(${rotation}deg)` }}
           >
             {visibleRewards.map((reward, index) => {
               const angle = index * segmentAngle;
               const radians = angle * (Math.PI / 180);
-              const x = Math.cos(radians) * labelRadius;
-              const y = Math.sin(radians) * labelRadius;
+              const radius = visibleRewards.length > 6 ? labelRadius - 6 : labelRadius;
+              const x = Math.cos(radians) * radius;
+              const y = Math.sin(radians) * radius;
 
               return (
                 <div
                   key={reward.id || `${reward.label}-${index}`}
-                  className="absolute left-1/2 top-1/2 z-10 flex w-[82px] items-center justify-center text-center"
+                  className="absolute left-1/2 top-1/2 z-10 flex w-[68px] items-center justify-center text-center sm:w-[82px]"
                   style={{
                     transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${angle}deg)`,
                     transformOrigin: 'center center',
                   }}
                 >
-                  <span className="block text-[11px] font-black uppercase leading-tight tracking-tight text-stone-900">
+                  <span className="block text-[9px] font-black uppercase leading-tight tracking-tight text-stone-900 sm:text-[11px]">
                     {wheelLabel(reward)}
                   </span>
                 </div>
               );
             })}
 
-            <div className="absolute left-1/2 top-1/2 z-20 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white bg-stone-900 text-center text-xs font-black uppercase tracking-wide text-white shadow-xl">
+            <div className="absolute left-1/2 top-1/2 z-20 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white bg-stone-900 text-center text-[11px] font-black uppercase tracking-wide text-white shadow-xl sm:h-16 sm:w-16 sm:text-xs">
               Spin
             </div>
           </div>
 
-          <div className="absolute -right-1 top-1/2 z-30 -translate-y-1/2 text-5xl drop-shadow-lg">◀</div>
+          <div className="absolute -right-1 top-1/2 z-30 -translate-y-1/2 text-4xl drop-shadow-lg sm:text-5xl">◀</div>
           {spinning && <div className="absolute inset-0 rounded-full bg-white/10" />}
         </div>
 
