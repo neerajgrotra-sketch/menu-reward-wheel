@@ -141,7 +141,7 @@ export default function PromotionsPage() {
       return;
     }
 
-    window.location.href = `/admin/promotions/${insertResponse.data.id}`;
+    window.location.href = `/admin/promotions/${insertResponse.data.id}/builder`;
   }
 
   async function deletePromotion(event: React.MouseEvent, promotion: Promotion) {
@@ -242,7 +242,7 @@ export default function PromotionsPage() {
           {!selectedRestaurant && <div className="rounded-3xl bg-white p-6 shadow-xl"><p className="text-2xl font-black">Select a location to view promotions</p><p className="mt-2 text-sm font-semibold text-stone-600">Promotions are location-specific so duplicate restaurant names do not get mixed up.</p></div>}
           {selectedRestaurant && promotions.length === 0 && <div className="rounded-3xl bg-white p-6 shadow-xl"><p className="text-2xl font-black">No promotions yet</p><p className="mt-2 text-sm font-semibold text-stone-600">Create your first promotion for this location, then add rewards and publish the game link.</p></div>}
           {selectedRestaurant && promotions.map((promotion) => (
-            <a key={promotion.id} href={`/admin/promotions/${promotion.id}`} className="block rounded-3xl bg-white p-5 shadow-xl">
+            <a key={promotion.id} href={`/admin/promotions/${promotion.id}/builder`} className="block rounded-3xl bg-white p-5 shadow-xl">
               <div className="flex items-start justify-between gap-4">
                 <div><h3 className="text-3xl font-black">{promotion.name}</h3><p className="mt-1 text-sm font-black uppercase text-stone-500">{promotion.status}</p></div>
                 <div className="flex flex-col gap-2">
