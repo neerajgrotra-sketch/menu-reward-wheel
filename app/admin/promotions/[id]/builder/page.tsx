@@ -61,6 +61,7 @@ export default function PromotionBuilderPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [launchSuccess, setLaunchSuccess] = useState(false);
 
   const [promotion, setPromotion] = useState<any>(null);
   const [restaurant, setRestaurant] = useState<any>(null);
@@ -100,6 +101,7 @@ export default function PromotionBuilderPage() {
 
       const loadedPromotion = promotionResult.data;
       setPromotion(loadedPromotion);
+      setLaunchSuccess(loadedPromotion.status === 'active');
       setDailyLimit(loadedPromotion.daily_redeem_limit || 50);
       setMaxSpins(loadedPromotion.max_spins || 3);
       setStopOnWin(loadedPromotion.stop_on_win ?? true);
@@ -207,9 +209,15 @@ export default function PromotionBuilderPage() {
     return messages;
   }, [rewards, dailyLimit, maxSpins, startsAt, endsAt]);
 
+  function markDirty() {
+    setSaved(false);
+    setLaunchSuccess(false);
+    if (promotion?.status === 'active') setPromotion({ ...promotion, status: 'draft' });
+  }
+
   function addItem(item: any) {
     if (!promotion || !restaurant || rewards.length >= MAX || rewards.some((reward) => reward.menu_item_id === item.id)) return;
-    setSaved(false);
+    markDirty();
     setRewards((current) => [
       {
         temp_id: tempId(),
@@ -230,7 +238,7 @@ export default function PromotionBuilderPage() {
 
   function addCustom() {
     if (!promotion || !restaurant || rewards.length >= MAX) return;
-    setSaved(false);
+    markDirty();
     setRewards((current) => [
       {
         temp_id: tempId(),
@@ -250,7 +258,7 @@ export default function PromotionBuilderPage() {
   }
 
   function updateReward(key: string, updates: Partial<Reward>) {
-    setSaved(false);
+    markDirty();
     setRewards((current) =>
       current.map((reward) => {
         if (reward.temp_id !== key) return reward;
@@ -264,7 +272,7 @@ export default function PromotionBuilderPage() {
   }
 
   function removeReward(key: string) {
-    setSaved(false);
+    markDirty();
     setRewards((current) => current.filter((reward) => reward.temp_id !== key));
   }
 
@@ -272,6 +280,7 @@ export default function PromotionBuilderPage() {
     if (!promotion || !restaurant) return false;
     setSaving(true);
     setSaved(false);
+    setLaunchSuccess(false);
     setError('');
     const supabase = createClient();
 
@@ -330,16 +339,28 @@ export default function PromotionBuilderPage() {
   async function launch() {
     if (errors.length || !promotion) return;
     setLaunching(true);
-    const ok = await saveDraft();
-    if (!ok) {
+    setSaved(false);
+    setLaunchSuccess(false);
+    setError('');
+
+    const draftSaved = await saveDraft();
+    if (!draftSaved) {
       setLaunching(false);
       return;
     }
 
-    const result = await createClient().from('promotions').update({ status: 'active' }).eq('id', promotion.id);
-    if (result.error) setError(result.error.message);
-    else setPromotion({ ...promotion, status: 'active' });
+    const launchResult = await createClient().from('promotions').update({ status: 'active' }).eq('id', promotion.id);
+    if (launchResult.error) {
+      setError(launchResult.error.message);
+      setLaunching(false);
+      return;
+    }
+
+    setPromotion({ ...promotion, status: 'active' });
+    setSaved(false);
+    setLaunchSuccess(true);
     setLaunching(false);
+    confetti({ particleCount: 220, spread: 110, origin: { y: 0.58 } });
   }
 
   function testSpin() {
@@ -372,7 +393,9 @@ export default function PromotionBuilderPage() {
   const address = [restaurant.address_line1, restaurant.city].filter(Boolean).join(', ') || 'Address not added';
   const play = `/play/${restaurant.slug}/${promotion.slug}`;
   const full = typeof window === 'undefined' ? play : `${window.location.origin}${play}`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(full)}`;
   const rewardStatus = rewards.length >= MIN ? `${rewards.length} / ${MAX} rewards added — minimum met ✅` : `${rewards.length} / ${MAX} rewards added — add ${MIN - rewards.length} more`;
+  const isLive = promotion.status === 'active';
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#FFF8F0] px-3 py-6 text-[#1F1F1F] sm:px-6">
@@ -421,6 +444,7 @@ export default function PromotionBuilderPage() {
 
         {error && <div className="rounded-3xl bg-red-50 p-4 text-sm font-black text-red-700">{error}</div>}
         {saved && <div className="rounded-3xl bg-green-50 p-4 text-sm font-black text-green-700">Draft saved.</div>}
+        {launchSuccess && <div className="rounded-3xl bg-green-50 p-4 text-sm font-black text-green-800">🎉 Promotion is live. The customer link and QR code are ready below.</div>}
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">Step 1: Select Menu</p>
@@ -478,21 +502,22 @@ export default function PromotionBuilderPage() {
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">Step 4: Promotion Rules</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-black text-stone-700">Daily Promotion Limit<input type="number" min={1} value={dailyLimit} onChange={(event) => { setSaved(false); setDailyLimit(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
-            <label className="text-sm font-black text-stone-700">Max Spins Per Customer<input type="number" min={1} value={maxSpins} onChange={(event) => { setSaved(false); setMaxSpins(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
-            <label className="text-sm font-black text-stone-700">Start Date/Time<input type="datetime-local" value={startsAt} onChange={(event) => { setSaved(false); setStartsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
-            <label className="text-sm font-black text-stone-700">End Date/Time<input type="datetime-local" value={endsAt} onChange={(event) => { setSaved(false); setEndsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
+            <label className="text-sm font-black text-stone-700">Daily Promotion Limit<input type="number" min={1} value={dailyLimit} onChange={(event) => { markDirty(); setDailyLimit(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
+            <label className="text-sm font-black text-stone-700">Max Spins Per Customer<input type="number" min={1} value={maxSpins} onChange={(event) => { markDirty(); setMaxSpins(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
+            <label className="text-sm font-black text-stone-700">Start Date/Time<input type="datetime-local" value={startsAt} onChange={(event) => { markDirty(); setStartsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
+            <label className="text-sm font-black text-stone-700">End Date/Time<input type="datetime-local" value={endsAt} onChange={(event) => { markDirty(); setEndsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
           </div>
-          <label className="mt-4 flex items-center gap-3 rounded-2xl bg-stone-50 p-4 text-sm font-black"><input type="checkbox" checked={stopOnWin} onChange={(event) => { setSaved(false); setStopOnWin(event.target.checked); }} className="h-5 w-5" />Stop on win</label>
+          <label className="mt-4 flex items-center gap-3 rounded-2xl bg-stone-50 p-4 text-sm font-black"><input type="checkbox" checked={stopOnWin} onChange={(event) => { markDirty(); setStopOnWin(event.target.checked); }} className="h-5 w-5" />Stop on win</label>
         </div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">Step 5: Launch</p>
-          {errors.length ? <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700"><p className="font-black">Fix before launch:</p><ul className="mt-2 list-disc space-y-1 pl-5">{errors.map((message) => <li key={message}>{message}</li>)}</ul></div> : <div className="mt-4 rounded-2xl bg-green-50 p-4 text-sm font-black text-green-700">Ready to launch.</div>}
+          {isLive ? <div className="mt-4 rounded-2xl bg-green-50 p-4 text-sm font-black text-green-700">Live now. Customers can play from the link or QR code below.</div> : errors.length ? <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700"><p className="font-black">Fix before launch:</p><ul className="mt-2 list-disc space-y-1 pl-5">{errors.map((message) => <li key={message}>{message}</li>)}</ul></div> : <div className="mt-4 rounded-2xl bg-green-50 p-4 text-sm font-black text-green-700">Ready to launch.</div>}
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <button onClick={saveDraft} disabled={saving || launching} className="rounded-3xl bg-white px-5 py-5 text-lg font-black text-[#FF6B00] shadow ring-1 ring-orange-100 disabled:bg-stone-200">{saving ? 'Saving...' : 'Save Draft'}</button>
-            <button onClick={launch} disabled={!!errors.length || saving || launching} className="rounded-3xl bg-green-600 px-5 py-5 text-lg font-black text-white shadow-xl disabled:bg-stone-300">{launching ? 'Launching...' : 'Launch Promotion'}</button>
+            <button onClick={launch} disabled={!!errors.length || saving || launching} className="rounded-3xl bg-green-600 px-5 py-5 text-lg font-black text-white shadow-xl disabled:bg-stone-300">{launching ? 'Launching...' : isLive ? 'Re-Launch Promotion' : 'Launch Promotion'}</button>
           </div>
+          {isLive && <div className="mt-6 rounded-3xl border border-green-100 bg-green-50 p-5 text-center"><p className="text-2xl font-black text-green-800">Promotion is live</p><p className="mt-2 break-all text-sm font-bold text-green-700">{full}</p><div className="mt-4 inline-block rounded-3xl bg-white p-4 shadow"><img src={qrUrl} alt="Promotion QR code" className="h-56 w-56" /></div><button onClick={copyLink} className="mt-4 w-full rounded-2xl bg-[#1F1F1F] px-5 py-4 text-sm font-black text-white">{copied ? 'Copied!' : 'Copy Live Link'}</button></div>}
         </div>
       </section>
     </main>
