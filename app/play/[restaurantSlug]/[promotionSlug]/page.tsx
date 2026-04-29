@@ -38,6 +38,13 @@ type PromotionReward = {
   weight: number | null;
 };
 
+type WonCoupon = {
+  id: string;
+  reward: Reward;
+  code: string;
+  issuedAt: number;
+};
+
 function rewardLabel(reward: PromotionReward, menuItemName?: string) {
   const baseName = reward.custom_name || menuItemName || 'Reward';
   if (reward.reward_type === 'free') return `FREE ${baseName}`;
@@ -53,6 +60,10 @@ function formatRemaining(ms: number) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
+function couponQrUrl(code: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(code)}`;
+}
+
 export default function PromotionPlayPage() {
   const params = useParams();
   const restaurantSlug = params.restaurantSlug as string;
@@ -63,9 +74,9 @@ export default function PromotionPlayPage() {
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
-  const [reward, setReward] = useState<Reward | null>(null);
-  const [coupon, setCoupon] = useState<string | null>(null);
-  const [couponIssuedAt, setCouponIssuedAt] = useState<number | null>(null);
+  const [wonCoupons, setWonCoupons] = useState<WonCoupon[]>([]);
+  const [activeCouponId, setActiveCouponId] = useState<string | null>(null);
+  const [showReveal, setShowReveal] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [spinsUsed, setSpinsUsed] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -76,11 +87,9 @@ export default function PromotionPlayPage() {
   const spinsRemaining = Math.max(0, maxSpins - spinsUsed);
   const canSpin = !spinning && rewards.length > 0 && spinsRemaining > 0;
   const expiryMinutes = promotion?.coupon_expiry_minutes || 20;
-  const expiresAt = couponIssuedAt ? couponIssuedAt + expiryMinutes * 60 * 1000 : null;
-  const isExpired = Boolean(expiresAt && now >= expiresAt);
-  const couponQrUrl = coupon
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(coupon)}`
-    : '';
+  const activeCoupon = wonCoupons.find((item) => item.id === activeCouponId) || wonCoupons[0] || null;
+  const activeExpiresAt = activeCoupon ? activeCoupon.issuedAt + expiryMinutes * 60 * 1000 : null;
+  const activeExpired = Boolean(activeExpiresAt && now >= activeExpiresAt);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -186,18 +195,23 @@ export default function PromotionPlayPage() {
     const targetAngle = -(selectedIndex * segmentAngle);
     const finalRotation = rotation + 5 * 360 + (targetAngle - currentNormalized);
 
-    setReward(null);
-    setCoupon(null);
-    setCouponIssuedAt(null);
     setSpinning(true);
+    setShowReveal(false);
     setRotation(finalRotation);
 
     setTimeout(() => {
-      setReward(selected);
-      setCoupon(createCouponCode());
-      setCouponIssuedAt(Date.now());
+      const nextCoupon: WonCoupon = {
+        id: `${Date.now()}-${Math.random()}`,
+        reward: selected,
+        code: createCouponCode(),
+        issuedAt: Date.now(),
+      };
+
+      setWonCoupons((current) => [nextCoupon, ...current]);
+      setActiveCouponId(nextCoupon.id);
       setSpinsUsed((current) => current + 1);
       setSpinning(false);
+      setShowReveal(true);
       confetti({ particleCount: 180, spread: 100, origin: { y: 0.6 } });
     }, 2900);
   }
@@ -211,7 +225,7 @@ export default function PromotionPlayPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-orange-50 to-amber-100 px-4 py-6 text-stone-950">
-      <section className="mx-auto max-w-md">
+      <section className="mx-auto max-w-md pb-12">
         <div className="rounded-3xl bg-white/85 p-5 text-center shadow-xl">
           <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{restaurant.name}</p>
           {address && <p className="mt-1 text-xs font-black uppercase tracking-wide text-stone-500">{address}</p>}
@@ -223,7 +237,7 @@ export default function PromotionPlayPage() {
           <p className="text-lg font-black text-[#FF6B00]">
             {spinsRemaining > 0
               ? `You have ${spinsRemaining} ${spinsRemaining === 1 ? 'spin' : 'spins'} left 🎯`
-              : 'No spins left — enjoy your reward 🎉'}
+              : 'No spins left — enjoy your rewards 🎉'}
           </p>
           <p className="mt-1 text-sm font-bold text-stone-600">
             {spinsUsed} of {maxSpins} used
@@ -235,35 +249,73 @@ export default function PromotionPlayPage() {
         </div>
 
         <button onClick={spin} disabled={!canSpin} className="mt-6 w-full rounded-3xl bg-green-600 px-6 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400">
-          {spinning ? 'Spinning...' : spinsRemaining > 0 && reward ? 'Spin Again' : spinsRemaining > 0 ? 'Spin Now' : 'Reward Unlocked'}
+          {spinning ? 'Spinning...' : spinsRemaining > 0 && wonCoupons.length > 0 ? 'Spin Again' : spinsRemaining > 0 ? 'Spin Now' : 'All Spins Used'}
         </button>
 
-        {reward && coupon && (
-          <section className="relative mt-6 rounded-3xl bg-white p-5 shadow-xl">
-            {isExpired && (
-              <div className="absolute right-4 top-4 rotate-[-10deg] rounded-xl border-4 border-red-600 px-4 py-2 text-xl font-black uppercase text-red-600 opacity-90">
-                Expired
-              </div>
-            )}
-            <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Reward</p>
-            <h2 className="mt-1 pr-24 text-3xl font-black">{reward.description}</h2>
-            <div className="mt-4 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4 text-center">
-              <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
-              <p className="mt-1 text-3xl font-black tracking-wider">{coupon}</p>
+        {wonCoupons.length > 0 && (
+          <section className="mt-6 rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Rewards</p>
+            <div className="mt-4 space-y-4">
+              {wonCoupons.map((item, index) => {
+                const expiresAt = item.issuedAt + expiryMinutes * 60 * 1000;
+                const expired = now >= expiresAt;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      setActiveCouponId(item.id);
+                      setShowReveal(true);
+                    }}
+                    className="relative w-full rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left shadow-sm"
+                  >
+                    {expired && <span className="absolute right-3 top-3 rotate-[-8deg] rounded-lg border-2 border-red-600 px-2 py-1 text-xs font-black uppercase text-red-600">Expired</span>}
+                    <p className="text-xs font-black uppercase tracking-wide text-stone-500">Reward {wonCoupons.length - index}</p>
+                    <p className="mt-1 pr-20 text-xl font-black">{item.reward.description}</p>
+                    <p className="mt-2 text-sm font-bold text-stone-500">Code: {item.code}</p>
+                    <p className={expired ? 'mt-1 text-sm font-black text-red-600' : 'mt-1 text-sm font-bold text-green-700'}>
+                      {expired ? 'Expired' : `Expires in ${formatRemaining(expiresAt - now)}`}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
-            <div className="mt-4 text-center">
-              <p className={isExpired ? 'text-lg font-black text-red-600' : 'text-lg font-bold text-red-600'}>
-                {isExpired ? 'Coupon expired' : `Expires in ${formatRemaining((expiresAt || 0) - now)}`}
-              </p>
-            </div>
-            <div className="mt-4 rounded-3xl bg-stone-50 p-4 text-center">
-              <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p>
-              <img src={couponQrUrl} alt="Coupon QR code" className="mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow" />
-            </div>
-            <p className="mt-3 text-sm text-stone-600">{reward.terms}</p>
           </section>
         )}
       </section>
+
+      {showReveal && activeCoupon && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/40 px-3 pb-3 backdrop-blur-sm">
+          <section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 text-center shadow-2xl">
+            <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" />
+            <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">🎉 You won</p>
+            <h2 className="mt-2 text-4xl font-black leading-tight">{activeCoupon.reward.description}</h2>
+
+            <div className="relative mt-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">
+              {activeExpired && <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">Expired</div>}
+              <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
+              <p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p>
+            </div>
+
+            <p className={activeExpired ? 'mt-4 text-lg font-black text-red-600' : 'mt-4 text-lg font-bold text-red-600'}>
+              {activeExpired ? 'Coupon expired' : `Expires in ${formatRemaining((activeExpiresAt || 0) - now)}`}
+            </p>
+
+            <div className="mt-4 rounded-3xl bg-stone-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p>
+              <img src={couponQrUrl(activeCoupon.code)} alt="Coupon QR code" className="mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow" />
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button>
+              <button onClick={spin} disabled={!canSpin} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">
+                {spinsRemaining > 0 ? 'Spin Again' : 'No Spins Left'}
+              </button>
+            </div>
+
+            <p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
