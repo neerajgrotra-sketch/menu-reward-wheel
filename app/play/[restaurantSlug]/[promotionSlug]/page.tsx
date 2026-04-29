@@ -207,13 +207,14 @@ export default function PromotionPlayPage() {
   if (!restaurant || !promotion) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">Promotion unavailable.</div>;
   if (rewards.length < 2) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">This promotion needs at least 2 active rewards before customers can play.</div>;
 
-  const address = [restaurant.address_line1, restaurant.city].filter(Boolean).join(', ') || restaurant.name;
+  const address = [restaurant.address_line1, restaurant.city].filter(Boolean).join(', ');
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-orange-50 to-amber-100 px-4 py-6 text-stone-950">
       <section className="mx-auto max-w-md">
         <div className="rounded-3xl bg-white/85 p-5 text-center shadow-xl">
-          <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{address}</p>
+          <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{restaurant.name}</p>
+          {address && <p className="mt-1 text-xs font-black uppercase tracking-wide text-stone-500">{address}</p>}
           <h1 className="mt-2 text-3xl font-black">Spin & Win</h1>
           <p className="mt-2 text-sm text-stone-600">Spin to unlock your reward.</p>
         </div>
