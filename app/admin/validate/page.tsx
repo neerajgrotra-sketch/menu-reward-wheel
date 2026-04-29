@@ -22,18 +22,6 @@ type CouponRecord = {
   promotion_reward?: { id: string; custom_name?: string | null; reward_type?: 'free' | 'discount' | 'custom' | null; reward_value?: number | null; menu_item_id?: string | null } | null;
 };
 
-type BarcodeDetectorShape = {
-  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
-};
-
-type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorShape;
-
-declare global {
-  interface Window {
-    BarcodeDetector?: BarcodeDetectorConstructor;
-  }
-}
-
 function normalizeCode(value: string) {
   return value.trim().toUpperCase();
 }
@@ -84,9 +72,7 @@ function isExpired(record: CouponRecord | null) {
 export default function ValidateCouponPage() {
   const supabase = useMemo(() => createClient(), []);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const scanTimerRef = useRef<number | null>(null);
-  const scanningRef = useRef(false);
+  const qrScannerRef = useRef<any>(null);
 
   const [code, setCode] = useState('');
   const [record, setRecord] = useState<CouponRecord | null>(null);
@@ -157,12 +143,7 @@ export default function ValidateCouponPage() {
     const coupon = couponResult.data as unknown as CouponRecord;
     setRecord(coupon);
 
-    const ownerCheck = await supabase
-      .from('restaurants')
-      .select('id')
-      .eq('id', coupon.restaurant_id)
-      .eq('owner_id', user.id)
-      .maybeSingle();
+    const ownerCheck = await supabase.from('restaurants').select('id').eq('id', coupon.restaurant_id).eq('owner_id', user.id).maybeSingle();
 
     if (ownerCheck.error || !ownerCheck.data) {
       setStatus('wrong_restaurant');
@@ -193,67 +174,67 @@ export default function ValidateCouponPage() {
 
   async function startScanner() {
     if (!navigator.mediaDevices?.getUserMedia) {
+      setScannerOpen(true);
       setScannerMessage('Camera is not available in this browser. Enter the code manually.');
-      setScannerOpen(true);
       return;
     }
 
-    if (!window.BarcodeDetector) {
-      setScannerMessage('QR scanning is not supported by this browser yet. Enter the code manually.');
-      setScannerOpen(true);
-      return;
-    }
+    setScannerOpen(true);
+    setScannerMessage('Starting camera...');
 
-    try {
-      setScannerOpen(true);
-      setScannerMessage('Starting camera...');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+    window.setTimeout(async () => {
+      try {
+        const videoElement = videoRef.current;
+        if (!videoElement) {
+          setScannerMessage('Scanner could not start. Enter the code manually.');
+          return;
+        }
+
+        const QrScannerModule = await import('qr-scanner');
+        const QrScanner = QrScannerModule.default;
+
+        qrScannerRef.current?.stop?.();
+        qrScannerRef.current?.destroy?.();
+
+        qrScannerRef.current = new QrScanner(
+          videoElement,
+          async (result: any) => {
+            const rawValue = typeof result === 'string' ? result : result?.data || '';
+            if (!rawValue) return;
+            const scannedCode = extractCouponCode(rawValue);
+            setCode(scannedCode);
+            setScannerMessage(`Found ${scannedCode}. Validating...`);
+            await validateCoupon(scannedCode);
+          },
+          {
+            preferredCamera: 'environment',
+            highlightScanRegion: true,
+            highlightCodeOutline: true,
+            returnDetailedScanResult: true,
+          }
+        );
+
+        await qrScannerRef.current.start();
+        setScannerMessage('Point the camera at the coupon QR code.');
+      } catch (error) {
+        console.error('QR scanner failed', error);
+        setScannerMessage('Camera permission was blocked or scanning failed. Enter the code manually.');
       }
-      scanningRef.current = true;
-      setScannerMessage('Point the camera at the coupon QR code.');
-      scanLoop();
-    } catch {
-      setScannerMessage('Camera permission was blocked or unavailable. Enter the code manually.');
-    }
+    }, 100);
   }
 
   function stopScanner() {
-    scanningRef.current = false;
-    if (scanTimerRef.current) {
-      window.clearTimeout(scanTimerRef.current);
-      scanTimerRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+    if (qrScannerRef.current) {
+      try {
+        qrScannerRef.current.stop?.();
+        qrScannerRef.current.destroy?.();
+      } catch {
+        // Ignore cleanup errors.
+      }
+      qrScannerRef.current = null;
     }
     if (videoRef.current) videoRef.current.srcObject = null;
     setScannerOpen(false);
-  }
-
-  async function scanLoop() {
-    if (!scanningRef.current || !videoRef.current || !window.BarcodeDetector) return;
-
-    try {
-      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-      const codes = await detector.detect(videoRef.current);
-      const rawValue = codes[0]?.rawValue;
-      if (rawValue) {
-        const scannedCode = extractCouponCode(rawValue);
-        setCode(scannedCode);
-        setScannerMessage(`Found ${scannedCode}. Validating...`);
-        await validateCoupon(scannedCode);
-        return;
-      }
-    } catch {
-      setScannerMessage('Scanning failed. Try holding the QR code steady or enter it manually.');
-    }
-
-    scanTimerRef.current = window.setTimeout(scanLoop, 450);
   }
 
   async function redeemCoupon() {
@@ -323,86 +304,43 @@ export default function ValidateCouponPage() {
         </div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
-          <button onClick={startScanner} className="w-full rounded-3xl bg-gradient-to-r from-[#FF6B00] to-[#E63939] px-6 py-5 text-xl font-black text-white shadow-xl">
-            📷 Scan QR Code
-          </button>
-          <div className="my-4 flex items-center gap-3 text-xs font-black uppercase tracking-wide text-stone-400">
-            <div className="h-px flex-1 bg-stone-200" />
-            Or enter manually
-            <div className="h-px flex-1 bg-stone-200" />
-          </div>
+          <button onClick={startScanner} className="w-full rounded-3xl bg-gradient-to-r from-[#FF6B00] to-[#E63939] px-6 py-5 text-xl font-black text-white shadow-xl">📷 Scan QR Code</button>
+          <div className="my-4 flex items-center gap-3 text-xs font-black uppercase tracking-wide text-stone-400"><div className="h-px flex-1 bg-stone-200" />Or enter manually<div className="h-px flex-1 bg-stone-200" /></div>
           <label className="text-sm font-black uppercase text-[#FF6B00]">Coupon Code</label>
-          <input
-            value={code}
-            onChange={(event) => setCode(normalizeCode(event.target.value))}
-            onKeyDown={(event) => { if (event.key === 'Enter') validateCoupon(); }}
-            placeholder="SPIN-ABC123"
-            className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 text-2xl font-black uppercase tracking-wider outline-none focus:border-[#FF6B00]"
-          />
-          <button onClick={() => validateCoupon()} disabled={loading || !code.trim()} className="mt-4 w-full rounded-3xl bg-[#1F1F1F] px-6 py-5 text-xl font-black text-white disabled:bg-stone-300">
-            {loading ? 'Checking...' : 'Validate Coupon'}
-          </button>
+          <input value={code} onChange={(event) => setCode(normalizeCode(event.target.value))} onKeyDown={(event) => { if (event.key === 'Enter') validateCoupon(); }} placeholder="SPIN-ABC123" className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 text-2xl font-black uppercase tracking-wider outline-none focus:border-[#FF6B00]" />
+          <button onClick={() => validateCoupon()} disabled={loading || !code.trim()} className="mt-4 w-full rounded-3xl bg-[#1F1F1F] px-6 py-5 text-xl font-black text-white disabled:bg-stone-300">{loading ? 'Checking...' : 'Validate Coupon'}</button>
         </div>
 
         <div className={`rounded-[2rem] p-5 shadow-xl ${status === 'valid' ? 'bg-green-50' : status === 'redeemed' ? 'bg-blue-50' : status === 'expired' || status === 'wrong_restaurant' || status === 'not_found' || status === 'error' ? 'bg-red-50' : 'bg-white'}`}>
           <p className="text-sm font-black uppercase tracking-wide text-stone-500">Status</p>
           <h3 className="mt-1 text-3xl font-black">
-            {status === 'valid' && 'Valid Coupon ✅'}
-            {status === 'redeemed' && 'Already Redeemed ✅'}
-            {status === 'expired' && 'Expired Coupon ❌'}
-            {status === 'wrong_restaurant' && 'Wrong Location ❌'}
-            {status === 'not_found' && 'Not Found ❌'}
-            {status === 'error' && 'Validation Error ❌'}
-            {status === 'idle' && 'Ready to Validate'}
+            {status === 'valid' && 'Valid Coupon ✅'}{status === 'redeemed' && 'Already Redeemed ✅'}{status === 'expired' && 'Expired Coupon ❌'}{status === 'wrong_restaurant' && 'Wrong Location ❌'}{status === 'not_found' && 'Not Found ❌'}{status === 'error' && 'Validation Error ❌'}{status === 'idle' && 'Ready to Validate'}
           </h3>
           <p className="mt-2 text-sm font-bold text-stone-700">{message}</p>
 
-          {record && (
-            <div className="mt-5 grid gap-3 text-left sm:grid-cols-2">
-              <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Reward</p><p className="mt-1 text-xl font-black">{rewardLabel(record)}</p></div>
-              <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Coupon</p><p className="mt-1 text-xl font-black">{record.coupon_code}</p></div>
-              <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Restaurant</p><p className="mt-1 text-lg font-black">{record.restaurant?.name || '—'}</p><p className="text-xs font-bold text-stone-500">{restaurantAddress}</p></div>
-              <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Promotion</p><p className="mt-1 text-lg font-black">{record.promotion?.name || '—'}</p></div>
-              <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Issued</p><p className="mt-1 text-sm font-black">{formatDate(record.issued_at)}</p></div>
-              <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Expires</p><p className="mt-1 text-sm font-black">{formatDate(expiryDate(record)?.toISOString())}</p></div>
-            </div>
-          )}
+          {record && <div className="mt-5 grid gap-3 text-left sm:grid-cols-2">
+            <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Reward</p><p className="mt-1 text-xl font-black">{rewardLabel(record)}</p></div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Coupon</p><p className="mt-1 text-xl font-black">{record.coupon_code}</p></div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Restaurant</p><p className="mt-1 text-lg font-black">{record.restaurant?.name || '—'}</p><p className="text-xs font-bold text-stone-500">{restaurantAddress}</p></div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Promotion</p><p className="mt-1 text-lg font-black">{record.promotion?.name || '—'}</p></div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Issued</p><p className="mt-1 text-sm font-black">{formatDate(record.issued_at)}</p></div>
+            <div className="rounded-2xl bg-white p-4 shadow-sm"><p className="text-xs font-black uppercase text-stone-400">Expires</p><p className="mt-1 text-sm font-black">{formatDate(expiryDate(record)?.toISOString())}</p></div>
+          </div>}
 
-          {status === 'valid' && (
-            <button onClick={redeemCoupon} disabled={redeeming} className="mt-5 w-full rounded-3xl bg-green-600 px-6 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-300">
-              {redeeming ? 'Redeeming...' : 'Redeem Coupon'}
-            </button>
-          )}
-
-          {confirmationCode && (
-            <div className="mt-5 rounded-3xl bg-white p-5 text-center shadow-sm">
-              <p className="text-xs font-black uppercase tracking-wide text-stone-500">Confirmation Code</p>
-              <p className="mt-1 text-4xl font-black text-green-700">{confirmationCode}</p>
-            </div>
-          )}
+          {status === 'valid' && <button onClick={redeemCoupon} disabled={redeeming} className="mt-5 w-full rounded-3xl bg-green-600 px-6 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-300">{redeeming ? 'Redeeming...' : 'Redeem Coupon'}</button>}
+          {confirmationCode && <div className="mt-5 rounded-3xl bg-white p-5 text-center shadow-sm"><p className="text-xs font-black uppercase tracking-wide text-stone-500">Confirmation Code</p><p className="mt-1 text-4xl font-black text-green-700">{confirmationCode}</p></div>}
         </div>
       </section>
 
-      {scannerOpen && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/50 px-3 pb-3 backdrop-blur-sm">
-          <section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 shadow-2xl">
-            <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" />
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Camera Scanner</p>
-                <h2 className="mt-1 text-2xl font-black">Scan coupon QR</h2>
-              </div>
-              <button onClick={stopScanner} className="rounded-full bg-stone-100 px-4 py-2 text-sm font-black text-stone-800">Close</button>
-            </div>
-            <div className="relative mt-4 overflow-hidden rounded-3xl bg-stone-950">
-              <video ref={videoRef} className="h-72 w-full object-cover" muted playsInline />
-              <div className="pointer-events-none absolute inset-8 rounded-3xl border-4 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,.28)]" />
-            </div>
-            <p className="mt-4 rounded-2xl bg-orange-50 p-3 text-center text-sm font-black text-[#FF6B00]">{scannerMessage}</p>
-            <p className="mt-2 text-center text-xs font-bold text-stone-500">If scanning is unavailable on this browser, enter the coupon code manually.</p>
-          </section>
-        </div>
-      )}
+      {scannerOpen && <div className="fixed inset-0 z-50 flex items-end bg-black/50 px-3 pb-3 backdrop-blur-sm">
+        <section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 shadow-2xl">
+          <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" />
+          <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Camera Scanner</p><h2 className="mt-1 text-2xl font-black">Scan coupon QR</h2></div><button onClick={stopScanner} className="rounded-full bg-stone-100 px-4 py-2 text-sm font-black text-stone-800">Close</button></div>
+          <div className="relative mt-4 overflow-hidden rounded-3xl bg-stone-950"><video ref={videoRef} className="h-72 w-full object-cover" muted playsInline /><div className="pointer-events-none absolute inset-8 rounded-3xl border-4 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,.28)]" /></div>
+          <p className="mt-4 rounded-2xl bg-orange-50 p-3 text-center text-sm font-black text-[#FF6B00]">{scannerMessage}</p>
+          <p className="mt-2 text-center text-xs font-bold text-stone-500">On iPhone, allow camera access when prompted and hold the QR code steady inside the box.</p>
+        </section>
+      </div>}
     </main>
   );
 }
