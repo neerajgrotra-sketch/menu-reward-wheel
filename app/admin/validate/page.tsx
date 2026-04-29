@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 
@@ -17,28 +17,39 @@ type CouponRecord = {
   redeemed_at?: string | null;
   redeemed_confirmation_code?: string | null;
   redemption_confirmation_code?: string | null;
-  promotion?: {
-    id: string;
-    name: string;
-    coupon_expiry_minutes?: number | null;
-  } | null;
-  restaurant?: {
-    id: string;
-    name: string;
-    address_line1?: string | null;
-    city?: string | null;
-  } | null;
-  promotion_reward?: {
-    id: string;
-    custom_name?: string | null;
-    reward_type?: 'free' | 'discount' | 'custom' | null;
-    reward_value?: number | null;
-    menu_item_id?: string | null;
-  } | null;
+  promotion?: { id: string; name: string; coupon_expiry_minutes?: number | null } | null;
+  restaurant?: { id: string; name: string; address_line1?: string | null; city?: string | null } | null;
+  promotion_reward?: { id: string; custom_name?: string | null; reward_type?: 'free' | 'discount' | 'custom' | null; reward_value?: number | null; menu_item_id?: string | null } | null;
 };
+
+type BarcodeDetectorShape = {
+  detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+};
+
+type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorShape;
+
+declare global {
+  interface Window {
+    BarcodeDetector?: BarcodeDetectorConstructor;
+  }
+}
 
 function normalizeCode(value: string) {
   return value.trim().toUpperCase();
+}
+
+function extractCouponCode(value: string) {
+  const raw = value.trim();
+  try {
+    const url = new URL(raw);
+    const fromQuery = url.searchParams.get('code') || url.searchParams.get('coupon');
+    if (fromQuery) return normalizeCode(fromQuery);
+  } catch {
+    // QR may contain only the plain coupon code.
+  }
+
+  const match = raw.toUpperCase().match(/SPIN-[A-Z0-9-]+/);
+  return normalizeCode(match?.[0] || raw);
 }
 
 function generateConfirmationCode() {
@@ -72,6 +83,11 @@ function isExpired(record: CouponRecord | null) {
 
 export default function ValidateCouponPage() {
   const supabase = useMemo(() => createClient(), []);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
+  const scanningRef = useRef(false);
+
   const [code, setCode] = useState('');
   const [record, setRecord] = useState<CouponRecord | null>(null);
   const [status, setStatus] = useState<ValidationStatus>('idle');
@@ -79,11 +95,18 @@ export default function ValidateCouponPage() {
   const [loading, setLoading] = useState(false);
   const [redeeming, setRedeeming] = useState(false);
   const [confirmationCode, setConfirmationCode] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerMessage, setScannerMessage] = useState('Tap camera to scan the customer QR code.');
+
+  useEffect(() => {
+    return () => stopScanner();
+  }, []);
 
   async function validateCoupon(inputCode?: string) {
     const couponCode = normalizeCode(inputCode || code);
     if (!couponCode) return;
 
+    stopScanner();
     setLoading(true);
     setRecord(null);
     setConfirmationCode('');
@@ -168,6 +191,77 @@ export default function ValidateCouponPage() {
     setLoading(false);
   }
 
+  async function startScanner() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScannerMessage('Camera is not available in this browser. Enter the code manually.');
+      setScannerOpen(true);
+      return;
+    }
+
+    if (!window.BarcodeDetector) {
+      setScannerMessage('QR scanning is not supported by this browser yet. Enter the code manually.');
+      setScannerOpen(true);
+      return;
+    }
+
+    try {
+      setScannerOpen(true);
+      setScannerMessage('Starting camera...');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+
+      scanningRef.current = true;
+      setScannerMessage('Point the camera at the coupon QR code.');
+      scanLoop();
+    } catch {
+      setScannerMessage('Camera permission was blocked or unavailable. Enter the code manually.');
+    }
+  }
+
+  function stopScanner() {
+    scanningRef.current = false;
+    if (scanTimerRef.current) {
+      window.clearTimeout(scanTimerRef.current);
+      scanTimerRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setScannerOpen(false);
+  }
+
+  async function scanLoop() {
+    if (!scanningRef.current || !videoRef.current || !window.BarcodeDetector) return;
+
+    try {
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const codes = await detector.detect(videoRef.current);
+      const rawValue = codes[0]?.rawValue;
+
+      if (rawValue) {
+        const scannedCode = extractCouponCode(rawValue);
+        setCode(scannedCode);
+        setScannerMessage(`Found ${scannedCode}. Validating...`);
+        await validateCoupon(scannedCode);
+        return;
+      }
+    } catch {
+      setScannerMessage('Scanning failed. Try holding the QR code steady or enter it manually.');
+    }
+
+    scanTimerRef.current = window.setTimeout(scanLoop, 450);
+  }
+
   async function redeemCoupon() {
     if (!record || status !== 'valid') return;
 
@@ -191,10 +285,7 @@ export default function ValidateCouponPage() {
     if (updateResult.error) {
       updateResult = await supabase
         .from('coupon_redemptions')
-        .update({
-          status: 'redeemed',
-          redeemed_at: redeemedAt,
-        })
+        .update({ status: 'redeemed', redeemed_at: redeemedAt })
         .eq('id', record.id)
         .eq('status', 'issued')
         .select('id,status,redeemed_at')
@@ -239,17 +330,18 @@ export default function ValidateCouponPage() {
         <div className="rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-5 text-white shadow-2xl shadow-orange-200">
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Staff mode</p>
           <h2 className="mt-2 text-4xl font-black leading-tight">Validate before redeeming.</h2>
-          <p className="mt-2 text-sm font-semibold text-white/85">Scanning checks the coupon. Redeem only after staff applies the reward in the POS.</p>
+          <p className="mt-2 text-sm font-semibold text-white/85">Tap the camera, scan the QR code, confirm validity, then redeem only after applying the reward in the POS.</p>
         </div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
-          <label className="text-sm font-black uppercase text-[#FF6B00]">Coupon Code</label>
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-sm font-black uppercase text-[#FF6B00]">Coupon Code</label>
+            <button onClick={startScanner} className="rounded-full bg-[#FF6B00] px-4 py-3 text-sm font-black text-white shadow-lg">📷 Scan</button>
+          </div>
           <input
             value={code}
             onChange={(event) => setCode(normalizeCode(event.target.value))}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') validateCoupon();
-            }}
+            onKeyDown={(event) => { if (event.key === 'Enter') validateCoupon(); }}
             placeholder="SPIN-ABC123"
             className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 text-2xl font-black uppercase tracking-wider outline-none focus:border-[#FF6B00]"
           />
@@ -296,6 +388,27 @@ export default function ValidateCouponPage() {
           )}
         </div>
       </section>
+
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/50 px-3 pb-3 backdrop-blur-sm">
+          <section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 shadow-2xl">
+            <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" />
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Camera Scanner</p>
+                <h2 className="mt-1 text-2xl font-black">Scan coupon QR</h2>
+              </div>
+              <button onClick={stopScanner} className="rounded-full bg-stone-100 px-4 py-2 text-sm font-black text-stone-800">Close</button>
+            </div>
+            <div className="relative mt-4 overflow-hidden rounded-3xl bg-stone-950">
+              <video ref={videoRef} className="h-72 w-full object-cover" muted playsInline />
+              <div className="pointer-events-none absolute inset-8 rounded-3xl border-4 border-white/80 shadow-[0_0_0_999px_rgba(0,0,0,.28)]" />
+            </div>
+            <p className="mt-4 rounded-2xl bg-orange-50 p-3 text-center text-sm font-black text-[#FF6B00]">{scannerMessage}</p>
+            <p className="mt-2 text-center text-xs font-bold text-stone-500">If scanning is unavailable on this browser, enter the coupon code manually.</p>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
