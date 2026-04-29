@@ -207,17 +207,12 @@ export default function ValidateCouponPage() {
     try {
       setScannerOpen(true);
       setScannerMessage('Starting camera...');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
-
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-
       scanningRef.current = true;
       setScannerMessage('Point the camera at the coupon QR code.');
       scanLoop();
@@ -247,7 +242,6 @@ export default function ValidateCouponPage() {
       const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
       const codes = await detector.detect(videoRef.current);
       const rawValue = codes[0]?.rawValue;
-
       if (rawValue) {
         const scannedCode = extractCouponCode(rawValue);
         setCode(scannedCode);
@@ -264,7 +258,6 @@ export default function ValidateCouponPage() {
 
   async function redeemCoupon() {
     if (!record || status !== 'valid') return;
-
     setRedeeming(true);
     setMessage('Redeeming coupon...');
     const nextConfirmation = generateConfirmationCode();
@@ -272,11 +265,7 @@ export default function ValidateCouponPage() {
 
     let updateResult = await supabase
       .from('coupon_redemptions')
-      .update({
-        status: 'redeemed',
-        redeemed_at: redeemedAt,
-        redemption_confirmation_code: nextConfirmation,
-      })
+      .update({ status: 'redeemed', redeemed_at: redeemedAt, redemption_confirmation_code: nextConfirmation })
       .eq('id', record.id)
       .eq('status', 'issued')
       .select('id,status,redeemed_at,redemption_confirmation_code')
@@ -330,14 +319,19 @@ export default function ValidateCouponPage() {
         <div className="rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-5 text-white shadow-2xl shadow-orange-200">
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Staff mode</p>
           <h2 className="mt-2 text-4xl font-black leading-tight">Validate before redeeming.</h2>
-          <p className="mt-2 text-sm font-semibold text-white/85">Tap the camera, scan the QR code, confirm validity, then redeem only after applying the reward in the POS.</p>
+          <p className="mt-2 text-sm font-semibold text-white/85">Tap Scan QR Code, point the camera at the customer coupon, confirm validity, then redeem only after applying the reward in the POS.</p>
         </div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
-          <div className="flex items-center justify-between gap-3">
-            <label className="text-sm font-black uppercase text-[#FF6B00]">Coupon Code</label>
-            <button onClick={startScanner} className="rounded-full bg-[#FF6B00] px-4 py-3 text-sm font-black text-white shadow-lg">📷 Scan</button>
+          <button onClick={startScanner} className="w-full rounded-3xl bg-gradient-to-r from-[#FF6B00] to-[#E63939] px-6 py-5 text-xl font-black text-white shadow-xl">
+            📷 Scan QR Code
+          </button>
+          <div className="my-4 flex items-center gap-3 text-xs font-black uppercase tracking-wide text-stone-400">
+            <div className="h-px flex-1 bg-stone-200" />
+            Or enter manually
+            <div className="h-px flex-1 bg-stone-200" />
           </div>
+          <label className="text-sm font-black uppercase text-[#FF6B00]">Coupon Code</label>
           <input
             value={code}
             onChange={(event) => setCode(normalizeCode(event.target.value))}
