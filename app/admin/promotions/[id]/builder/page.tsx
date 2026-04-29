@@ -72,6 +72,7 @@ export default function PromotionBuilderPage() {
 
   const [dailyLimit, setDailyLimit] = useState(50);
   const [maxSpins, setMaxSpins] = useState(3);
+  const [couponExpiryMinutes, setCouponExpiryMinutes] = useState(20);
   const [stopOnWin, setStopOnWin] = useState(true);
   const [startsAt, setStartsAt] = useState('');
   const [endsAt, setEndsAt] = useState('');
@@ -89,7 +90,7 @@ export default function PromotionBuilderPage() {
 
       const promotionResult = await supabase
         .from('promotions')
-        .select('id,restaurant_id,name,slug,game_type,status,daily_redeem_limit,max_spins,stop_on_win,starts_at,ends_at')
+        .select('id,restaurant_id,name,slug,game_type,status,daily_redeem_limit,max_spins,coupon_expiry_minutes,stop_on_win,starts_at,ends_at')
         .eq('id', id)
         .single();
 
@@ -104,6 +105,7 @@ export default function PromotionBuilderPage() {
       setLaunchSuccess(loadedPromotion.status === 'active');
       setDailyLimit(loadedPromotion.daily_redeem_limit || 50);
       setMaxSpins(loadedPromotion.max_spins || 3);
+      setCouponExpiryMinutes(loadedPromotion.coupon_expiry_minutes || 20);
       setStopOnWin(loadedPromotion.stop_on_win ?? true);
       setStartsAt(loadedPromotion.starts_at ? loadedPromotion.starts_at.slice(0, 16) : '');
       setEndsAt(loadedPromotion.ends_at ? loadedPromotion.ends_at.slice(0, 16) : '');
@@ -187,6 +189,7 @@ export default function PromotionBuilderPage() {
     if (rewards.length > MAX) messages.push(`Use no more than ${MAX} rewards.`);
     if (!dailyLimit || dailyLimit < 1) messages.push('Daily promotion limit is required.');
     if (!maxSpins || maxSpins < 1) messages.push('Max spins per customer is required.');
+    if (!couponExpiryMinutes || couponExpiryMinutes < 1) messages.push('Coupon expiry time is required.');
     if (!startsAt) messages.push('Start date/time is required.');
     if (!endsAt) messages.push('End date/time is required.');
     if (startsAt && endsAt && new Date(startsAt) >= new Date(endsAt)) {
@@ -207,7 +210,7 @@ export default function PromotionBuilderPage() {
     });
 
     return messages;
-  }, [rewards, dailyLimit, maxSpins, startsAt, endsAt]);
+  }, [rewards, dailyLimit, maxSpins, couponExpiryMinutes, startsAt, endsAt]);
 
   function markDirty() {
     setSaved(false);
@@ -289,6 +292,7 @@ export default function PromotionBuilderPage() {
       .update({
         daily_redeem_limit: dailyLimit,
         max_spins: maxSpins,
+        coupon_expiry_minutes: couponExpiryMinutes,
         stop_on_win: stopOnWin,
         starts_at: startsAt ? new Date(startsAt).toISOString() : null,
         ends_at: endsAt ? new Date(endsAt).toISOString() : null,
@@ -330,7 +334,7 @@ export default function PromotionBuilderPage() {
       }
     }
 
-    setPromotion({ ...promotion, status: 'draft' });
+    setPromotion({ ...promotion, status: 'draft', coupon_expiry_minutes: couponExpiryMinutes });
     setSaving(false);
     setSaved(true);
     return true;
@@ -356,7 +360,7 @@ export default function PromotionBuilderPage() {
       return;
     }
 
-    setPromotion({ ...promotion, status: 'active' });
+    setPromotion({ ...promotion, status: 'active', coupon_expiry_minutes: couponExpiryMinutes });
     setSaved(false);
     setLaunchSuccess(true);
     setLaunching(false);
@@ -504,6 +508,7 @@ export default function PromotionBuilderPage() {
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-black text-stone-700">Daily Promotion Limit<input type="number" min={1} value={dailyLimit} onChange={(event) => { markDirty(); setDailyLimit(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
             <label className="text-sm font-black text-stone-700">Max Spins Per Customer<input type="number" min={1} value={maxSpins} onChange={(event) => { markDirty(); setMaxSpins(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
+            <label className="text-sm font-black text-stone-700">Coupon Expiry (minutes)<input type="number" min={1} value={couponExpiryMinutes} onChange={(event) => { markDirty(); setCouponExpiryMinutes(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
             <label className="text-sm font-black text-stone-700">Start Date/Time<input type="datetime-local" value={startsAt} onChange={(event) => { markDirty(); setStartsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
             <label className="text-sm font-black text-stone-700">End Date/Time<input type="datetime-local" value={endsAt} onChange={(event) => { markDirty(); setEndsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>
           </div>
