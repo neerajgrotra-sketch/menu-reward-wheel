@@ -15,6 +15,8 @@ type MetricCounts = {
   restaurants: number;
   activePromotions: number;
   totalPromotions: number;
+  issuedCoupons: number;
+  redeemedCoupons: number;
 };
 
 const welcomeMessages = [
@@ -27,7 +29,7 @@ const welcomeMessages = [
 export default function AdminPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string>('');
-  const [counts, setCounts] = useState<MetricCounts>({ restaurants: 0, activePromotions: 0, totalPromotions: 0 });
+  const [counts, setCounts] = useState<MetricCounts>({ restaurants: 0, activePromotions: 0, totalPromotions: 0, issuedCoupons: 0, redeemedCoupons: 0 });
   const [message, setMessage] = useState(welcomeMessages[0]);
   const [loading, setLoading] = useState(true);
 
@@ -89,10 +91,23 @@ export default function AdminPage() {
         .select('id', { count: 'exact', head: true })
         .eq('restaurant_id', restaurant.id);
 
+      const issuedCouponCount = await supabase
+        .from('coupon_redemptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('restaurant_id', restaurant.id);
+
+      const redeemedCouponCount = await supabase
+        .from('coupon_redemptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('restaurant_id', restaurant.id)
+        .eq('status', 'redeemed');
+
       setCounts({
         restaurants: restaurants.length,
         activePromotions: activePromotionCount.count || 0,
         totalPromotions: totalPromotionCount.count || 0,
+        issuedCoupons: issuedCouponCount.count || 0,
+        redeemedCoupons: redeemedCouponCount.count || 0,
       });
     }
 
@@ -112,10 +127,12 @@ export default function AdminPage() {
     return <main className="min-h-screen bg-[#FFF8F0] p-6 text-[#1F1F1F]">No restaurant selected.</main>;
   }
 
+  const redemptionRate = counts.issuedCoupons > 0 ? Math.round((counts.redeemedCoupons / counts.issuedCoupons) * 100) : 0;
+
   const actionTiles = [
     { title: 'Create Promotion', copy: 'Launch a new campaign and build a reward wheel.', href: `/admin/promotions?slug=${restaurant.slug}`, icon: '🎯', primary: true },
+    { title: 'Validate Coupons', copy: 'Scan or enter customer coupon codes at the counter.', href: '/admin/validate', icon: '✅', primary: false },
     { title: 'Menus', copy: 'Build breakfast, lunch, dinner, and special menus for promotions.', href: `/admin/menu?slug=${restaurant.slug}`, icon: '🍽️', primary: false },
-    { title: 'View Promotions', copy: 'Manage campaigns, rewards, and customer links.', href: `/admin/promotions?slug=${restaurant.slug}`, icon: '🔥', primary: false },
     { title: 'Manage Restaurants', copy: 'Add locations and update restaurant profiles.', href: '/admin/restaurants', icon: '🏪', primary: false },
   ];
 
@@ -136,14 +153,16 @@ export default function AdminPage() {
           <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Today’s workspace</p>
           <h2 className="mt-3 text-4xl font-black leading-tight">{message}</h2>
           <p className="mt-3 text-sm font-semibold text-white/85">
-            Build promotions, publish QR-ready games, and start turning attention into orders.
+            Build promotions, publish QR-ready games, validate coupons, and start turning attention into orders.
           </p>
         </div>
 
-        <div className="mt-5 grid grid-cols-3 gap-3">
+        <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
           <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{counts.restaurants}</p><p className="text-xs font-bold text-stone-500">Restaurants</p></div>
           <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{counts.activePromotions}</p><p className="text-xs font-bold text-stone-500">Active Promos</p></div>
-          <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{counts.totalPromotions}</p><p className="text-xs font-bold text-stone-500">Total Promos</p></div>
+          <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{counts.issuedCoupons}</p><p className="text-xs font-bold text-stone-500">Issued</p></div>
+          <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{counts.redeemedCoupons}</p><p className="text-xs font-bold text-stone-500">Redeemed</p></div>
+          <div className="rounded-3xl bg-white p-4 text-center shadow"><p className="text-3xl font-black">{redemptionRate}%</p><p className="text-xs font-bold text-stone-500">Redemption</p></div>
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-4">
