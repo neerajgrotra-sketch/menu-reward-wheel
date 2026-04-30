@@ -49,8 +49,6 @@ export async function updateGame(formData: FormData) {
   const slug = requiredString(formData.get('slug'));
   const minRewards = Math.max(1, toInt(formData.get('min_rewards'), 6));
   const maxRewards = Math.max(minRewards, toInt(formData.get('max_rewards'), 10));
-  const minProducts = Math.max(1, toInt(formData.get('min_products'), minRewards));
-  const maxProducts = Math.max(minProducts, toInt(formData.get('max_products'), maxRewards));
   const defaultSpins = Math.max(1, toInt(formData.get('default_spins'), 3));
   const defaultCouponExpiryMinutes = Math.max(1, toInt(formData.get('default_coupon_expiry_minutes'), 20));
   const supportsTryAgain = formData.get('supports_try_again') === 'on';
@@ -63,8 +61,8 @@ export async function updateGame(formData: FormData) {
     icon: requiredString(formData.get('icon'), '🎮'),
     min_rewards: minRewards,
     max_rewards: maxRewards,
-    min_products: minProducts,
-    max_products: maxProducts,
+    min_products: minRewards,
+    max_products: maxRewards,
     default_spins: defaultSpins,
     default_coupon_expiry_minutes: defaultCouponExpiryMinutes,
     stop_on_win_default: formData.get('stop_on_win_default') === 'on',
