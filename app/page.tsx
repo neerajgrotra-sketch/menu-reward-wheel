@@ -20,7 +20,7 @@ const steps = [
   { icon: ChefHat, title: 'Build your menu', body: 'Add dishes, drinks, combos, and chef specials in minutes.' },
   { icon: Sparkles, title: 'Create promotions', body: 'Turn menu items into spin rewards with discounts, free items, and limits.' },
   { icon: QrCode, title: 'Publish QR codes', body: 'Place QR codes on tables, receipts, posters, or takeout bags.' },
-  { icon: Trophy, title: 'Customers play', body: 'Diners spin, win, redeem, and order more with a fun reward moment.' },
+  { icon: Trophy, title: 'Customers play', body: 'Diners spin, win, redeem, and order more with a fun reward moment.', learnMore: true },
 ];
 
 const benefits = [
@@ -57,8 +57,8 @@ export default function LandingPage() {
   return (
     <main className="min-h-screen overflow-hidden bg-[#FFF8F0] text-[#1F1F1F]">
       <nav className="sticky top-0 z-50 border-b border-orange-100 bg-[#FFF8F0]/90 px-4 py-3 backdrop-blur-xl sm:px-6">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <a href="#top" className="flex items-center gap-2 text-2xl font-black text-[#FF6B00]" aria-label="SpinBite home">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+          <a href="#top" className="flex min-w-0 items-center gap-2 text-2xl font-black text-[#FF6B00]" aria-label="SpinBite home">
             <span className="text-3xl leading-none">🎯</span>
             <span>SpinBite</span>
           </a>
@@ -67,11 +67,9 @@ export default function LandingPage() {
             <a href="#games" className="hover:text-[#FF6B00]">Games</a>
             <a href="#restaurants" className="hover:text-[#FF6B00]">Restaurants</a>
             <a href="#pricing" className="hover:text-[#FF6B00]">Pricing</a>
-            <a href="/faq" className="hover:text-[#FF6B00]">FAQ</a>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <a href="/auth" className="rounded-full px-3 py-2 text-sm font-black hover:bg-white sm:px-4">Login</a>
-            <a href="/faq" className="rounded-full bg-white px-3 py-2 text-sm font-black text-[#FF6B00] shadow-sm sm:px-4 md:hidden">FAQ</a>
             <a href="/auth" className="rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-black text-white shadow-lg shadow-orange-200 sm:px-5">Sign Up</a>
           </div>
         </div>
@@ -124,6 +122,11 @@ export default function LandingPage() {
                 <step.icon className="h-8 w-8 text-[#FF6B00]" />
                 <h3 className="mt-4 text-xl font-black">{step.title}</h3>
                 <p className="mt-2 text-sm leading-6 text-stone-600">{step.body}</p>
+                {step.learnMore && (
+                  <a href="/faq" className="mt-4 inline-flex rounded-full bg-orange-50 px-4 py-2 text-sm font-black text-[#FF6B00]">
+                    Learn more
+                  </a>
+                )}
               </motion.div>
             ))}
           </div>
