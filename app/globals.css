@@ -12,3 +12,10 @@ body { margin: 0; background: #fff7ed; }
 section.bg-gradient-to-br.from-\[\#FF6B00\].to-\[\#E63939\] .bg-white\/15.p-3 {
   display: none;
 }
+
+/* Menu Builder hero cleanup:
+   Hide the duplicated selected-location panel inside the orange hero.
+   Step 1 remains the location source of truth. */
+section.mx-auto.max-w-5xl > .bg-gradient-to-br.from-\[\#FF6B00\].to-\[\#E63939\] .bg-white\/15.p-4 {
+  display: none;
+}
