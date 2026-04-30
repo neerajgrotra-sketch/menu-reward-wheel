@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { RewardWheel } from '@/components/RewardWheel';
+import { RewardWheel, getRewardWheelTargetRotation } from '@/components/RewardWheel';
 import type { Reward } from '@/types/reward';
 import { updateGame } from './actions';
 
@@ -118,6 +118,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
   const maxProducts = game.max_products ?? game.max_rewards;
   const segmentCount = Math.max(2, Math.min(10, maxProducts));
   const segmentAngle = 360 / segmentCount;
+  const transitionDurationMs = Math.round((wheel.slowdownSeconds * 1000) / Math.max(0.2, wheel.speed));
 
   const rewards: Reward[] = useMemo(() => {
     const base = Array.from({ length: segmentCount }, (_, index) => {
@@ -166,7 +167,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
     if (spinning) return;
     setSpinning(true);
     const selectedIndex = Math.floor(Math.random() * rewards.length);
-    const finalRotation = rotation + wheel.spinRotations * 360 * wheel.speed + (-(selectedIndex * segmentAngle) - (rotation % 360));
+    const finalRotation = getRewardWheelTargetRotation({ currentRotation: rotation, selectedIndex, segmentAngle, rotations: wheel.spinRotations });
     setRotation(finalRotation);
 
     window.setTimeout(() => {
@@ -174,7 +175,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
       setLastResult(winner.label);
       setSpinning(false);
       if (winner.id !== 'lab-try-again') celebrate();
-    }, wheel.slowdownSeconds * 1000);
+    }, transitionDurationMs);
   }
 
   return (
@@ -189,11 +190,11 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
 
       <div className="mt-4 rounded-3xl bg-white/80 p-4 text-center shadow-lg">
         <p className="text-lg font-black text-[#FF6B00]">Global test mode 🎯</p>
-        <p className="mt-1 text-sm font-bold text-stone-600">Uses the same wheel component as the customer play page.</p>
+        <p className="mt-1 text-sm font-bold text-stone-600">Uses the same wheel component and landing math as the customer play page.</p>
       </div>
 
       <div className="mt-6">
-        <RewardWheel rewards={rewards} rotation={rotation} spinning={spinning} />
+        <RewardWheel rewards={rewards} rotation={rotation} spinning={spinning} transitionDurationMs={transitionDurationMs} />
       </div>
 
       <div className="mt-5 rounded-3xl bg-white p-4 text-center shadow-lg">
