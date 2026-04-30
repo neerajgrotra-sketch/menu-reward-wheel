@@ -30,6 +30,7 @@ export default function MenuPage() {
   const [newMenu, setNewMenu] = useState('');
   const [expandedMenuId, setExpandedMenuId] = useState<string | null>(null);
   const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  const [renamingMenuId, setRenamingMenuId] = useState<string | null>(null);
   const [editingMenuName, setEditingMenuName] = useState('');
   const [newItemName, setNewItemName] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
@@ -79,7 +80,7 @@ export default function MenuPage() {
 
   useEffect(() => {
     if (!selectedRestaurantId) return;
-    setExpandedMenuId(null); setEditingMenuId(null); setItems([]); setNewMenu(''); setError('');
+    setExpandedMenuId(null); setEditingMenuId(null); setRenamingMenuId(null); setItems([]); setNewMenu(''); setError('');
     loadMenus(selectedRestaurantId);
   }, [selectedRestaurantId]);
 
@@ -98,18 +99,24 @@ export default function MenuPage() {
   }
 
   async function openEditor(menu: Menu) {
-    setExpandedMenuId(menu.id); setEditingMenuId(menu.id); setEditingMenuName(menu.name);
+    setExpandedMenuId(menu.id); setEditingMenuId(menu.id); setRenamingMenuId(null); setEditingMenuName(menu.name);
     setNewItemName(''); setNewItemPrice(''); setEditingItemId(null); await loadItems(menu.id);
+  }
+
+  function startRenameMenu(menu: Menu) {
+    setRenamingMenuId(menu.id);
+    setEditingMenuName(menu.name);
   }
 
   async function saveMenuName(menuId: string) {
     if (!restaurant || !editingMenuName.trim()) return;
     const result = await supabase.from('menus').update({ name: editingMenuName.trim(), menu_type: editingMenuName.trim().toLowerCase() }).eq('id', menuId).eq('restaurant_id', restaurant.id);
     if (result.error) { setError(result.error.message); return; }
+    setRenamingMenuId(null);
     await loadMenus(restaurant.id); setNotice('Menu name saved'); setTimeout(() => setNotice(''), 1500);
   }
 
-  function finishEditing() { setEditingMenuId(null); setEditingItemId(null); setNotice('Menu saved'); setTimeout(() => setNotice(''), 1500); }
+  function finishEditing() { setEditingMenuId(null); setRenamingMenuId(null); setEditingItemId(null); setNotice('Menu saved'); setTimeout(() => setNotice(''), 1500); }
 
   async function addItem() {
     if (!newItemName.trim() || !editingMenuId || !restaurant) return;
@@ -148,7 +155,7 @@ export default function MenuPage() {
     if (itemDelete.error) { setError(itemDelete.error.message); return; }
     const menuDelete = await supabase.from('menus').delete().eq('id', menu.id).eq('restaurant_id', restaurant.id);
     if (menuDelete.error) { setError(menuDelete.error.message); return; }
-    if (expandedMenuId === menu.id) { setExpandedMenuId(null); setEditingMenuId(null); setItems([]); }
+    if (expandedMenuId === menu.id) { setExpandedMenuId(null); setEditingMenuId(null); setRenamingMenuId(null); setItems([]); }
     await loadMenus(restaurant.id); setNotice('Menu deleted'); setTimeout(() => setNotice(''), 1500);
   }
 
@@ -163,12 +170,16 @@ export default function MenuPage() {
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 2: Create Menu</p><div className="mt-3 flex gap-2"><input value={newMenu} onChange={(e) => setNewMenu(e.target.value)} placeholder="Breakfast, Lunch, Dinner..." className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><button onClick={addMenu} className="rounded-2xl bg-green-600 px-5 py-3 text-xl font-black text-white">+</button></div></div>
         {notice && <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>}{error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
         <div className="mt-5 space-y-4">{menus.length === 0 && <div className="rounded-3xl bg-white p-6 shadow-xl"><p className="text-2xl font-black">No menus for this location yet</p><p className="mt-2 text-sm font-semibold text-stone-600">Create the first menu for {restaurant ? `${restaurant.name} — ${restaurantAddress(restaurant)}` : 'this restaurant location'}.</p></div>}
-          {menus.map((menu) => { const isExpanded = expandedMenuId === menu.id; const isEditing = editingMenuId === menu.id; return <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
+          {menus.map((menu) => { const isExpanded = expandedMenuId === menu.id; const isEditing = editingMenuId === menu.id; const isRenaming = renamingMenuId === menu.id; return <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
             <button onClick={() => toggleMenu(menu.id)} className="flex w-full items-center justify-between gap-4 text-left"><div><h3 className="text-3xl font-black">{menu.name}</h3><p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p></div><span className="text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span></button>
             <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-bold text-stone-600">Location: {restaurant?.name} — {restaurantAddress(restaurant)}</div>
             <div className="mt-4 grid grid-cols-2 gap-3"><button onClick={() => openEditor(menu)} className="rounded-2xl bg-orange-50 px-4 py-3 text-sm font-black text-[#FF6B00]">✏️ Edit Menu</button><button onClick={() => deleteMenu(menu)} className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">Delete Menu</button></div>
             {isExpanded && !isEditing && <div className="mt-4 space-y-2 rounded-3xl bg-[#FFF8F0] p-4">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet. Tap Edit Menu to add items.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm"><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div>)}</div>}
-            {isEditing && <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4"><div className="flex items-center justify-between gap-3"><h4 className="text-xl font-black">Edit Menu</h4><button onClick={finishEditing} className="rounded-full bg-green-600 px-4 py-2 text-sm font-black text-white">Done</button></div><div className="mt-3 grid grid-cols-[1fr_90px] gap-2"><input value={editingMenuName} onChange={(e) => setEditingMenuName(e.target.value)} className="rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><button onClick={() => saveMenuName(menu.id)} className="rounded-2xl bg-[#1F1F1F] px-3 py-3 text-sm font-black text-white">Save Name</button></div><p className="mt-5 text-sm font-black uppercase text-[#FF6B00]">Add item</p><div className="mt-2 grid grid-cols-[1fr_110px_48px] gap-2"><input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span><input value={newItemPrice} onChange={(e) => setNewItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" inputMode="decimal" className="w-full rounded-2xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]" /></div><button onClick={addItem} className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white">+</button></div><p className="mt-2 text-xs font-bold text-stone-500">Currency: CAD for MVP. Name is required; price is optional.</p><div className="mt-4 space-y-2">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">{editingItemId === item.id ? <div className="space-y-2"><input value={editingItemName} onChange={(e) => setEditingItemName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold" /><input value={editingItemPrice} onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold" placeholder="0.00" /><div className="grid grid-cols-2 gap-2"><button onClick={() => saveItem(item.id)} className="rounded-xl bg-green-600 px-3 py-2 text-sm font-black text-white">Save Item</button><button onClick={() => setEditingItemId(null)} className="rounded-xl bg-stone-100 px-3 py-2 text-sm font-black text-stone-600">Cancel</button></div></div> : <div className="flex items-center justify-between gap-3"><div><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div><div className="flex gap-2"><button onClick={() => startEditItem(item)} className="rounded-full bg-orange-50 px-3 py-2 text-xs font-black text-[#FF6B00]">Edit</button><button onClick={() => deleteItem(item)} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">Delete</button></div></div>}</div>)}</div></div>}
+            {isEditing && <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4"><div className="flex items-center justify-between gap-3"><h4 className="text-xl font-black">Edit Menu</h4><button onClick={finishEditing} className="rounded-full bg-green-600 px-4 py-2 text-sm font-black text-white">Done</button></div>
+              <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm">
+                {!isRenaming ? <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wide text-stone-400">Menu name</p><p className="text-2xl font-black">{menu.name}</p></div><button onClick={() => startRenameMenu(menu)} aria-label="Edit menu name" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-50 text-xl shadow-sm">✏️</button></div> : <div className="space-y-3"><p className="text-xs font-black uppercase tracking-wide text-stone-400">Rename menu</p><input value={editingMenuName} onChange={(e) => setEditingMenuName(e.target.value)} className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-xl font-black outline-none focus:border-[#FF6B00]" /><div className="grid grid-cols-2 gap-2"><button onClick={() => saveMenuName(menu.id)} className="rounded-2xl bg-green-600 px-4 py-3 text-sm font-black text-white">Save</button><button onClick={() => setRenamingMenuId(null)} className="rounded-2xl bg-stone-100 px-4 py-3 text-sm font-black text-stone-600">Cancel</button></div></div>}
+              </div>
+              <p className="mt-5 text-sm font-black uppercase text-[#FF6B00]">Add item</p><div className="mt-2 grid grid-cols-[1fr_110px_48px] gap-2"><input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span><input value={newItemPrice} onChange={(e) => setNewItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" inputMode="decimal" className="w-full rounded-2xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]" /></div><button onClick={addItem} className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white">+</button></div><p className="mt-2 text-xs font-bold text-stone-500">Currency: CAD for MVP. Name is required; price is optional.</p><div className="mt-4 space-y-2">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">{editingItemId === item.id ? <div className="space-y-2"><input value={editingItemName} onChange={(e) => setEditingItemName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold" /><input value={editingItemPrice} onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold" placeholder="0.00" /><div className="grid grid-cols-2 gap-2"><button onClick={() => saveItem(item.id)} className="rounded-xl bg-green-600 px-3 py-2 text-sm font-black text-white">Save Item</button><button onClick={() => setEditingItemId(null)} className="rounded-xl bg-stone-100 px-3 py-2 text-sm font-black text-stone-600">Cancel</button></div></div> : <div className="flex items-center justify-between gap-3"><div><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div><div className="flex gap-2"><button onClick={() => startEditItem(item)} className="rounded-full bg-orange-50 px-3 py-2 text-xs font-black text-[#FF6B00]">Edit</button><button onClick={() => deleteItem(item)} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">Delete</button></div></div>}</div>)}</div></div>}
           </article>; })}
         </div>
       </section>
