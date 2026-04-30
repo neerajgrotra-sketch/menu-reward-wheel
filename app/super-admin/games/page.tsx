@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { requireSuperAdmin } from '@/lib/super-admin';
 import { createClient } from '@/lib/supabase/server';
 import { updateGame } from './actions';
@@ -33,7 +34,7 @@ function statusClass(status: Game['status']) {
   return 'bg-orange-50 text-[#FF6B00]';
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="text-xs font-black uppercase tracking-wide text-stone-500">{label}</span>
