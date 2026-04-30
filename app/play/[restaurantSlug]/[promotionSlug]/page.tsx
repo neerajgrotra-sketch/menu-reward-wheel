@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
-import { RewardWheel } from '@/components/RewardWheel';
+import { RewardWheel, getRewardWheelTargetRotation } from '@/components/RewardWheel';
 import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
 import { createClient } from '@/lib/supabase/client';
 import type { Reward } from '@/types/reward';
@@ -157,7 +157,7 @@ export default function PromotionPlayPage() {
     if (!canSpin || !promotion || !restaurant) return;
     const selected = pickWeightedReward(rewards);
     const selectedIndex = rewards.findIndex((item) => item.id === selected.id);
-    const finalRotation = rotation + 5 * 360 + (-(selectedIndex * segmentAngle) - (rotation % 360));
+    const finalRotation = getRewardWheelTargetRotation({ currentRotation: rotation, selectedIndex, segmentAngle, rotations: 5 });
     setCouponIssueError('');
     setSpinning(true);
     setShowReveal(false);

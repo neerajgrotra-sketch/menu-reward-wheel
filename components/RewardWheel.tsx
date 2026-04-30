@@ -4,7 +4,34 @@ import type { Reward } from '@/types/reward';
 
 const colors = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c', '#fef3c7', '#facc15'];
 
-export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]; rotation: number; spinning: boolean }) {
+export function normalizeWheelRotation(rotation: number) {
+  return ((rotation % 360) + 360) % 360;
+}
+
+export function getRewardWheelTargetRotation(params: {
+  currentRotation: number;
+  selectedIndex: number;
+  segmentAngle: number;
+  rotations?: number;
+}) {
+  const fullRotations = Math.max(1, Math.round(params.rotations ?? 5));
+  const currentNormalizedRotation = normalizeWheelRotation(params.currentRotation);
+  const selectedSegmentCenterAtPointer = -(params.selectedIndex * params.segmentAngle);
+
+  return params.currentRotation + fullRotations * 360 + (selectedSegmentCenterAtPointer - currentNormalizedRotation);
+}
+
+export function RewardWheel({
+  rewards,
+  rotation,
+  spinning,
+  transitionDurationMs = 2800,
+}: {
+  rewards: Reward[];
+  rotation: number;
+  spinning: boolean;
+  transitionDurationMs?: number;
+}) {
   const segmentAngle = 360 / rewards.length;
   const labelRadius = 94;
   const gradientStart = 90 - segmentAngle / 2;
@@ -16,8 +43,12 @@ export function RewardWheel({ rewards, rotation, spinning }: { rewards: Reward[]
   return (
     <div className="relative mx-auto h-80 w-80 max-w-full rounded-full p-3 shadow-glow">
       <div
-        className="relative h-full w-full rounded-full border-8 border-white shadow-2xl transition-transform duration-[2800ms] ease-out"
-        style={{ background: `conic-gradient(from ${gradientStart}deg, ${gradient})`, transform: `rotate(${rotation}deg)` }}
+        className="relative h-full w-full rounded-full border-8 border-white shadow-2xl transition-transform ease-out"
+        style={{
+          background: `conic-gradient(from ${gradientStart}deg, ${gradient})`,
+          transform: `rotate(${rotation}deg)`,
+          transitionDuration: spinning ? `${transitionDurationMs}ms` : '350ms',
+        }}
       >
         {rewards.map((reward, index) => {
           const angle = index * segmentAngle;
