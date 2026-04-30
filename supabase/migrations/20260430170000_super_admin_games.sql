@@ -68,12 +68,12 @@ for select
 to authenticated
 using (id = auth.uid() or public.is_super_admin());
 
-drop policy if exists "profiles_insert_own" on public.profiles;
-create policy "profiles_insert_own"
+drop policy if exists "profiles_insert_restaurant_owner_own" on public.profiles;
+create policy "profiles_insert_restaurant_owner_own"
 on public.profiles
 for insert
 to authenticated
-with check (id = auth.uid());
+with check (id = auth.uid() and role = 'restaurant_owner');
 
 drop policy if exists "profiles_update_super_admin" on public.profiles;
 create policy "profiles_update_super_admin"
@@ -81,6 +81,13 @@ on public.profiles
 for update
 to authenticated
 using (public.is_super_admin())
+with check (public.is_super_admin());
+
+drop policy if exists "profiles_insert_super_admin" on public.profiles;
+create policy "profiles_insert_super_admin"
+on public.profiles
+for insert
+to authenticated
 with check (public.is_super_admin());
 
 drop policy if exists "games_select_authenticated" on public.games;
