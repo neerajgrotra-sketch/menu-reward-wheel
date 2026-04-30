@@ -11,6 +11,13 @@ type Restaurant = {
   owner_name?: string | null;
 };
 
+type PromotionForCount = {
+  id: string;
+  status: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+};
+
 type MetricCounts = {
   restaurants: number;
   activePromotions: number;
@@ -25,6 +32,14 @@ const welcomeMessages = [
   'What promotion are we launching today?',
   'Let’s turn menu attention into real sales.',
 ];
+
+function isEffectivelyActive(promotion: PromotionForCount) {
+  const now = new Date();
+  if (promotion.status !== 'active') return false;
+  if (promotion.starts_at && now < new Date(promotion.starts_at)) return false;
+  if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
+  return true;
+}
 
 export default function AdminPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -59,11 +74,12 @@ export default function AdminPage() {
   useEffect(() => {
     async function loadCounts() {
       if (!restaurant) return;
-      const activePromotionCount = await supabase.from('promotions').select('id', { count: 'exact', head: true }).eq('restaurant_id', restaurant.id).eq('status', 'active');
-      const totalPromotionCount = await supabase.from('promotions').select('id', { count: 'exact', head: true }).eq('restaurant_id', restaurant.id);
+      const promotionsResult = await supabase.from('promotions').select('id,status,starts_at,ends_at').eq('restaurant_id', restaurant.id);
+      const promotions = (promotionsResult.data || []) as PromotionForCount[];
+      const activePromotions = promotions.filter(isEffectivelyActive).length;
       const issuedCouponCount = await supabase.from('coupon_redemptions').select('id', { count: 'exact', head: true }).eq('restaurant_id', restaurant.id);
       const redeemedCouponCount = await supabase.from('coupon_redemptions').select('id', { count: 'exact', head: true }).eq('restaurant_id', restaurant.id).eq('status', 'redeemed');
-      setCounts({ restaurants: restaurants.length, activePromotions: activePromotionCount.count || 0, totalPromotions: totalPromotionCount.count || 0, issuedCoupons: issuedCouponCount.count || 0, redeemedCoupons: redeemedCouponCount.count || 0 });
+      setCounts({ restaurants: restaurants.length, activePromotions, totalPromotions: promotions.length, issuedCoupons: issuedCouponCount.count || 0, redeemedCoupons: redeemedCouponCount.count || 0 });
     }
     loadCounts();
   }, [restaurant, restaurants.length, supabase]);
@@ -79,7 +95,7 @@ export default function AdminPage() {
   const redemptionRate = counts.issuedCoupons > 0 ? Math.round((counts.redeemedCoupons / counts.issuedCoupons) * 100) : 0;
   const actionTiles = [
     { title: 'Create Promotion', copy: 'Start a brand-new campaign draft and build a reward wheel.', href: `/admin/promotions?slug=${restaurant.slug}&mode=create`, icon: '🎯', primary: true },
-    { title: 'Manage Promotions', copy: 'Edit drafts, monitor active campaigns, relaunch ended promotions, and copy QR links.', href: `/admin/promotions?slug=${restaurant.slug}&mode=manage`, icon: '📊', primary: false },
+    { title: 'Manage Promotions', copy: 'Edit drafts, monitor active campaigns, end promotions, and copy QR links.', href: `/admin/promotions?slug=${restaurant.slug}&mode=manage`, icon: '📊', primary: false },
     { title: 'Validate Coupons', copy: 'Scan or enter customer coupon codes at the counter.', href: '/admin/validate', icon: '✅', primary: false },
     { title: 'Menus', copy: 'Build breakfast, lunch, dinner, and special menus for promotions.', href: `/admin/menu?slug=${restaurant.slug}`, icon: '🍽️', primary: false },
     { title: 'Manage Restaurants', copy: 'Add locations and update restaurant profiles.', href: '/admin/restaurants', icon: '🏪', primary: false },
