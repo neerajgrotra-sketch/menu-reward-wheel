@@ -4,13 +4,16 @@ import { createClient } from '@supabase/supabase-js';
 function makeClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-  if (!url || (!serviceKey && !anonKey)) {
-    throw new Error('Supabase environment variables are missing.');
+  if (!url) {
+    throw new Error('Supabase URL is missing.');
   }
 
-  return createClient(url, serviceKey || anonKey!, {
+  if (!serviceKey) {
+    throw new Error('Coupon issuance is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Vercel.');
+  }
+
+  return createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
@@ -30,6 +33,44 @@ export async function POST(request: Request) {
 
     const supabase = makeClient();
 
+    const promotionCheck = await supabase
+      .from('promotions')
+      .select('id,status,restaurant_id,starts_at,ends_at')
+      .eq('id', promotion_id)
+      .eq('restaurant_id', restaurant_id)
+      .single();
+
+    if (promotionCheck.error || !promotionCheck.data) {
+      return NextResponse.json({ error: 'Promotion could not be validated.' }, { status: 404 });
+    }
+
+    const promotion = promotionCheck.data;
+    const now = new Date();
+
+    if (promotion.status !== 'active') {
+      return NextResponse.json({ error: 'Promotion is not active.' }, { status: 400 });
+    }
+
+    if (promotion.starts_at && now < new Date(promotion.starts_at)) {
+      return NextResponse.json({ error: 'Promotion has not started yet.' }, { status: 400 });
+    }
+
+    if (promotion.ends_at && now > new Date(promotion.ends_at)) {
+      return NextResponse.json({ error: 'Promotion has ended.' }, { status: 400 });
+    }
+
+    const rewardCheck = await supabase
+      .from('promotion_rewards')
+      .select('id,promotion_id,restaurant_id')
+      .eq('id', promotion_reward_id)
+      .eq('promotion_id', promotion_id)
+      .eq('restaurant_id', restaurant_id)
+      .single();
+
+    if (rewardCheck.error || !rewardCheck.data) {
+      return NextResponse.json({ error: 'Reward could not be validated.' }, { status: 404 });
+    }
+
     const { data, error } = await supabase
       .from('coupon_redemptions')
       .insert({
@@ -45,11 +86,13 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error('Coupon issuance insert failed', error.message);
+      return NextResponse.json({ error: 'Coupon could not be saved. Please ask staff for help.' }, { status: 500 });
     }
 
     return NextResponse.json({ coupon: data });
   } catch (error: any) {
+    console.error('Coupon issuance failed', error?.message || error);
     return NextResponse.json({ error: error?.message || 'Could not issue coupon.' }, { status: 500 });
   }
 }
