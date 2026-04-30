@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { RewardWheel, getRewardWheelTargetRotation } from '@/components/RewardWheel';
+import { createCouponCode } from '@/lib/rewards';
 import type { Reward } from '@/types/reward';
 import { updateGame } from './actions';
 
@@ -24,6 +25,13 @@ type WheelConfig = {
 
 type GameConfig = {
   wheel?: WheelConfig;
+};
+
+type LabCoupon = {
+  rewardLabel: string;
+  code: string;
+  issuedAt: number;
+  expiresAt: number;
 };
 
 export type GameForLab = {
@@ -83,6 +91,18 @@ function readWheelConfig(game: GameForLab) {
   } satisfies Required<WheelConfig>;
 }
 
+function formatRemaining(ms: number) {
+  if (ms <= 0) return 'Expired';
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function couponQrUrl(code: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(code)}`;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
@@ -114,6 +134,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [lastResult, setLastResult] = useState('Ready to test global feel');
+  const [labCoupon, setLabCoupon] = useState<LabCoupon | null>(null);
   const minProducts = game.min_products ?? game.min_rewards;
   const maxProducts = game.max_products ?? game.max_rewards;
   const segmentCount = Math.max(2, Math.min(10, maxProducts));
@@ -166,6 +187,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
   function testSpin() {
     if (spinning) return;
     setSpinning(true);
+    setLabCoupon(null);
     const selectedIndex = Math.floor(Math.random() * rewards.length);
     const finalRotation = getRewardWheelTargetRotation({ currentRotation: rotation, selectedIndex, segmentAngle, rotations: wheel.spinRotations });
     setRotation(finalRotation);
@@ -174,9 +196,21 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
       const winner = rewards[selectedIndex];
       setLastResult(winner.label);
       setSpinning(false);
-      if (winner.id !== 'lab-try-again') celebrate();
+
+      if (winner.id !== 'lab-try-again') {
+        const issuedAt = Date.now();
+        setLabCoupon({
+          rewardLabel: winner.label,
+          code: createCouponCode(),
+          issuedAt,
+          expiresAt: issuedAt + game.default_coupon_expiry_minutes * 60 * 1000,
+        });
+        celebrate();
+      }
     }, transitionDurationMs);
   }
+
+  const remaining = labCoupon ? formatRemaining(labCoupon.expiresAt - Date.now()) : null;
 
   return (
     <div className="rounded-[2rem] bg-gradient-to-b from-orange-50 to-amber-100 p-5 text-stone-950 shadow-xl">
@@ -202,6 +236,23 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
         <p className="mt-1 text-2xl font-black">{lastResult}</p>
         <p className="mt-2 text-xs font-bold text-stone-500">Visual guardrail: {minProducts}–{maxProducts} products/rewards recommended for a clean wheel.</p>
       </div>
+
+      {labCoupon && (
+        <div className="mt-4 rounded-[2rem] bg-white p-5 text-center shadow-xl">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Lab coupon preview</p>
+          <h5 className="mt-2 text-3xl font-black leading-tight">{labCoupon.rewardLabel}</h5>
+          <div className="mt-4 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">
+            <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
+            <p className="mt-1 break-all text-3xl font-black tracking-wider">{labCoupon.code}</p>
+          </div>
+          <p className="mt-3 text-sm font-black text-red-600">Expires in {remaining}</p>
+          <div className="relative mt-4 rounded-3xl bg-stone-50 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p>
+            <img src={couponQrUrl(labCoupon.code)} alt="Lab coupon QR code" className="mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow" />
+          </div>
+          <p className="mt-3 text-xs font-bold leading-5 text-stone-500">Preview only. This does not create a coupon record, issue a real redemption, or affect platform metrics.</p>
+        </div>
+      )}
 
       <button type="button" onClick={testSpin} disabled={spinning} className="mt-4 w-full rounded-3xl bg-green-600 px-5 py-5 text-base font-black text-white shadow-xl disabled:bg-stone-400">
         {spinning ? 'Testing spin...' : 'Test Global Spin Feel'}
