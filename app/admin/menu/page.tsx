@@ -14,11 +14,9 @@ function parseCadPrice(value: string) {
   if (!Number.isFinite(number)) return null;
   return Math.round(number * 100) / 100;
 }
-
 function restaurantAddress(restaurant?: Restaurant | null) {
   return [restaurant?.address_line1, restaurant?.city].filter(Boolean).join(', ') || 'Address not added';
 }
-
 function locationLabel(restaurant: Restaurant) {
   return `${restaurant.name} — ${restaurantAddress(restaurant)}`;
 }
@@ -32,8 +30,12 @@ export default function MenuPage() {
   const [newMenu, setNewMenu] = useState('');
   const [expandedMenuId, setExpandedMenuId] = useState<string | null>(null);
   const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  const [editingMenuName, setEditingMenuName] = useState('');
   const [newItemName, setNewItemName] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemName, setEditingItemName] = useState('');
+  const [editingItemPrice, setEditingItemPrice] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -43,10 +45,8 @@ export default function MenuPage() {
   async function loadMenus(restaurantId: string) {
     const menuResult = await supabase.from('menus').select('id,name,menu_type').eq('restaurant_id', restaurantId);
     if (menuResult.error) { setError(menuResult.error.message); return; }
-
     const itemResult = await supabase.from('menu_items').select('id,menu_id').eq('restaurant_id', restaurantId);
     if (itemResult.error) { setError(itemResult.error.message); return; }
-
     const counts = new Map<string, number>();
     (itemResult.data || []).forEach((item: any) => counts.set(item.menu_id, (counts.get(item.menu_id) || 0) + 1));
     setMenus((menuResult.data || []).map((menu: any) => ({ ...menu, item_count: counts.get(menu.id) || 0 })));
@@ -64,11 +64,9 @@ export default function MenuPage() {
       const { data: userData } = await supabase.auth.getUser();
       const user = userData.user;
       if (!user) { window.location.href = '/auth'; return; }
-
       const requestedSlug = new URLSearchParams(window.location.search).get('slug');
       const result = await supabase.from('restaurants').select('id,name,slug,address_line1,city').eq('owner_id', user.id).order('created_at', { ascending: false });
       if (result.error) { setError(result.error.message); setLoading(false); return; }
-
       const owned = (result.data || []) as Restaurant[];
       if (owned.length === 0) { window.location.href = '/admin/restaurants'; return; }
       setRestaurants(owned);
@@ -81,11 +79,7 @@ export default function MenuPage() {
 
   useEffect(() => {
     if (!selectedRestaurantId) return;
-    setExpandedMenuId(null);
-    setEditingMenuId(null);
-    setItems([]);
-    setNewMenu('');
-    setError('');
+    setExpandedMenuId(null); setEditingMenuId(null); setItems([]); setNewMenu(''); setError('');
     loadMenus(selectedRestaurantId);
   }, [selectedRestaurantId]);
 
@@ -94,43 +88,68 @@ export default function MenuPage() {
     setError('');
     const result = await supabase.from('menus').insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), restaurant_id: restaurant.id });
     if (result.error) { setError(result.error.message); return; }
-    setNewMenu('');
-    await loadMenus(restaurant.id);
-    setNotice(`Menu created for ${restaurant.name} — ${restaurantAddress(restaurant)}`);
-    setTimeout(() => setNotice(''), 1800);
+    setNewMenu(''); await loadMenus(restaurant.id);
+    setNotice(`Menu created for ${restaurant.name} — ${restaurantAddress(restaurant)}`); setTimeout(() => setNotice(''), 1800);
   }
 
   async function toggleMenu(menuId: string) {
     if (expandedMenuId === menuId && editingMenuId !== menuId) { setExpandedMenuId(null); setItems([]); return; }
-    setExpandedMenuId(menuId);
-    await loadItems(menuId);
+    setExpandedMenuId(menuId); await loadItems(menuId);
   }
 
-  async function openEditor(menuId: string) {
-    setExpandedMenuId(menuId);
-    setEditingMenuId(menuId);
-    setNewItemName('');
-    setNewItemPrice('');
-    await loadItems(menuId);
+  async function openEditor(menu: Menu) {
+    setExpandedMenuId(menu.id); setEditingMenuId(menu.id); setEditingMenuName(menu.name);
+    setNewItemName(''); setNewItemPrice(''); setEditingItemId(null); await loadItems(menu.id);
   }
 
-  function finishEditing() {
-    setEditingMenuId(null);
-    setNotice('Menu saved');
-    setTimeout(() => setNotice(''), 1500);
+  async function saveMenuName(menuId: string) {
+    if (!restaurant || !editingMenuName.trim()) return;
+    const result = await supabase.from('menus').update({ name: editingMenuName.trim(), menu_type: editingMenuName.trim().toLowerCase() }).eq('id', menuId).eq('restaurant_id', restaurant.id);
+    if (result.error) { setError(result.error.message); return; }
+    await loadMenus(restaurant.id); setNotice('Menu name saved'); setTimeout(() => setNotice(''), 1500);
   }
+
+  function finishEditing() { setEditingMenuId(null); setEditingItemId(null); setNotice('Menu saved'); setTimeout(() => setNotice(''), 1500); }
 
   async function addItem() {
     if (!newItemName.trim() || !editingMenuId || !restaurant) return;
     setError('');
     const result = await supabase.from('menu_items').insert({ name: newItemName.trim(), price: parseCadPrice(newItemPrice), menu_id: editingMenuId, restaurant_id: restaurant.id });
     if (result.error) { setError(result.error.message); return; }
-    setNewItemName('');
-    setNewItemPrice('');
-    await loadItems(editingMenuId);
-    await loadMenus(restaurant.id);
-    setNotice(`Item saved for ${restaurant.name} — ${restaurantAddress(restaurant)}`);
-    setTimeout(() => setNotice(''), 1500);
+    setNewItemName(''); setNewItemPrice(''); await loadItems(editingMenuId); await loadMenus(restaurant.id);
+    setNotice('Item added'); setTimeout(() => setNotice(''), 1500);
+  }
+
+  function startEditItem(item: MenuItem) {
+    setEditingItemId(item.id); setEditingItemName(item.name); setEditingItemPrice(item.price != null ? String(item.price) : '');
+  }
+
+  async function saveItem(itemId: string) {
+    if (!restaurant || !editingMenuId || !editingItemName.trim()) return;
+    const result = await supabase.from('menu_items').update({ name: editingItemName.trim(), price: parseCadPrice(editingItemPrice) }).eq('id', itemId).eq('restaurant_id', restaurant.id).eq('menu_id', editingMenuId);
+    if (result.error) { setError(result.error.message); return; }
+    setEditingItemId(null); await loadItems(editingMenuId); setNotice('Item updated'); setTimeout(() => setNotice(''), 1500);
+  }
+
+  async function deleteItem(item: MenuItem) {
+    if (!restaurant || !editingMenuId) return;
+    if (!window.confirm(`Delete ${item.name} from this menu?`)) return;
+    const result = await supabase.from('menu_items').delete().eq('id', item.id).eq('restaurant_id', restaurant.id).eq('menu_id', editingMenuId);
+    if (result.error) { setError(result.error.message); return; }
+    await loadItems(editingMenuId); await loadMenus(restaurant.id); setNotice('Item deleted'); setTimeout(() => setNotice(''), 1500);
+  }
+
+  async function deleteMenu(menu: Menu) {
+    if (!restaurant) return;
+    const ok = window.confirm(`Delete the entire ${menu.name} menu for ${restaurant.name} at ${restaurantAddress(restaurant)}? This will also delete all items in that menu.`);
+    if (!ok) return;
+    setError('');
+    const itemDelete = await supabase.from('menu_items').delete().eq('menu_id', menu.id).eq('restaurant_id', restaurant.id);
+    if (itemDelete.error) { setError(itemDelete.error.message); return; }
+    const menuDelete = await supabase.from('menus').delete().eq('id', menu.id).eq('restaurant_id', restaurant.id);
+    if (menuDelete.error) { setError(menuDelete.error.message); return; }
+    if (expandedMenuId === menu.id) { setExpandedMenuId(null); setEditingMenuId(null); setItems([]); }
+    await loadMenus(restaurant.id); setNotice('Menu deleted'); setTimeout(() => setNotice(''), 1500);
   }
 
   if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6">Loading menus...</main>;
@@ -138,42 +157,19 @@ export default function MenuPage() {
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
       <section className="mx-auto max-w-5xl">
-        <div className="flex items-center justify-between gap-4">
-          <div><h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1><p className="mt-1 text-sm font-bold text-stone-500">Menu builder</p></div>
-          <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a>
-        </div>
-
-        <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
-          <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Menus</p>
-          <h2 className="mt-3 text-4xl font-black leading-tight">Build menus for rewards and promotions.</h2>
-          <p className="mt-3 text-sm font-semibold text-white/85">Menus are tied to one restaurant location. Select the exact location before creating or editing items.</p>
-        </div>
-
-        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
-          <p className="text-sm font-black uppercase text-[#FF6B00]">Step 1: Select Restaurant Location</p>
-          <select value={selectedRestaurantId} onChange={(e) => setSelectedRestaurantId(e.target.value)} className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]">
-            {restaurants.map((item) => <option key={item.id} value={item.id}>{locationLabel(item)}</option>)}
-          </select>
-          {restaurant && <div className="mt-4 rounded-2xl bg-orange-50 p-4"><p className="text-xl font-black">{restaurant.name}</p><p className="mt-1 text-sm font-bold text-stone-600">{restaurantAddress(restaurant)}</p><p className="mt-1 text-xs font-bold text-stone-500">/{restaurant.slug}</p></div>}
-        </div>
-
+        <div className="flex items-center justify-between gap-4"><div><h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1><p className="mt-1 text-sm font-bold text-stone-500">Menu builder</p></div><a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a></div>
+        <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200"><p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Menus</p><h2 className="mt-3 text-4xl font-black leading-tight">Build menus for rewards and promotions.</h2><p className="mt-3 text-sm font-semibold text-white/85">Menus are tied to one restaurant location. Select the exact location before creating or editing items.</p></div>
+        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 1: Select Restaurant Location</p><select value={selectedRestaurantId} onChange={(e) => setSelectedRestaurantId(e.target.value)} className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]">{restaurants.map((item) => <option key={item.id} value={item.id}>{locationLabel(item)}</option>)}</select>{restaurant && <div className="mt-4 rounded-2xl bg-orange-50 p-4"><p className="text-xl font-black">{restaurant.name}</p><p className="mt-1 text-sm font-bold text-stone-600">{restaurantAddress(restaurant)}</p><p className="mt-1 text-xs font-bold text-stone-500">/{restaurant.slug}</p></div>}</div>
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 2: Create Menu</p><div className="mt-3 flex gap-2"><input value={newMenu} onChange={(e) => setNewMenu(e.target.value)} placeholder="Breakfast, Lunch, Dinner..." className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><button onClick={addMenu} className="rounded-2xl bg-green-600 px-5 py-3 text-xl font-black text-white">+</button></div></div>
-        {notice && <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>}
-        {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
-
-        <div className="mt-5 space-y-4">
-          {menus.length === 0 && <div className="rounded-3xl bg-white p-6 shadow-xl"><p className="text-2xl font-black">No menus for this location yet</p><p className="mt-2 text-sm font-semibold text-stone-600">Create the first menu for {restaurant ? `${restaurant.name} — ${restaurantAddress(restaurant)}` : 'this restaurant location'}.</p></div>}
-          {menus.map((menu) => {
-            const isExpanded = expandedMenuId === menu.id;
-            const isEditing = editingMenuId === menu.id;
-            return <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
-              <button onClick={() => toggleMenu(menu.id)} className="flex w-full items-center justify-between gap-4 text-left"><div><h3 className="text-3xl font-black">{menu.name}</h3><p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p></div><span className="text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span></button>
-              <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-bold text-stone-600">Location: {restaurant?.name} — {restaurantAddress(restaurant)}</div>
-              <div className="mt-4 grid grid-cols-1 gap-3"><button onClick={() => openEditor(menu.id)} className="rounded-2xl bg-orange-50 px-4 py-3 text-sm font-black text-[#FF6B00]">✏️ Edit Menu Items</button></div>
-              {isExpanded && !isEditing && <div className="mt-4 space-y-2 rounded-3xl bg-[#FFF8F0] p-4">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet. Tap Edit Menu Items to add items.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm"><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div>)}</div>}
-              {isEditing && <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4"><div className="flex items-center justify-between gap-3"><h4 className="text-xl font-black">Edit {menu.name}</h4><button onClick={finishEditing} className="rounded-full bg-green-600 px-4 py-2 text-sm font-black text-white">Done / Save</button></div><div className="mt-3 grid grid-cols-[1fr_110px_48px] gap-2"><input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span><input value={newItemPrice} onChange={(e) => setNewItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" inputMode="decimal" className="w-full rounded-2xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]" /></div><button onClick={addItem} className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white">+</button></div><p className="mt-2 text-xs font-bold text-stone-500">Currency: CAD for MVP. Name is required; price is optional.</p><div className="mt-4 space-y-2">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm"><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div>)}</div></div>}
-            </article>;
-          })}
+        {notice && <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>}{error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
+        <div className="mt-5 space-y-4">{menus.length === 0 && <div className="rounded-3xl bg-white p-6 shadow-xl"><p className="text-2xl font-black">No menus for this location yet</p><p className="mt-2 text-sm font-semibold text-stone-600">Create the first menu for {restaurant ? `${restaurant.name} — ${restaurantAddress(restaurant)}` : 'this restaurant location'}.</p></div>}
+          {menus.map((menu) => { const isExpanded = expandedMenuId === menu.id; const isEditing = editingMenuId === menu.id; return <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
+            <button onClick={() => toggleMenu(menu.id)} className="flex w-full items-center justify-between gap-4 text-left"><div><h3 className="text-3xl font-black">{menu.name}</h3><p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p></div><span className="text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span></button>
+            <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-bold text-stone-600">Location: {restaurant?.name} — {restaurantAddress(restaurant)}</div>
+            <div className="mt-4 grid grid-cols-2 gap-3"><button onClick={() => openEditor(menu)} className="rounded-2xl bg-orange-50 px-4 py-3 text-sm font-black text-[#FF6B00]">✏️ Edit Menu</button><button onClick={() => deleteMenu(menu)} className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">Delete Menu</button></div>
+            {isExpanded && !isEditing && <div className="mt-4 space-y-2 rounded-3xl bg-[#FFF8F0] p-4">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet. Tap Edit Menu to add items.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm"><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div>)}</div>}
+            {isEditing && <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4"><div className="flex items-center justify-between gap-3"><h4 className="text-xl font-black">Edit Menu</h4><button onClick={finishEditing} className="rounded-full bg-green-600 px-4 py-2 text-sm font-black text-white">Done</button></div><div className="mt-3 grid grid-cols-[1fr_90px] gap-2"><input value={editingMenuName} onChange={(e) => setEditingMenuName(e.target.value)} className="rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><button onClick={() => saveMenuName(menu.id)} className="rounded-2xl bg-[#1F1F1F] px-3 py-3 text-sm font-black text-white">Save Name</button></div><p className="mt-5 text-sm font-black uppercase text-[#FF6B00]">Add item</p><div className="mt-2 grid grid-cols-[1fr_110px_48px] gap-2"><input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name" className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]" /><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span><input value={newItemPrice} onChange={(e) => setNewItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" inputMode="decimal" className="w-full rounded-2xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]" /></div><button onClick={addItem} className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white">+</button></div><p className="mt-2 text-xs font-bold text-stone-500">Currency: CAD for MVP. Name is required; price is optional.</p><div className="mt-4 space-y-2">{items.length === 0 && <p className="text-sm font-semibold text-stone-500">No items in this menu yet.</p>}{items.map((item) => <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">{editingItemId === item.id ? <div className="space-y-2"><input value={editingItemName} onChange={(e) => setEditingItemName(e.target.value)} className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold" /><input value={editingItemPrice} onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))} className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold" placeholder="0.00" /><div className="grid grid-cols-2 gap-2"><button onClick={() => saveItem(item.id)} className="rounded-xl bg-green-600 px-3 py-2 text-sm font-black text-white">Save Item</button><button onClick={() => setEditingItemId(null)} className="rounded-xl bg-stone-100 px-3 py-2 text-sm font-black text-stone-600">Cancel</button></div></div> : <div className="flex items-center justify-between gap-3"><div><p className="font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}</p></div><div className="flex gap-2"><button onClick={() => startEditItem(item)} className="rounded-full bg-orange-50 px-3 py-2 text-xs font-black text-[#FF6B00]">Edit</button><button onClick={() => deleteItem(item)} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600">Delete</button></div></div>}</div>)}</div></div>}
+          </article>; })}
         </div>
       </section>
     </main>
