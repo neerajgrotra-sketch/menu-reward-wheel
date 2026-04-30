@@ -11,11 +11,23 @@ const address = (r?: Restaurant | null) => [r?.address_line1, r?.city].filter(Bo
 const qrUrl = (value: string) => `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=16&data=${encodeURIComponent(value)}`;
 const formatDate = (value?: string | null) => value ? new Intl.DateTimeFormat('en-CA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '';
 
+function SpinBiteMark({ className = '' }: { className?: string }) {
+  return <span className={`inline-flex items-center justify-center rounded-full bg-[#FF6B00] text-white shadow-sm ${className}`}>🎯</span>;
+}
+
 function WheelGraphic() {
   return <div className="relative mx-auto flex h-[1.95in] w-[1.95in] items-center justify-center">
-    <div className="absolute -left-3 -top-2 text-[0.2in]">*</div><div className="absolute -right-4 top-2 text-[0.2in]">*</div><div className="absolute bottom-0 left-0 text-[0.16in]">*</div>
+    <div className="absolute -left-5 -top-3 rotate-[-15deg] text-[0.24in]">✨</div>
+    <div className="absolute -right-5 -top-2 rotate-[18deg] text-[0.22in]">🎉</div>
+    <div className="absolute -left-4 bottom-2 rotate-[12deg] text-[0.2in]">⭐</div>
+    <div className="absolute -right-3 bottom-0 rotate-[-12deg] text-[0.2in]">🥳</div>
+    <div className="absolute left-1 top-1/2 rotate-[20deg] text-[0.16in]">🎊</div>
+    <div className="absolute right-3 top-[0.42in] rotate-[-18deg] text-[0.15in]">✦</div>
+    <div className="absolute left-[0.22in] top-[0.35in] rotate-[20deg] text-[0.13in] text-[#FF6B00]">✦</div>
+    <div className="absolute bottom-[0.34in] right-[0.27in] rotate-[-20deg] text-[0.13in] text-[#E63939]">✦</div>
     <div className="absolute -right-1 top-1/2 z-20 -translate-y-1/2 text-[0.32in] text-[#1F1F1F]">◀</div>
-    <div className="h-[1.78in] w-[1.78in] rounded-full border-[0.08in] border-white shadow-2xl" style={{ background: 'conic-gradient(#FF6B00 0deg 60deg,#FFD166 60deg 120deg,#00C853 120deg 180deg,#E63939 180deg 240deg,#FFF0C2 240deg 300deg,#2DD4BF 300deg 360deg)' }} />
+    <div className="absolute h-[2.02in] w-[2.02in] rounded-full bg-[#FFD166]/30 blur-[0.12in]" />
+    <div className="relative h-[1.78in] w-[1.78in] rounded-full border-[0.08in] border-white shadow-2xl" style={{ background: 'conic-gradient(#FF6B00 0deg 60deg,#FFD166 60deg 120deg,#00C853 120deg 180deg,#E63939 180deg 240deg,#FFF0C2 240deg 300deg,#2DD4BF 300deg 360deg)' }} />
     <div className="absolute flex h-[0.58in] w-[0.58in] items-center justify-center rounded-full bg-[#1F1F1F] text-[0.11in] font-black text-white shadow-xl">SPIN</div>
   </div>;
 }
@@ -65,7 +77,7 @@ export default function PromotionPrintKitPage() {
           <div className="rounded-[0.24in] bg-[#1F1F1F] p-3 text-center text-white shadow-xl"><p className="mb-2 text-[0.13in] font-black uppercase tracking-[0.1em] text-white">Scan to Play</p><div className="rounded-[0.18in] bg-white p-2"><img src={qrUrl(playUrl)} alt="Promotion QR code" className="h-[1.45in] w-[1.45in]" /></div><p className="mt-2 text-[0.1in] font-bold leading-tight text-white/75">Use your phone camera to start.</p></div>
         </div></div>
         <div className="relative z-10 mt-4 rounded-[0.32in] bg-[#1F1F1F] p-[0.28in] text-left text-white shadow-2xl"><p className="text-[0.24in] font-black leading-tight">How it works</p><div className="mt-3 grid grid-cols-4 gap-3 text-center"><div className="rounded-[0.16in] bg-white/10 p-3"><p className="text-[0.18in] font-black text-[#FFD166]">1</p><p className="mt-1 text-[0.105in] font-black leading-tight">Scan the QR code</p></div><div className="rounded-[0.16in] bg-white/10 p-3"><p className="text-[0.18in] font-black text-[#FFD166]">2</p><p className="mt-1 text-[0.105in] font-black leading-tight">Spin the reward wheel</p></div><div className="rounded-[0.16in] bg-white/10 p-3"><p className="text-[0.18in] font-black text-[#FFD166]">3</p><p className="mt-1 text-[0.105in] font-black leading-tight">Show coupon to staff</p></div><div className="rounded-[0.16in] bg-white/10 p-3"><p className="text-[0.18in] font-black text-[#FFD166]">4</p><p className="mt-1 text-[0.105in] font-black leading-tight">Redeem before coupon expires</p></div></div><p className="mt-3 text-center text-[0.115in] font-bold text-white/70">Each coupon is valid for {couponMinutes} minutes after it is issued.</p>{expiry && <p className="mt-1 text-center text-[0.105in] font-bold text-white/50">Promotion ends: {expiry}</p>}</div>
-        <div className="relative z-10 mt-auto flex items-center justify-center gap-2 pt-4 text-[0.12in] font-black text-stone-700"><span>Powered by</span><span className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-[#FF6B00] shadow-sm"><span>Target</span><span>SpinBite</span></span></div>
+        <div className="relative z-10 mt-auto flex items-center justify-center gap-2 pt-4 text-[0.12in] font-black text-stone-700"><span>Powered by</span><span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[#FF6B00] shadow-sm"><SpinBiteMark className="h-[0.2in] w-[0.2in] text-[0.12in]" /><span>SpinBite</span></span></div>
       </div>
     </section>
   </main>;
