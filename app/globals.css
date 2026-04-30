@@ -5,3 +5,8 @@
 :root { color-scheme: light; }
 body { margin: 0; background: #fff7ed; }
 * { box-sizing: border-box; }
+
+/* Promotion builder hero: keep restaurant/location visible, but remove the large embedded play-link block. */
+.bg-white\/15.p-3:has(button) {
+  display: none;
+}
