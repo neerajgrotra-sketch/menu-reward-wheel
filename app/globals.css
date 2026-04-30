@@ -5,3 +5,10 @@
 :root { color-scheme: light; }
 body { margin: 0; background: #fff7ed; }
 * { box-sizing: border-box; }
+
+/* Promotion Builder hero cleanup:
+   Hide only the embedded promotion URL panel inside the orange builder hero.
+   Keep the restaurant name/address visible and keep the top Copy Link button. */
+section.bg-gradient-to-br.from-\[\#FF6B00\].to-\[\#E63939\] .bg-white\/15.p-3 {
+  display: none;
+}
