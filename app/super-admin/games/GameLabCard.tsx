@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
+import { RewardWheel } from '@/components/RewardWheel';
+import type { Reward } from '@/types/reward';
 import { updateGame } from './actions';
 
 type GameStatus = 'active' | 'coming_soon' | 'disabled';
@@ -53,7 +55,6 @@ const winEffects: { value: WinEffect; label: string }[] = [
   { value: 'none', label: 'None' },
 ];
 
-const rewardColors = ['#FF6B00', '#FFD166', '#00C853', '#E63939', '#FFF0C2', '#2DD4BF', '#F97316', '#8B5CF6', '#14B8A6', '#F43F5E'];
 const sampleRewards = ['Free Fries', '10% Off', 'Free Drink', 'BOGO', 'Dessert', 'VIP Deal', 'Lunch Deal', 'Chef Pick', 'Combo', 'Try Again'];
 
 function statusLabel(status: GameStatus) {
@@ -115,104 +116,93 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
   const [lastResult, setLastResult] = useState('Ready to test global feel');
   const minProducts = game.min_products ?? game.min_rewards;
   const maxProducts = game.max_products ?? game.max_rewards;
-  const segmentCount = Math.max(2, Math.min(12, maxProducts));
+  const segmentCount = Math.max(2, Math.min(10, maxProducts));
   const segmentAngle = 360 / segmentCount;
 
-  const segments = useMemo(() => {
-    const base = Array.from({ length: segmentCount }, (_, index) => ({
-      label: sampleRewards[index] || `Reward ${index + 1}`,
-      color: rewardColors[index % rewardColors.length],
-      textColor: '#111111',
-    }));
+  const rewards: Reward[] = useMemo(() => {
+    const base = Array.from({ length: segmentCount }, (_, index) => {
+      const label = sampleRewards[index] || `Reward ${index + 1}`;
+      return {
+        id: `lab-reward-${index}`,
+        label,
+        description: label,
+        terms: 'Super Admin preview reward.',
+        weight: 1,
+        active: true,
+      };
+    });
 
     if (wheel.tryAgain.enabled && base.length) {
+      const tryAgainLabel = wheel.tryAgain.label || 'Try Again';
       base[base.length - 1] = {
-        label: wheel.tryAgain.label || 'Try Again',
-        color: wheel.tryAgain.backgroundColor || '#111111',
-        textColor: wheel.tryAgain.textColor || '#ffffff',
+        id: 'lab-try-again',
+        label: tryAgainLabel,
+        description: tryAgainLabel,
+        terms: 'Preview try-again segment.',
+        weight: 1,
+        active: true,
       };
     }
 
     return base;
-  }, [segmentCount, wheel.tryAgain.backgroundColor, wheel.tryAgain.enabled, wheel.tryAgain.label, wheel.tryAgain.textColor]);
-
-  const gradient = segments
-    .map((segment, index) => `${segment.color} ${index * segmentAngle}deg ${(index + 1) * segmentAngle}deg`)
-    .join(',');
+  }, [segmentCount, wheel.tryAgain.enabled, wheel.tryAgain.label]);
 
   function celebrate() {
     if (wheel.winEffect === 'none') return;
+    const origin = { x: 0.28, y: 0.56 };
     if (wheel.winEffect === 'stars') {
-      confetti({ particleCount: 80, spread: 80, scalar: 1.2, shapes: ['star'], origin: { y: 0.68 } });
+      confetti({ particleCount: 90, spread: 75, scalar: 1.1, shapes: ['star'], origin });
       return;
     }
     if (wheel.winEffect === 'celebration') {
-      confetti({ particleCount: 140, spread: 110, origin: { y: 0.65 } });
-      setTimeout(() => confetti({ particleCount: 60, spread: 70, shapes: ['star'], origin: { y: 0.6 } }), 220);
+      confetti({ particleCount: 140, spread: 95, origin });
+      setTimeout(() => confetti({ particleCount: 70, spread: 70, shapes: ['star'], origin: { x: 0.3, y: 0.52 } }), 220);
       return;
     }
-    confetti({ particleCount: 130, spread: 100, origin: { y: 0.68 } });
+    confetti({ particleCount: 130, spread: 95, origin });
   }
 
   function testSpin() {
     if (spinning) return;
     setSpinning(true);
-    const winningIndex = Math.floor(Math.random() * segments.length);
-    const targetRotation = rotation + wheel.spinRotations * 360 * wheel.speed + 360 - winningIndex * segmentAngle - segmentAngle / 2;
-    setRotation(targetRotation);
+    const selectedIndex = Math.floor(Math.random() * rewards.length);
+    const finalRotation = rotation + wheel.spinRotations * 360 * wheel.speed + (-(selectedIndex * segmentAngle) - (rotation % 360));
+    setRotation(finalRotation);
+
     window.setTimeout(() => {
-      const winner = segments[winningIndex];
+      const winner = rewards[selectedIndex];
       setLastResult(winner.label);
       setSpinning(false);
-      if (!winner.label.toLowerCase().includes('try')) celebrate();
+      if (winner.id !== 'lab-try-again') celebrate();
     }, wheel.slowdownSeconds * 1000);
   }
 
   return (
-    <div className="rounded-[2rem] bg-[#1F1F1F] p-5 text-white shadow-xl">
+    <div className="rounded-[2rem] bg-gradient-to-b from-orange-50 to-amber-100 p-5 text-stone-950 shadow-xl">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-white/50">Live game lab</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Live game lab</p>
           <h4 className="mt-1 text-2xl font-black">Spin Wheel Preview</h4>
         </div>
-        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-black text-white/70">{segmentCount} panels</span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-stone-600 shadow">{segmentCount} panels</span>
       </div>
 
-      <div className="relative mx-auto mt-6 flex h-72 w-72 items-center justify-center sm:h-80 sm:w-80">
-        <div className="absolute -right-1 top-1/2 z-20 -translate-y-1/2 text-4xl text-white drop-shadow-lg">◀</div>
-        <div className="absolute h-full w-full rounded-full bg-[#FFD166]/20 blur-xl" />
-        <div
-          className="relative h-64 w-64 rounded-full border-[10px] border-white shadow-2xl transition-transform sm:h-72 sm:w-72"
-          style={{
-            background: `conic-gradient(${gradient})`,
-            transform: `rotate(${rotation}deg)`,
-            transitionDuration: spinning ? `${wheel.slowdownSeconds}s` : '350ms',
-            transitionTimingFunction: spinning ? 'cubic-bezier(.12,.82,.18,1)' : 'ease-out',
-          }}
-        >
-          {segments.map((segment, index) => (
-            <div
-              key={`${segment.label}-${index}`}
-              className="absolute left-1/2 top-1/2 origin-left text-[10px] font-black uppercase tracking-tight"
-              style={{
-                transform: `rotate(${index * segmentAngle + segmentAngle / 2}deg) translateX(38px)`,
-                color: segment.textColor,
-              }}
-            >
-              <span className="inline-block max-w-[72px] truncate rounded-full bg-white/60 px-2 py-1 backdrop-blur-sm">{segment.label}</span>
-            </div>
-          ))}
-        </div>
-        <div className="absolute flex h-20 w-20 items-center justify-center rounded-full bg-[#1F1F1F] text-sm font-black text-white shadow-xl ring-4 ring-white">SPIN</div>
+      <div className="mt-4 rounded-3xl bg-white/80 p-4 text-center shadow-lg">
+        <p className="text-lg font-black text-[#FF6B00]">Global test mode 🎯</p>
+        <p className="mt-1 text-sm font-bold text-stone-600">Uses the same wheel component as the customer play page.</p>
       </div>
 
-      <div className="mt-5 rounded-3xl bg-white/10 p-4 text-center">
-        <p className="text-xs font-black uppercase tracking-wide text-white/50">Last test result</p>
+      <div className="mt-6">
+        <RewardWheel rewards={rewards} rotation={rotation} spinning={spinning} />
+      </div>
+
+      <div className="mt-5 rounded-3xl bg-white p-4 text-center shadow-lg">
+        <p className="text-xs font-black uppercase tracking-wide text-stone-500">Last test result</p>
         <p className="mt-1 text-2xl font-black">{lastResult}</p>
-        <p className="mt-2 text-xs font-bold text-white/55">Visual guardrail: {minProducts}–{maxProducts} products/rewards recommended for a clean wheel.</p>
+        <p className="mt-2 text-xs font-bold text-stone-500">Visual guardrail: {minProducts}–{maxProducts} products/rewards recommended for a clean wheel.</p>
       </div>
 
-      <button type="button" onClick={testSpin} disabled={spinning} className="mt-4 w-full rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white shadow-lg disabled:bg-stone-500">
+      <button type="button" onClick={testSpin} disabled={spinning} className="mt-4 w-full rounded-3xl bg-green-600 px-5 py-5 text-base font-black text-white shadow-xl disabled:bg-stone-400">
         {spinning ? 'Testing spin...' : 'Test Global Spin Feel'}
       </button>
     </div>
@@ -318,7 +308,7 @@ export default function GameLabCard({ game }: { game: GameForLab }) {
                 <Field label="Try Again Text"><input name="try_again_text_color" type="color" defaultValue={wheel.tryAgain.textColor} className="h-12 w-full rounded-2xl border border-stone-200 bg-white p-2" /></Field>
               </div>
 
-              <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-xs font-bold leading-5 text-stone-500">Default Try Again panel style is black background with white text. Toggle “Supports try again” to include or remove it from the lab preview.</p>
+              <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-xs font-bold leading-5 text-stone-500">Default Try Again panel style is black background with white text. Toggle “Supports try again” to include or remove it from the lab preview. The customer wheel currently uses the shared wheel color palette; custom segment colors are saved for future renderer support.</p>
             </div>
           )}
         </div>
