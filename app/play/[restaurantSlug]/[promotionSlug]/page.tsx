@@ -42,6 +42,24 @@ function getCustomerSessionId() {
   return next;
 }
 
+async function issueCoupon(params: {
+  promotion_id: string;
+  promotion_reward_id: string;
+  restaurant_id: string;
+  coupon_code: string;
+  customer_session_id: string;
+}) {
+  const response = await fetch('/api/coupons/issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || 'Could not issue coupon.');
+  return payload?.coupon || null;
+}
+
 export default function PromotionPlayPage() {
   const { restaurantSlug, promotionSlug } = useParams() as { restaurantSlug: string; promotionSlug: string };
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -56,6 +74,7 @@ export default function PromotionPlayPage() {
   const [spinsUsed, setSpinsUsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [couponIssueError, setCouponIssueError] = useState('');
 
   const segmentAngle = useMemo(() => (rewards.length ? 360 / rewards.length : 0), [rewards.length]);
   const maxSpins = Math.max(1, promotion?.max_spins || 1);
@@ -139,6 +158,7 @@ export default function PromotionPlayPage() {
     const selected = pickWeightedReward(rewards);
     const selectedIndex = rewards.findIndex((item) => item.id === selected.id);
     const finalRotation = rotation + 5 * 360 + (-(selectedIndex * segmentAngle) - (rotation % 360));
+    setCouponIssueError('');
     setSpinning(true);
     setShowReveal(false);
     setRotation(finalRotation);
@@ -146,18 +166,22 @@ export default function PromotionPlayPage() {
     setTimeout(async () => {
       const code = createCouponCode();
       const issuedAt = Date.now();
-      const insertResult = await createClient().from('coupon_redemptions').insert({
-        promotion_id: promotion.id,
-        promotion_reward_id: selected.id,
-        restaurant_id: restaurant.id,
-        coupon_code: code,
-        status: 'issued',
-        customer_session_id: getCustomerSessionId(),
-        issued_at: new Date(issuedAt).toISOString(),
-      }).select('id').single();
+      let redemptionId: string | null = null;
 
-      if (insertResult.error) console.error('Could not save coupon redemption', insertResult.error.message);
-      const nextCoupon: WonCoupon = { id: `${issuedAt}-${Math.random()}`, redemptionId: insertResult.data?.id || null, reward: selected, code, issuedAt };
+      try {
+        const issued = await issueCoupon({
+          promotion_id: promotion.id,
+          promotion_reward_id: selected.id,
+          restaurant_id: restaurant.id,
+          coupon_code: code,
+          customer_session_id: getCustomerSessionId(),
+        });
+        redemptionId = issued?.id || null;
+      } catch (error: any) {
+        setCouponIssueError(error?.message || 'Coupon was shown, but audit record could not be saved.');
+      }
+
+      const nextCoupon: WonCoupon = { id: `${issuedAt}-${Math.random()}`, redemptionId, reward: selected, code, issuedAt };
       setWonCoupons((current) => [nextCoupon, ...current]);
       setActiveCouponId(nextCoupon.id);
       setSpinsUsed((current) => current + 1);
@@ -191,6 +215,8 @@ export default function PromotionPlayPage() {
 
         <div className="mt-6"><RewardWheel rewards={rewards} rotation={rotation} spinning={spinning} /></div>
         <button onClick={spin} disabled={!canSpin} className="mt-6 w-full rounded-3xl bg-green-600 px-6 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400">{spinning ? 'Spinning...' : spinsRemaining > 0 && wonCoupons.length > 0 ? 'Spin Again' : spinsRemaining > 0 ? 'Spin Now' : 'All Spins Used'}</button>
+
+        {couponIssueError && <div className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-black text-red-700">{couponIssueError}</div>}
 
         {wonCoupons.length > 0 && <section className="mt-6 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Rewards</p><div className="mt-4 space-y-4">{wonCoupons.map((item, index) => { const expiresAt = item.issuedAt + expiryMinutes * 60 * 1000; const expired = now >= expiresAt; return <button key={item.id} onClick={() => { setActiveCouponId(item.id); setShowReveal(true); }} className="relative w-full rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left shadow-sm">{expired && <span className="absolute right-3 top-3 rotate-[-8deg] rounded-lg border-2 border-red-600 px-2 py-1 text-xs font-black uppercase text-red-600">Expired</span>}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Reward {wonCoupons.length - index}</p><p className="mt-1 pr-20 text-xl font-black">{item.reward.description}</p><p className="mt-2 text-sm font-bold text-stone-500">Code: {item.code}</p><p className={expired ? 'mt-1 text-sm font-black text-red-600' : 'mt-1 text-sm font-bold text-green-700'}>{expired ? 'Expired' : `Expires in ${formatRemaining(expiresAt - now)}`}</p></button>; })}</div></section>}
       </section>
