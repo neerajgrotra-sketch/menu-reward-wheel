@@ -135,9 +135,9 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
   const [spinning, setSpinning] = useState(false);
   const [lastResult, setLastResult] = useState('Ready to test global feel');
   const [labCoupon, setLabCoupon] = useState<LabCoupon | null>(null);
-  const minProducts = game.min_products ?? game.min_rewards;
-  const maxProducts = game.max_products ?? game.max_rewards;
-  const segmentCount = Math.max(2, Math.min(10, maxProducts));
+  const minSegments = game.min_rewards;
+  const maxSegments = game.max_rewards;
+  const segmentCount = Math.max(2, Math.min(10, maxSegments));
   const segmentAngle = 360 / segmentCount;
   const transitionDurationMs = Math.round((wheel.slowdownSeconds * 1000) / Math.max(0.2, wheel.speed));
 
@@ -219,7 +219,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Live game lab</p>
           <h4 className="mt-1 text-2xl font-black">Spin Wheel Preview</h4>
         </div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-stone-600 shadow">{segmentCount} panels</span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-stone-600 shadow">{segmentCount} segments</span>
       </div>
 
       <div className="mt-4 rounded-3xl bg-white/80 p-4 text-center shadow-lg">
@@ -234,7 +234,7 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
       <div className="mt-5 rounded-3xl bg-white p-4 text-center shadow-lg">
         <p className="text-xs font-black uppercase tracking-wide text-stone-500">Last test result</p>
         <p className="mt-1 text-2xl font-black">{lastResult}</p>
-        <p className="mt-2 text-xs font-bold text-stone-500">Visual guardrail: {minProducts}–{maxProducts} products/rewards recommended for a clean wheel.</p>
+        <p className="mt-2 text-xs font-bold text-stone-500">Visual guardrail: {minSegments}–{maxSegments} wheel segments recommended for a clean wheel.</p>
       </div>
 
       {labCoupon && (
@@ -275,8 +275,6 @@ function PlaceholderPreview({ game }: { game: GameForLab }) {
 export default function GameLabCard({ game }: { game: GameForLab }) {
   const isSpinWheel = game.slug === 'spin-wheel';
   const wheel = readWheelConfig(game);
-  const minProducts = game.min_products ?? game.min_rewards;
-  const maxProducts = game.max_products ?? game.max_rewards;
 
   return (
     <form action={updateGame} className="rounded-[2rem] bg-white p-5 shadow-xl">
@@ -320,13 +318,17 @@ export default function GameLabCard({ game }: { game: GameForLab }) {
             </Field>
           </div>
 
-          <div className="mt-4 grid gap-4 md:grid-cols-5">
-            <Field label="Min Rewards"><NumberInput name="min_rewards" defaultValue={game.min_rewards} min={1} /></Field>
-            <Field label="Max Rewards"><NumberInput name="max_rewards" defaultValue={game.max_rewards} min={1} /></Field>
-            <Field label="Min Products"><NumberInput name="min_products" defaultValue={minProducts} min={1} /></Field>
-            <Field label="Max Products"><NumberInput name="max_products" defaultValue={maxProducts} min={1} /></Field>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <Field label={isSpinWheel ? 'Minimum Wheel Segments' : 'Minimum Rewards'}><NumberInput name="min_rewards" defaultValue={game.min_rewards} min={1} /></Field>
+            <Field label={isSpinWheel ? 'Maximum Wheel Segments' : 'Maximum Rewards'}><NumberInput name="max_rewards" defaultValue={game.max_rewards} min={1} /></Field>
             <Field label="Sort Order"><NumberInput name="sort_order" defaultValue={game.sort_order} /></Field>
           </div>
+
+          {isSpinWheel && (
+            <p className="mt-3 rounded-2xl bg-white p-3 text-xs font-bold leading-5 text-stone-500 shadow-inner">
+              Wheel segments are the reward panels shown on the wheel. Fewer segments can look empty; too many segments can make labels hard to read on mobile.
+            </p>
+          )}
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Default Spins"><NumberInput name="default_spins" defaultValue={game.default_spins} min={1} /></Field>
