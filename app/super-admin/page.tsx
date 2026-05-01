@@ -20,7 +20,7 @@ const cards = [
     href: '/super-admin/faqs',
     icon: '❓',
     copy: 'Edit public FAQ questions, categories, ordering, and active/inactive visibility.',
-    status: 'Next phase',
+    status: 'Available now',
   },
   {
     title: 'Feature Flags',
@@ -76,6 +76,7 @@ export default async function SuperAdminPage() {
               <a
                 key={card.title}
                 href={card.href}
+                aria-disabled={!enabled}
                 className={`rounded-3xl p-5 shadow-xl transition ${enabled ? 'bg-white hover:-translate-y-1' : 'cursor-not-allowed bg-white/70'}`}
               >
                 <div className="flex items-start justify-between gap-3">
