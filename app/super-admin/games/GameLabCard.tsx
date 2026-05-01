@@ -9,6 +9,7 @@ import { updateGame } from './actions';
 
 type GameStatus = 'active' | 'coming_soon' | 'disabled';
 type WinEffect = 'confetti' | 'stars' | 'celebration' | 'none';
+type SaveState = 'idle' | 'saving' | 'saved';
 
 type WheelConfig = {
   speed?: number;
@@ -129,11 +130,26 @@ function Toggle({ name, label, defaultChecked }: { name: string; label: string; 
   );
 }
 
-function SpinWheelPreview({ game }: { game: GameForLab }) {
+function SaveButton({ saveState }: { saveState: SaveState }) {
+  return (
+    <div className="mt-3">
+      <button type="submit" className="w-full rounded-3xl bg-[#FF6B00] px-5 py-5 text-base font-black text-white shadow-xl">
+        {saveState === 'saving' ? 'Saving...' : 'Save'}
+      </button>
+      {saveState === 'saved' && (
+        <p className="mt-3 rounded-2xl bg-green-50 px-4 py-3 text-center text-sm font-black text-green-700 shadow-inner">
+          Saved successfully.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SpinWheelPreview({ game, saveState }: { game: GameForLab; saveState: SaveState }) {
   const wheel = readWheelConfig(game);
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
-  const [lastResult, setLastResult] = useState('Ready to test global feel');
+  const [lastResult, setLastResult] = useState('Not tested yet');
   const [labCoupon, setLabCoupon] = useState<LabCoupon | null>(null);
   const minSegments = game.min_rewards;
   const maxSegments = game.max_rewards;
@@ -214,17 +230,19 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
 
   return (
     <div className="rounded-[2rem] bg-gradient-to-b from-orange-50 to-amber-100 p-5 text-stone-950 shadow-xl">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Live game lab</p>
           <h4 className="mt-1 text-2xl font-black">Spin Wheel Preview</h4>
         </div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-stone-600 shadow">{segmentCount} segments</span>
+        <span className="shrink-0 whitespace-nowrap rounded-full bg-white px-3 py-2 text-[11px] font-black leading-none text-stone-600 shadow">
+          {segmentCount} segments
+        </span>
       </div>
 
       <div className="mt-4 rounded-3xl bg-white/80 p-4 text-center shadow-lg">
         <p className="text-lg font-black text-[#FF6B00]">Global test mode 🎯</p>
-        <p className="mt-1 text-sm font-bold text-stone-600">Uses the same wheel component and landing math as the customer play page.</p>
+        <p className="mt-1 text-sm font-bold text-stone-600">{minSegments}–{maxSegments} wheel segments recommended for a clean wheel.</p>
       </div>
 
       <div className="mt-6">
@@ -232,9 +250,8 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
       </div>
 
       <div className="mt-5 rounded-3xl bg-white p-4 text-center shadow-lg">
-        <p className="text-xs font-black uppercase tracking-wide text-stone-500">Last test result</p>
+        <p className="text-xs font-black uppercase tracking-wide text-stone-500">Test Result</p>
         <p className="mt-1 text-2xl font-black">{lastResult}</p>
-        <p className="mt-2 text-xs font-bold text-stone-500">Visual guardrail: {minSegments}–{maxSegments} wheel segments recommended for a clean wheel.</p>
       </div>
 
       {labCoupon && (
@@ -255,19 +272,21 @@ function SpinWheelPreview({ game }: { game: GameForLab }) {
       )}
 
       <button type="button" onClick={testSpin} disabled={spinning} className="mt-4 w-full rounded-3xl bg-green-600 px-5 py-5 text-base font-black text-white shadow-xl disabled:bg-stone-400">
-        {spinning ? 'Testing spin...' : 'Test Global Spin Feel'}
+        {spinning ? 'Testing...' : 'Test'}
       </button>
+      <SaveButton saveState={saveState} />
     </div>
   );
 }
 
-function PlaceholderPreview({ game }: { game: GameForLab }) {
+function PlaceholderPreview({ game, saveState }: { game: GameForLab; saveState: SaveState }) {
   return (
     <div className="rounded-[2rem] border-2 border-dashed border-stone-200 bg-stone-50 p-6 text-center shadow-inner">
       <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl bg-white text-5xl shadow">{game.icon || '🎮'}</div>
       <p className="mt-4 text-xs font-black uppercase tracking-[0.18em] text-stone-400">Preview placeholder</p>
       <h4 className="mt-2 text-3xl font-black">{game.name}</h4>
       <p className="mt-2 text-sm font-semibold leading-6 text-stone-500">Game-specific lab controls will be added when this game engine is built. It should not inherit Spin Wheel physics.</p>
+      <SaveButton saveState={saveState} />
     </div>
   );
 }
@@ -275,9 +294,18 @@ function PlaceholderPreview({ game }: { game: GameForLab }) {
 export default function GameLabCard({ game }: { game: GameForLab }) {
   const isSpinWheel = game.slug === 'spin-wheel';
   const wheel = readWheelConfig(game);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+
+  function handleSubmit() {
+    setSaveState('saving');
+    window.setTimeout(() => {
+      setSaveState('saved');
+      window.setTimeout(() => setSaveState('idle'), 2500);
+    }, 900);
+  }
 
   return (
-    <form action={updateGame} className="rounded-[2rem] bg-white p-5 shadow-xl">
+    <form action={updateGame} onSubmit={handleSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl">
       <input type="hidden" name="id" value={game.id} />
 
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -291,11 +319,10 @@ export default function GameLabCard({ game }: { game: GameForLab }) {
             <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-stone-600">{game.description || 'No description added.'}</p>
           </div>
         </div>
-        <button type="submit" className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-black text-white shadow-lg">Save Global Game</button>
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[420px_1fr]">
-        <div>{isSpinWheel ? <SpinWheelPreview game={game} /> : <PlaceholderPreview game={game} />}</div>
+        <div>{isSpinWheel ? <SpinWheelPreview game={game} saveState={saveState} /> : <PlaceholderPreview game={game} saveState={saveState} />}</div>
 
         <div className="rounded-[2rem] bg-[#FFF8F0] p-4">
           <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Global configuration</p>
