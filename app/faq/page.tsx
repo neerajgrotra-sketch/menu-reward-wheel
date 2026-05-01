@@ -1,129 +1,46 @@
-const faqs = [
-  {
-    category: 'Getting Started',
-    questions: [
-      {
-        q: 'What is SpinBite?',
-        a: 'SpinBite is a QR-powered promotion platform for restaurants. You create a branded reward game tied to real menu items, customers scan a QR code, spin the wheel, win a coupon, and staff validate the coupon at the counter.',
-      },
-      {
-        q: 'How does SpinBite work for customers?',
-        a: 'Customers scan a restaurant QR code on their phone, play the promotion game, and receive a digital coupon. No app download is required. The coupon includes a code and QR code that staff can validate before redeeming.',
-      },
-      {
-        q: 'How long does it take to launch a promotion?',
-        a: 'A simple promotion can be created in minutes once your restaurant location and menu are set up. Choose the location, name the campaign, select rewards, set limits and expiry rules, then launch the QR link.',
-      },
-      {
-        q: 'Do customers need to download an app?',
-        a: 'No. SpinBite runs in the browser. Customers scan, play, and redeem from their phone without installing anything.',
-      },
-    ],
-  },
-  {
-    category: 'Restaurant Setup',
-    questions: [
-      {
-        q: 'Do I need to connect my POS system?',
-        a: 'No POS integration is required for the first version. Staff validate the coupon in SpinBite, apply the reward manually in the POS, and then mark the coupon as redeemed. POS integrations can be added later for larger restaurant groups.',
-      },
-      {
-        q: 'Can I manage more than one restaurant location?',
-        a: 'Yes. SpinBite supports multiple restaurant locations, including locations with the same restaurant name but different addresses. Every promotion is tied to a specific restaurant location so staff always know which store the promotion belongs to.',
-      },
-      {
-        q: 'Can I use menu items as rewards?',
-        a: 'Yes. Rewards can be built from your menu items or added as custom rewards. For example, you can offer 10% off Lassi, a free appetizer, a free drink, or a custom chef special.',
-      },
-      {
-        q: 'What if I open a new location with the same menu?',
-        a: 'SpinBite is designed to support same-brand locations. Menu items can be reused across matching locations so a new store does not have to rebuild every menu from scratch.',
-      },
-    ],
-  },
-  {
-    category: 'Promotion Controls',
-    questions: [
-      {
-        q: 'Can I control how often each reward is won?',
-        a: 'Yes. Restaurants can set reward weights such as common, normal, or rare. The current wheel keeps the visual design simple while using configured weights behind the scenes to control reward probability.',
-      },
-      {
-        q: 'Can I limit how many coupons are given out?',
-        a: 'Yes. SpinBite supports daily promotion limits and daily reward limits. This helps restaurants keep promotions margin-safe and avoid giving away too many high-cost items.',
-      },
-      {
-        q: 'Can I set coupon expiry time?',
-        a: 'Yes. Restaurants can set how many minutes a coupon remains valid after it is issued. This encourages customers to redeem during the visit and reduces delayed or misused redemptions.',
-      },
-      {
-        q: 'Can I end a promotion early?',
-        a: 'Yes. Active promotions can be ended from Manage Promotions. Once ended, the customer link shows a branded SpinBite message explaining that the promotion has ended.',
-      },
-      {
-        q: 'Can I test a promotion before launch?',
-        a: 'Yes. The promotion builder includes test mode so restaurants can spin the wheel and preview the customer experience without issuing real coupons.',
-      },
-    ],
-  },
-  {
-    category: 'Coupon Validation',
-    questions: [
-      {
-        q: 'How does staff validate a coupon?',
-        a: 'Staff open the Coupon Validator, scan the coupon QR code with the phone camera, or enter the coupon code manually. The system checks the coupon status before staff applies the reward.',
-      },
-      {
-        q: 'What happens after staff redeems a coupon?',
-        a: 'Once staff confirms redemption, the coupon is marked as redeemed so the same coupon cannot be used again. The dashboard can then track issued coupons, redeemed coupons, and redemption rate.',
-      },
-      {
-        q: 'Can expired coupons still be scanned?',
-        a: 'Expired coupons can be shown with an expired stamp. Staff should not redeem expired coupons unless the restaurant chooses to make a manual exception.',
-      },
-      {
-        q: 'Do you keep an audit record of coupons?',
-        a: 'Yes. SpinBite is designed to record issued and redeemed coupons in the database for audit and reporting. Server-side coupon issuance should be enabled before any real restaurant pilot.',
-      },
-    ],
-  },
-  {
-    category: 'Business Results',
-    questions: [
-      {
-        q: 'How does SpinBite help restaurants increase sales?',
-        a: 'SpinBite turns attention into action. Restaurants can promote specific dishes, slow-moving items, high-margin products, combos, or add-ons through a fun game that customers want to play.',
-      },
-      {
-        q: 'What metrics can restaurants see?',
-        a: 'Restaurants can see active promotions, issued coupons, redeemed coupons, and redemption rate. Manage Promotions also shows status filters for active, draft, ended, and all campaigns.',
-      },
-      {
-        q: 'Is SpinBite only for dine-in restaurants?',
-        a: 'No. SpinBite can work for dine-in, takeout, food courts, cafés, bakeries, and quick-service restaurants. QR codes can be placed on tables, menus, receipts, posters, or takeout bags.',
-      },
-    ],
-  },
-  {
-    category: 'Security and Abuse Prevention',
-    questions: [
-      {
-        q: 'Can customers refresh and play again?',
-        a: 'Session-level abuse prevention is on the product backlog. For real pilots, SpinBite should enforce customer spin limits server-side so refreshing the page does not reset allowed plays.',
-      },
-      {
-        q: 'Can a coupon be used more than once?',
-        a: 'The validation flow is designed to prevent duplicate redemption. Once staff marks a coupon as redeemed, future scans should show that it has already been used.',
-      },
-      {
-        q: 'Is customer data required?',
-        a: 'The current flow can work without heavy customer data capture. Future versions may add optional email, SMS, loyalty, or wallet features with proper consent and privacy controls.',
-      },
-    ],
-  },
-];
+import { createClient } from '@/lib/supabase/server';
 
-export default function FAQPage() {
+type Faq = {
+  id: string;
+  question: string;
+  answer: string;
+  category: string;
+  sort_order: number;
+};
+
+function groupFaqs(faqs: Faq[]) {
+  return faqs.reduce<Record<string, Faq[]>>((groups, faq) => {
+    const category = faq.category || 'general';
+    groups[category] = groups[category] || [];
+    groups[category].push(faq);
+    return groups;
+  }, {});
+}
+
+function categoryLabel(category: string) {
+  return category
+    .split(' ')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export default async function FAQPage() {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('faqs')
+    .select('id,question,answer,category,sort_order')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  const faqs = ((data || []) as Faq[]).sort((a, b) => a.sort_order - b.sort_order || a.question.localeCompare(b.question));
+  const grouped = groupFaqs(faqs);
+  const categories = Object.keys(grouped).sort((a, b) => {
+    const firstA = grouped[a]?.[0]?.sort_order || 0;
+    const firstB = grouped[b]?.[0]?.sort_order || 0;
+    return firstA - firstB || a.localeCompare(b);
+  });
+
   return (
     <main className="min-h-screen bg-[#FFF8F0] text-[#1F1F1F]">
       <nav className="sticky top-0 z-50 border-b border-orange-100 bg-[#FFF8F0]/90 px-4 py-3 backdrop-blur-xl sm:px-6">
@@ -163,17 +80,31 @@ export default function FAQPage() {
           </aside>
 
           <div className="space-y-5">
-            {faqs.map((group) => (
-              <section key={group.category} className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-orange-100 sm:p-7">
-                <h2 className="text-sm font-black uppercase tracking-[0.16em] text-[#FF6B00]">{group.category}</h2>
+            {error && (
+              <section className="rounded-[2rem] bg-red-50 p-6 text-red-700 shadow-xl">
+                <h2 className="text-2xl font-black">Could not load FAQs</h2>
+                <p className="mt-2 text-sm font-bold">Please try again later.</p>
+              </section>
+            )}
+
+            {!error && faqs.length === 0 && (
+              <section className="rounded-[2rem] bg-white p-6 text-center shadow-xl ring-1 ring-orange-100">
+                <h2 className="text-3xl font-black">FAQ content is coming soon.</h2>
+                <p className="mt-2 text-sm font-semibold text-stone-500">Check back soon for answers about SpinBite.</p>
+              </section>
+            )}
+
+            {!error && categories.map((category) => (
+              <section key={category} className="rounded-[2rem] bg-white p-5 shadow-xl ring-1 ring-orange-100 sm:p-7">
+                <h2 className="text-sm font-black uppercase tracking-[0.16em] text-[#FF6B00]">{categoryLabel(category)}</h2>
                 <div className="mt-4 divide-y divide-stone-100">
-                  {group.questions.map((item) => (
-                    <details key={item.q} className="group py-4">
+                  {grouped[category].map((item) => (
+                    <details key={item.id} className="group py-4">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-xl font-black">
-                        <span>{item.q}</span>
+                        <span>{item.question}</span>
                         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-50 text-[#FF6B00] transition group-open:rotate-45">+</span>
                       </summary>
-                      <p className="mt-3 text-base font-medium leading-7 text-stone-600">{item.a}</p>
+                      <p className="mt-3 whitespace-pre-line text-base font-medium leading-7 text-stone-600">{item.answer}</p>
                     </details>
                   ))}
                 </div>
