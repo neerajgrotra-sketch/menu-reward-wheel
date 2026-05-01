@@ -13,7 +13,7 @@ const cards = [
     href: '/super-admin/content',
     icon: '📝',
     copy: 'Manage hero copy, homepage sections, calls to action, and landing page messaging.',
-    status: 'Next phase',
+    status: 'Available now',
   },
   {
     title: 'FAQ',
