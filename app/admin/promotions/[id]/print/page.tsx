@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; phone?: string | null };
+type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; phone?: string | null; logo_url?: string | null };
 type Promotion = { id: string; name: string; slug: string; status: string; restaurant_id: string; starts_at?: string | null; ends_at?: string | null; coupon_expiry_minutes?: number | null };
 
 const address = (r?: Restaurant | null) => [r?.address_line1, r?.city].filter(Boolean).join(', ');
@@ -12,6 +12,15 @@ const qrUrl = (value: string) => `https://api.qrserver.com/v1/create-qr-code/?si
 
 function SpinBiteMark({ className = '' }: { className?: string }) {
   return <span className={`inline-flex items-center justify-center rounded-full bg-[#FF6B00] text-white shadow-sm ${className}`}>🎯</span>;
+}
+
+function RestaurantBrand({ restaurant }: { restaurant: Restaurant }) {
+  if (restaurant.logo_url) {
+    return <div className="mx-auto flex min-h-[0.78in] max-w-[3in] items-center justify-center rounded-[0.2in] bg-white/95 px-[0.18in] py-[0.1in] shadow-xl">
+      <img src={restaurant.logo_url} alt={`${restaurant.name} logo`} className="max-h-[0.62in] max-w-[2.65in] object-contain" />
+    </div>;
+  }
+  return <p className="text-[0.25in] font-black uppercase tracking-[0.18em] text-white/90">{restaurant.name}</p>;
 }
 
 function WheelGraphic() {
@@ -48,7 +57,7 @@ export default function PromotionPrintKitPage() {
       const promotionResult = await supabase.from('promotions').select('id,name,slug,status,restaurant_id,starts_at,ends_at,coupon_expiry_minutes').eq('id', params.id).single();
       if (promotionResult.error || !promotionResult.data) { setError('Promotion not found.'); setLoading(false); return; }
       const currentPromotion = promotionResult.data as Promotion;
-      const restaurantResult = await supabase.from('restaurants').select('id,name,slug,address_line1,city,phone').eq('id', currentPromotion.restaurant_id).eq('owner_id', user.id).single();
+      const restaurantResult = await supabase.from('restaurants').select('id,name,slug,address_line1,city,phone,logo_url').eq('id', currentPromotion.restaurant_id).eq('owner_id', user.id).single();
       if (restaurantResult.error || !restaurantResult.data) { setError('Restaurant not found or access denied.'); setLoading(false); return; }
       const currentRestaurant = restaurantResult.data as Restaurant;
       setPromotion(currentPromotion); setRestaurant(currentRestaurant); setPlayUrl(`${window.location.origin}/r/${currentRestaurant.slug}`); setLoading(false);
@@ -68,7 +77,7 @@ export default function PromotionPrintKitPage() {
     <section className="mx-auto flex h-[10.15in] w-full max-w-[7.75in] flex-col overflow-hidden rounded-[0.18in] bg-[#FFF8F0] shadow-2xl print:h-[10.15in] print:w-[7.75in] print:max-w-none print:rounded-none print:shadow-none">
       <div className="relative flex h-full flex-col bg-gradient-to-b from-[#FF6B00] via-[#FF8A00] to-[#FFF8F0] px-[0.42in] py-[0.32in] text-center">
         <div className="absolute left-[-0.7in] top-[1.2in] h-[2.2in] w-[2.2in] rounded-full bg-white/20 blur-2xl" /><div className="absolute right-[-0.6in] top-[3.1in] h-[1.8in] w-[1.8in] rounded-full bg-green-300/30 blur-2xl" />
-        <div className="relative z-10"><p className="text-[0.25in] font-black uppercase tracking-[0.18em] text-white/90">{restaurant.name}</p>{restaurantAddress && <p className="mt-1 text-[0.15in] font-bold text-white/85">{restaurantAddress}</p>}<h1 className="mt-5 text-[0.72in] font-black leading-[0.88] tracking-tight text-white drop-shadow-md">Scan to<br />Spin & Win</h1><p className="mx-auto mt-3 max-w-[6.3in] text-[0.18in] font-black leading-tight text-white">Unlock today’s surprise reward before you order. No app download required.</p></div>
+        <div className="relative z-10"><RestaurantBrand restaurant={restaurant} />{restaurant.logo_url && <p className="mt-2 text-[0.13in] font-black uppercase tracking-[0.12em] text-white/85">{restaurant.name}</p>}{restaurantAddress && <p className="mt-1 text-[0.15in] font-bold text-white/85">{restaurantAddress}</p>}<h1 className="mt-4 text-[0.72in] font-black leading-[0.88] tracking-tight text-white drop-shadow-md">Scan to<br />Spin & Win</h1><p className="mx-auto mt-3 max-w-[6.3in] text-[0.18in] font-black leading-tight text-white">Unlock today’s surprise reward before you order. No app download required.</p></div>
         <div className="relative z-10 mt-4 rounded-[0.35in] bg-white/95 p-[0.23in] shadow-2xl"><div className="grid grid-cols-[2.2in_1fr_1.95in] items-center gap-[0.2in]">
           <div className="rounded-[0.28in] bg-orange-50 px-2 py-3"><p className="mb-1 text-[0.11in] font-black uppercase tracking-[0.12em] text-[#E63939]">Spin & Win</p><WheelGraphic /><p className="mt-1 text-[0.115in] font-black text-[#FF6B00]">Play for discounts, free items, and surprise rewards.</p></div>
           <div className="text-left"><p className="text-[0.105in] font-black uppercase tracking-[0.14em] text-[#E63939]">Play & Win</p><h2 className="mt-1 text-[0.3in] font-black leading-tight text-[#1F1F1F]">Today’s active reward</h2><p className="mt-2 text-[0.135in] font-bold leading-snug text-stone-600">Scan once, spin the wheel, and reveal the current reward available at this location.</p><p className="mt-2 rounded-[0.12in] bg-orange-50 p-2 text-[0.095in] font-black leading-snug text-[#E63939]">Reusable QR: this code always opens the current SpinBite promotion for this location.</p></div>
