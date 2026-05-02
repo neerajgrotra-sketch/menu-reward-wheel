@@ -14,9 +14,15 @@ function makeServiceClient() {
   });
 }
 
-function couponStatus(row: any) {
+function computeExpiresAt(issuedAt: string | null, minutes: number | null | undefined) {
+  if (!issuedAt) return null;
+  const expiryMinutes = minutes || 20;
+  return new Date(new Date(issuedAt).getTime() + expiryMinutes * 60 * 1000).toISOString();
+}
+
+function couponStatus(row: any, expiresAt: string | null) {
   if (row.status === 'redeemed') return 'redeemed';
-  if (row.expires_at && new Date(row.expires_at) < new Date()) return 'expired';
+  if (expiresAt && new Date(expiresAt) < new Date()) return 'expired';
   return 'active';
 }
 
@@ -47,7 +53,7 @@ export async function GET() {
 
     const couponsResult = await serviceClient
       .from('coupon_redemptions')
-      .select('id,restaurant_id,promotion_id,promotion_reward_id,coupon_code,status,issued_at,redeemed_at,expires_at,created_at')
+      .select('id,restaurant_id,promotion_id,promotion_reward_id,coupon_code,status,issued_at,redeemed_at,created_at')
       .in('restaurant_id', restaurantIds)
       .order('issued_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
@@ -62,7 +68,7 @@ export async function GET() {
     const rewardIds = [...new Set(coupons.map((item: any) => item.promotion_reward_id).filter(Boolean))];
 
     const promotionsResult = promotionIds.length
-      ? await serviceClient.from('promotions').select('id,name,slug').in('id', promotionIds)
+      ? await serviceClient.from('promotions').select('id,name,slug,coupon_expiry_minutes').in('id', promotionIds)
       : { data: [], error: null } as any;
 
     if (promotionsResult.error) {
@@ -99,6 +105,8 @@ export async function GET() {
       const reward = rewardsById[coupon.promotion_reward_id] || null;
       const menuItem = reward?.menu_item_id ? menuItemsById[reward.menu_item_id] : null;
       const itemName = reward?.custom_name || menuItem?.name || 'Reward';
+      const issuedAt = coupon.issued_at || coupon.created_at;
+      const expiresAt = computeExpiresAt(issuedAt, promotion?.coupon_expiry_minutes);
       const discountType = reward?.reward_type === 'free'
         ? 'Free item'
         : reward?.reward_type === 'discount'
@@ -108,11 +116,11 @@ export async function GET() {
       return {
         id: coupon.id,
         coupon_code: coupon.coupon_code,
-        issued_at: coupon.issued_at || coupon.created_at,
+        issued_at: issuedAt,
         redeemed_at: coupon.redeemed_at,
-        expires_at: coupon.expires_at,
+        expires_at: expiresAt,
         raw_status: coupon.status,
-        display_status: couponStatus(coupon),
+        display_status: couponStatus(coupon, expiresAt),
         restaurant_name: restaurant?.name || 'Restaurant',
         restaurant_slug: restaurant?.slug || '',
         restaurant_address: [restaurant?.address_line1, restaurant?.city].filter(Boolean).join(', '),
