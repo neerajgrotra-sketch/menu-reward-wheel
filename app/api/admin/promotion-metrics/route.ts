@@ -50,7 +50,7 @@ export async function GET() {
     }
 
     const coupons = couponsResult.data || [];
-    const promotionIds = [...new Set(coupons.map((coupon: any) => coupon.promotion_id).filter(Boolean))];
+    const promotionIds = Array.from(new Set(coupons.map((coupon: any) => coupon.promotion_id).filter(Boolean)));
 
     const promotionsResult = promotionIds.length
       ? await serviceClient.from('promotions').select('id,slug').in('id', promotionIds)
