@@ -34,7 +34,6 @@ export const revalidate = 0;
 export default async function PermanentRestaurantQrPage({ params }: { params: { restaurantSlug: string } }) {
   const supabase = createClient();
   const now = new Date();
-  const nowIso = now.toISOString();
 
   const restaurantResult = await supabase
     .from('restaurants')
@@ -49,19 +48,29 @@ export default async function PermanentRestaurantQrPage({ params }: { params: { 
   const restaurant = restaurantResult.data as Restaurant;
 
   // Source of truth for reusable QR:
-  // find the current live promotion for this restaurant location.
-  // Prefer restaurants.current_promotion_id when it is live, but do not depend on it.
-  const livePromotionsResult = await supabase
+  // find a live active promotion for this restaurant location.
+  // Do NOT put starts_at/ends_at comparisons in the Supabase query; timestamp
+  // formatting and timezone edge cases can make PostgREST return no rows even
+  // when the admin UI shows an active promotion. Fetch active rows first, then
+  // perform the live-window check in JavaScript.
+  const activePromotionsResult = await supabase
     .from('promotions')
     .select('id,name,slug,status,starts_at,ends_at,created_at')
     .eq('restaurant_id', restaurant.id)
     .eq('status', 'active')
-    .or(`starts_at.is.null,starts_at.lte.${nowIso}`)
-    .or(`ends_at.is.null,ends_at.gt.${nowIso}`)
     .order('created_at', { ascending: false })
-    .limit(10);
+    .limit(25);
 
-  const livePromotions = ((livePromotionsResult.data || []) as Promotion[])
+  if (activePromotionsResult.error) {
+    return (
+      <BrandedUnavailablePage
+        restaurant={restaurant}
+        message="Promotion lookup failed. Please ask staff to try again."
+      />
+    );
+  }
+
+  const livePromotions = ((activePromotionsResult.data || []) as Promotion[])
     .filter((promotion) => isPromotionLive(promotion, now));
 
   const promotion =
