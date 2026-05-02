@@ -40,6 +40,12 @@ function isPromotionLive(promotion: Promotion, now: Date) {
   return true;
 }
 
+function isPromotionNotEnded(promotion: Promotion, now: Date) {
+  if (promotion.status === 'ended') return false;
+  if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
+  return true;
+}
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
@@ -67,32 +73,34 @@ export default async function PermanentRestaurantQrPage({ params }: { params: { 
 
   // Source of truth for reusable QR:
   // The printed QR belongs to the restaurant location, not to the promotion that
-  // generated the print kit. This resolver must therefore be server-authoritative
-  // and bypass public/RLS visibility issues by using the service role. It fetches
-  // active promotions for the location and then validates the time window in JS.
-  const activePromotionsResult = await supabase
+  // generated the print kit. It must route to the current playable promotion for
+  // this location even if current_promotion_id is stale or the status/date fields
+  // are not perfectly synchronized.
+  const promotionsResult = await supabase
     .from('promotions')
     .select('id,name,slug,status,starts_at,ends_at,created_at')
     .eq('restaurant_id', restaurant.id)
-    .eq('status', 'active')
     .order('created_at', { ascending: false })
-    .limit(25);
+    .limit(50);
 
-  if (activePromotionsResult.error) {
+  if (promotionsResult.error) {
     return (
       <BrandedUnavailablePage
         restaurant={restaurant}
-        message={`Promotion lookup failed: ${activePromotionsResult.error.message}`}
+        message={`Promotion lookup failed: ${promotionsResult.error.message}`}
       />
     );
   }
 
-  const livePromotions = ((activePromotionsResult.data || []) as Promotion[])
-    .filter((promotion) => isPromotionLive(promotion, now));
+  const promotions = (promotionsResult.data || []) as Promotion[];
+  const livePromotions = promotions.filter((promotion) => isPromotionLive(promotion, now));
+  const nonEndedPromotions = promotions.filter((promotion) => isPromotionNotEnded(promotion, now));
 
   const promotion =
     livePromotions.find((item) => item.id === restaurant.current_promotion_id) ||
     livePromotions[0] ||
+    nonEndedPromotions.find((item) => item.id === restaurant.current_promotion_id) ||
+    nonEndedPromotions[0] ||
     null;
 
   if (!promotion) {
