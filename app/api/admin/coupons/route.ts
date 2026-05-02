@@ -64,8 +64,8 @@ export async function GET() {
     }
 
     const coupons = couponsResult.data || [];
-    const promotionIds = [...new Set(coupons.map((item: any) => item.promotion_id).filter(Boolean))];
-    const rewardIds = [...new Set(coupons.map((item: any) => item.promotion_reward_id).filter(Boolean))];
+    const promotionIds = Array.from(new Set(coupons.map((item: any) => item.promotion_id).filter(Boolean)));
+    const rewardIds = Array.from(new Set(coupons.map((item: any) => item.promotion_reward_id).filter(Boolean)));
 
     const promotionsResult = promotionIds.length
       ? await serviceClient.from('promotions').select('id,name,slug,coupon_expiry_minutes').in('id', promotionIds)
@@ -84,7 +84,7 @@ export async function GET() {
     }
 
     const rewards = rewardsResult.data || [];
-    const menuItemIds = [...new Set(rewards.map((item: any) => item.menu_item_id).filter(Boolean))];
+    const menuItemIds = Array.from(new Set(rewards.map((item: any) => item.menu_item_id).filter(Boolean)));
 
     const menuItemsResult = menuItemIds.length
       ? await serviceClient.from('menu_items').select('id,name').in('id', menuItemIds)
