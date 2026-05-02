@@ -37,7 +37,7 @@ export async function GET() {
     const restaurantIds = (restaurantsResult.data || []).map((item) => item.id as string);
 
     if (restaurantIds.length === 0) {
-      return NextResponse.json({ metrics: {} });
+      return NextResponse.json({ metrics: {}, metricsBySlug: {}, couponCount: 0 });
     }
 
     const couponsResult = await serviceClient
@@ -49,16 +49,37 @@ export async function GET() {
       return NextResponse.json({ error: couponsResult.error.message }, { status: 500 });
     }
 
-    const metrics: Record<string, { issued: number; redeemed: number }> = {};
+    const coupons = couponsResult.data || [];
+    const promotionIds = [...new Set(coupons.map((coupon: any) => coupon.promotion_id).filter(Boolean))];
 
-    (couponsResult.data || []).forEach((coupon: any) => {
+    const promotionsResult = promotionIds.length
+      ? await serviceClient.from('promotions').select('id,slug').in('id', promotionIds)
+      : { data: [], error: null } as any;
+
+    if (promotionsResult.error) {
+      return NextResponse.json({ error: promotionsResult.error.message }, { status: 500 });
+    }
+
+    const promotionsById = Object.fromEntries((promotionsResult.data || []).map((promotion: any) => [promotion.id, promotion]));
+    const metrics: Record<string, { issued: number; redeemed: number }> = {};
+    const metricsBySlug: Record<string, { issued: number; redeemed: number }> = {};
+
+    coupons.forEach((coupon: any) => {
       if (!coupon.promotion_id) return;
+
       if (!metrics[coupon.promotion_id]) metrics[coupon.promotion_id] = { issued: 0, redeemed: 0 };
       metrics[coupon.promotion_id].issued += 1;
       if (coupon.status === 'redeemed') metrics[coupon.promotion_id].redeemed += 1;
+
+      const slug = promotionsById[coupon.promotion_id]?.slug;
+      if (slug) {
+        if (!metricsBySlug[slug]) metricsBySlug[slug] = { issued: 0, redeemed: 0 };
+        metricsBySlug[slug].issued += 1;
+        if (coupon.status === 'redeemed') metricsBySlug[slug].redeemed += 1;
+      }
     });
 
-    return NextResponse.json({ metrics });
+    return NextResponse.json({ metrics, metricsBySlug, couponCount: coupons.length });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Could not load promotion metrics.' }, { status: 500 });
   }
