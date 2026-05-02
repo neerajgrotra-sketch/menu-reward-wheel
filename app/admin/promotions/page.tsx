@@ -54,17 +54,24 @@ export default function PromotionsPage() {
 
   const selectedRestaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
+  async function loadPromotionMetrics() {
+    const response = await fetch('/api/admin/promotion-metrics', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return;
+    setCounts(payload.metrics || {});
+  }
+
   async function loadPromotions(restaurantId: string) {
     const result = await supabase.from('promotions').select('id,name,slug,status,created_at,restaurant_id,starts_at,ends_at').eq('restaurant_id', restaurantId).order('created_at', { ascending: false });
     if (result.error) { setError(result.error.message); return; }
     const loaded = (result.data || []) as Promotion[];
     setPromotions(loaded);
     if (!loaded.length) { setCounts({}); return; }
-    const ids = loaded.map((p) => p.id);
-    const couponData = await supabase.from('coupon_redemptions').select('promotion_id,status').in('promotion_id', ids);
-    const next: CountsByPromotion = {};
-    (couponData.data || []).forEach((row: any) => { if (!next[row.promotion_id]) next[row.promotion_id] = { issued: 0, redeemed: 0 }; next[row.promotion_id].issued += 1; if (row.status === 'redeemed') next[row.promotion_id].redeemed += 1; });
-    setCounts(next);
+    await loadPromotionMetrics();
   }
 
   useEffect(() => {
@@ -126,6 +133,7 @@ export default function PromotionsPage() {
     const result = await supabase.from('promotions').update({ ends_at: endedAt }).eq('id', p.id);
     if (result.error) { setError(result.error.message); setEndingId(null); return; }
     setPromotions((current) => current.map((item) => item.id === p.id ? { ...item, ends_at: endedAt } : item));
+    await loadPromotionMetrics();
     setFilter('ended'); setEndingId(null); confetti({ particleCount: 180, spread: 110, origin: { y: 0.62 } });
   }
 
