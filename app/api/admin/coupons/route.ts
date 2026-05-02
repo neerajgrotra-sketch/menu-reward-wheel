@@ -53,10 +53,9 @@ export async function GET() {
 
     const couponsResult = await serviceClient
       .from('coupon_redemptions')
-      .select('id,restaurant_id,promotion_id,promotion_reward_id,coupon_code,status,issued_at,redeemed_at,created_at')
+      .select('id,restaurant_id,promotion_id,promotion_reward_id,coupon_code,status,issued_at,redeemed_at')
       .in('restaurant_id', restaurantIds)
       .order('issued_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
       .limit(50);
 
     if (couponsResult.error) {
@@ -105,7 +104,7 @@ export async function GET() {
       const reward = rewardsById[coupon.promotion_reward_id] || null;
       const menuItem = reward?.menu_item_id ? menuItemsById[reward.menu_item_id] : null;
       const itemName = reward?.custom_name || menuItem?.name || 'Reward';
-      const issuedAt = coupon.issued_at || coupon.created_at;
+      const issuedAt = coupon.issued_at;
       const expiresAt = computeExpiresAt(issuedAt, promotion?.coupon_expiry_minutes);
       const discountType = reward?.reward_type === 'free'
         ? 'Free item'
