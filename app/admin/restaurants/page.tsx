@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 type Restaurant = {
@@ -15,6 +15,7 @@ type Restaurant = {
 };
 
 const LOGO_BUCKET = 'restaurant-logos';
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
 function sanitizeFileName(value: string) {
   const parts = value.split('.');
@@ -31,6 +32,10 @@ function objectPathFromPublicUrl(url?: string | null) {
   return decodeURIComponent(url.slice(index + marker.length));
 }
 
+function fileSizeMb(file: File) {
+  return (file.size / 1024 / 1024).toFixed(2);
+}
+
 export default function RestaurantsPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,9 +43,15 @@ export default function RestaurantsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [removingLogoId, setRemovingLogoId] = useState<string | null>(null);
+  const [localLogoPreviewById, setLocalLogoPreviewById] = useState<Record<string, string>>({});
+  const [logoMessageById, setLogoMessageById] = useState<Record<string, { type: 'info' | 'error' | 'success'; text: string }>>({});
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const supabase = createClient();
+
+  function setLogoMessage(restaurantId: string, type: 'info' | 'error' | 'success', text: string) {
+    setLogoMessageById((current) => ({ ...current, [restaurantId]: { type, text } }));
+  }
 
   async function loadRestaurants() {
     const { data: sessionData } = await supabase.auth.getUser();
@@ -73,14 +84,30 @@ export default function RestaurantsPage() {
     setTimeout(() => setCopiedId(null), 1600);
   }
 
+  async function handleLogoInputChange(restaurant: Restaurant, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    await uploadLogo(restaurant, file);
+  }
+
   async function uploadLogo(restaurant: Restaurant, file?: File | null) {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Please upload an image file for the restaurant logo.');
+    if (!file) {
+      setLogoMessage(restaurant.id, 'info', 'No logo file was selected.');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Logo file is too large. Please upload an image smaller than 2 MB.');
+
+    const localPreview = URL.createObjectURL(file);
+    setLocalLogoPreviewById((current) => ({ ...current, [restaurant.id]: localPreview }));
+    setLogoMessage(restaurant.id, 'info', `Selected ${file.name || 'logo'} (${fileSizeMb(file)} MB). Uploading...`);
+
+    if (!file.type.startsWith('image/')) {
+      setLogoMessage(restaurant.id, 'error', `The selected file type is ${file.type || 'unknown'}. Please choose an image file.`);
+      URL.revokeObjectURL(localPreview);
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setLogoMessage(restaurant.id, 'error', `This logo is ${fileSizeMb(file)} MB. Please upload an image smaller than 2 MB.`);
+      URL.revokeObjectURL(localPreview);
       return;
     }
 
@@ -96,15 +123,15 @@ export default function RestaurantsPage() {
     }
 
     const previousPath = objectPathFromPublicUrl(restaurant.logo_url);
-    const storagePath = `${user.id}/${restaurant.id}/${Date.now()}-${sanitizeFileName(file.name)}`;
+    const storagePath = `${user.id}/${restaurant.id}/${Date.now()}-${sanitizeFileName(file.name || 'logo.png')}`;
     const uploadResult = await supabase.storage.from(LOGO_BUCKET).upload(storagePath, file, {
       cacheControl: '3600',
       upsert: true,
-      contentType: file.type,
+      contentType: file.type || 'image/png',
     });
 
     if (uploadResult.error) {
-      setError(uploadResult.error.message);
+      setLogoMessage(restaurant.id, 'error', `Upload failed: ${uploadResult.error.message}`);
       setUploadingId(null);
       return;
     }
@@ -117,16 +144,18 @@ export default function RestaurantsPage() {
       .eq('owner_id', user.id);
 
     if (updateResult.error) {
-      setError(updateResult.error.message);
+      setLogoMessage(restaurant.id, 'error', `Logo uploaded, but saving it to the restaurant failed: ${updateResult.error.message}`);
       setUploadingId(null);
       return;
     }
 
     if (previousPath) await supabase.storage.from(LOGO_BUCKET).remove([previousPath]);
     await loadRestaurants();
+    setLogoMessage(restaurant.id, 'success', 'Logo uploaded successfully. It will now appear on print kits.');
     setNotice(`Logo saved for ${restaurant.name}. It will now appear on print kits.`);
     setTimeout(() => setNotice(''), 2400);
     setUploadingId(null);
+    setTimeout(() => URL.revokeObjectURL(localPreview), 3000);
   }
 
   async function removeLogo(restaurant: Restaurant) {
@@ -151,7 +180,7 @@ export default function RestaurantsPage() {
       .eq('owner_id', user.id);
 
     if (updateResult.error) {
-      setError(updateResult.error.message);
+      setLogoMessage(restaurant.id, 'error', `Could not remove logo: ${updateResult.error.message}`);
       setRemovingLogoId(null);
       return;
     }
@@ -160,6 +189,12 @@ export default function RestaurantsPage() {
     if (path) await supabase.storage.from(LOGO_BUCKET).remove([path]);
 
     await loadRestaurants();
+    setLocalLogoPreviewById((current) => {
+      const next = { ...current };
+      delete next[restaurant.id];
+      return next;
+    });
+    setLogoMessage(restaurant.id, 'success', 'Logo removed. Print kits will use the restaurant name.');
     setNotice(`Logo removed for ${restaurant.name}.`);
     setTimeout(() => setNotice(''), 2200);
     setRemovingLogoId(null);
@@ -231,6 +266,9 @@ export default function RestaurantsPage() {
             const promotionLink = `/admin/promotions?slug=${restaurant.slug}`;
             const isUploading = uploadingId === restaurant.id;
             const isRemovingLogo = removingLogoId === restaurant.id;
+            const localLogoPreview = localLogoPreviewById[restaurant.id];
+            const displayedLogo = localLogoPreview || restaurant.logo_url;
+            const logoMessage = logoMessageById[restaurant.id];
 
             return (
               <article key={restaurant.id} className="overflow-hidden rounded-3xl bg-white shadow-xl">
@@ -239,9 +277,9 @@ export default function RestaurantsPage() {
                     <div className="rounded-2xl bg-white/80 px-3 py-2 text-sm font-black text-[#FF6B00] shadow">
                       Location #{index + 1}
                     </div>
-                    {restaurant.logo_url ? (
+                    {displayedLogo ? (
                       <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 shadow-lg">
-                        <img src={restaurant.logo_url} alt={`${restaurant.name} logo`} className="max-h-full max-w-full object-contain" />
+                        <img src={displayedLogo} alt={`${restaurant.name} logo`} className="max-h-full max-w-full object-contain" />
                       </div>
                     ) : (
                       <div className="text-4xl">🍽️</div>
@@ -270,21 +308,21 @@ export default function RestaurantsPage() {
                     <p className="text-xs font-black uppercase tracking-wide text-[#FF6B00]">Restaurant Branding</p>
                     <div className="mt-3 flex items-center gap-4">
                       <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-orange-100 bg-white p-2 shadow-sm">
-                        {restaurant.logo_url ? (
-                          <img src={restaurant.logo_url} alt={`${restaurant.name} logo preview`} className="max-h-full max-w-full object-contain" />
+                        {displayedLogo ? (
+                          <img src={displayedLogo} alt={`${restaurant.name} logo preview`} className="max-h-full max-w-full object-contain" />
                         ) : (
                           <span className="text-center text-xs font-black text-stone-400">No logo</span>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold leading-5 text-stone-600">Upload a PNG, JPG, SVG, or WebP logo. This logo will appear automatically on reusable QR print kits.</p>
+                        <p className="text-sm font-bold leading-5 text-stone-600">Upload a PNG, JPG, SVG, or WebP logo under 2 MB. iPhone photo-library images may need a moment after tapping the blue checkmark.</p>
                         <label className="mt-3 inline-flex cursor-pointer rounded-2xl bg-[#FF6B00] px-4 py-3 text-sm font-black text-white shadow-sm">
                           {isUploading ? 'Uploading...' : restaurant.logo_url ? 'Replace Logo' : 'Upload Logo'}
                           <input
                             type="file"
-                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                            accept="image/*"
                             disabled={isUploading}
-                            onChange={(event) => uploadLogo(restaurant, event.target.files?.[0])}
+                            onChange={(event) => handleLogoInputChange(restaurant, event)}
                             className="hidden"
                           />
                         </label>
@@ -295,6 +333,7 @@ export default function RestaurantsPage() {
                         )}
                       </div>
                     </div>
+                    {logoMessage && <p className={`mt-3 rounded-2xl p-3 text-sm font-black ${logoMessage.type === 'error' ? 'bg-red-50 text-red-700' : logoMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-white text-stone-600'}`}>{logoMessage.text}</p>}
                   </div>
 
                   <div className="mt-4 rounded-2xl bg-stone-50 p-4">
