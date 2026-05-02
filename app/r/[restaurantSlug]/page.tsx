@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
-import { createClient } from '@/lib/supabase/server';
 
 type Restaurant = {
   id: string;
@@ -21,6 +21,18 @@ type Promotion = {
   created_at?: string | null;
 };
 
+function makeServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+
+  if (!url) throw new Error('Supabase URL is missing.');
+  if (!serviceKey) throw new Error('Reusable QR resolver is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Vercel.');
+
+  return createServiceClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 function isPromotionLive(promotion: Promotion, now: Date) {
   if (promotion.status !== 'active') return false;
   if (promotion.starts_at && now < new Date(promotion.starts_at)) return false;
@@ -32,8 +44,14 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function PermanentRestaurantQrPage({ params }: { params: { restaurantSlug: string } }) {
-  const supabase = createClient();
   const now = new Date();
+  let supabase;
+
+  try {
+    supabase = makeServiceClient();
+  } catch (error: any) {
+    return <BrandedUnavailablePage message={error?.message || 'Reusable QR resolver is not configured.'} />;
+  }
 
   const restaurantResult = await supabase
     .from('restaurants')
@@ -48,11 +66,10 @@ export default async function PermanentRestaurantQrPage({ params }: { params: { 
   const restaurant = restaurantResult.data as Restaurant;
 
   // Source of truth for reusable QR:
-  // find a live active promotion for this restaurant location.
-  // Do NOT put starts_at/ends_at comparisons in the Supabase query; timestamp
-  // formatting and timezone edge cases can make PostgREST return no rows even
-  // when the admin UI shows an active promotion. Fetch active rows first, then
-  // perform the live-window check in JavaScript.
+  // The printed QR belongs to the restaurant location, not to the promotion that
+  // generated the print kit. This resolver must therefore be server-authoritative
+  // and bypass public/RLS visibility issues by using the service role. It fetches
+  // active promotions for the location and then validates the time window in JS.
   const activePromotionsResult = await supabase
     .from('promotions')
     .select('id,name,slug,status,starts_at,ends_at,created_at')
@@ -65,7 +82,7 @@ export default async function PermanentRestaurantQrPage({ params }: { params: { 
     return (
       <BrandedUnavailablePage
         restaurant={restaurant}
-        message="Promotion lookup failed. Please ask staff to try again."
+        message={`Promotion lookup failed: ${activePromotionsResult.error.message}`}
       />
     );
   }
