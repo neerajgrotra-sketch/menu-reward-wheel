@@ -15,6 +15,8 @@ type Restaurant = {
 };
 
 const LOGO_BUCKET = 'restaurant-logos';
+const RESTAURANT_BASE_SELECT = 'id,name,slug,phone,address_line1,city,cuisine_type';
+const RESTAURANT_LOGO_SELECT = `${RESTAURANT_BASE_SELECT},logo_url`;
 
 function sanitizeFileName(value: string) {
   const parts = value.split('.');
@@ -31,6 +33,10 @@ function objectPathFromPublicUrl(url?: string | null) {
   return decodeURIComponent(url.slice(index + marker.length));
 }
 
+function isMissingLogoColumnError(message?: string | null) {
+  return Boolean(message?.toLowerCase().includes('logo_url') && message?.toLowerCase().includes('does not exist'));
+}
+
 export default function RestaurantsPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +44,7 @@ export default function RestaurantsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [removingLogoId, setRemovingLogoId] = useState<string | null>(null);
+  const [logoFeatureReady, setLogoFeatureReady] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const supabase = createClient();
@@ -51,14 +58,37 @@ export default function RestaurantsPage() {
       return;
     }
 
-    const { data, error: loadError } = await supabase
+    const logoResult = await supabase
       .from('restaurants')
-      .select('id,name,slug,phone,address_line1,city,cuisine_type,logo_url')
+      .select(RESTAURANT_LOGO_SELECT)
       .eq('owner_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (loadError) setError(loadError.message);
-    setRestaurants((data || []) as Restaurant[]);
+    if (!logoResult.error) {
+      setLogoFeatureReady(true);
+      setError('');
+      setRestaurants((logoResult.data || []) as Restaurant[]);
+      setLoading(false);
+      return;
+    }
+
+    if (!isMissingLogoColumnError(logoResult.error.message)) {
+      setError(logoResult.error.message);
+      setRestaurants([]);
+      setLoading(false);
+      return;
+    }
+
+    const fallbackResult = await supabase
+      .from('restaurants')
+      .select(RESTAURANT_BASE_SELECT)
+      .eq('owner_id', user.id)
+      .order('created_at', { ascending: false });
+
+    setLogoFeatureReady(false);
+    if (fallbackResult.error) setError(fallbackResult.error.message);
+    else setError('');
+    setRestaurants((fallbackResult.data || []) as Restaurant[]);
     setLoading(false);
   }
 
@@ -74,6 +104,10 @@ export default function RestaurantsPage() {
   }
 
   async function uploadLogo(restaurant: Restaurant, file?: File | null) {
+    if (!logoFeatureReady) {
+      setError('Logo upload is not active yet because the restaurant logo database migration has not been applied. Existing restaurants are still safe.');
+      return;
+    }
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setError('Please upload an image file for the restaurant logo.');
@@ -130,6 +164,10 @@ export default function RestaurantsPage() {
   }
 
   async function removeLogo(restaurant: Restaurant) {
+    if (!logoFeatureReady) {
+      setError('Logo removal is not active yet because the restaurant logo database migration has not been applied.');
+      return;
+    }
     const confirmed = window.confirm(`Remove the logo for ${restaurant.name}? Print kits will fall back to the restaurant name.`);
     if (!confirmed) return;
 
@@ -213,6 +251,7 @@ export default function RestaurantsPage() {
           + Add Restaurant
         </a>
 
+        {!logoFeatureReady && <p className="mt-5 rounded-2xl bg-yellow-50 p-4 text-sm font-bold text-yellow-800">Restaurant logo upload is pending database migration. Your restaurants are still available; apply the logo migration to enable branding uploads.</p>}
         {notice && <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>}
         {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
 
@@ -266,7 +305,7 @@ export default function RestaurantsPage() {
                     <p>🍛 {restaurant.cuisine_type || 'Cuisine not added yet'}</p>
                   </div>
 
-                  <div className="mt-4 rounded-2xl bg-orange-50 p-4">
+                  {logoFeatureReady && <div className="mt-4 rounded-2xl bg-orange-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-[#FF6B00]">Restaurant Branding</p>
                     <div className="mt-3 flex items-center gap-4">
                       <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-orange-100 bg-white p-2 shadow-sm">
@@ -295,7 +334,7 @@ export default function RestaurantsPage() {
                         )}
                       </div>
                     </div>
-                  </div>
+                  </div>}
 
                   <div className="mt-4 rounded-2xl bg-stone-50 p-4">
                     <p className="text-xs font-black uppercase tracking-wide text-stone-500">Current promotion workspace link</p>
