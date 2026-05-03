@@ -34,6 +34,9 @@ function makeServiceClient() {
 }
 
 function isPromotionLive(promotion: Promotion, now: Date) {
+  // No-expiry rule:
+  // ends_at = null means the promotion runs until staff manually ends it.
+  // Manual ending still works because End Promotion sets ends_at = now().
   if (promotion.status !== 'active') return false;
   if (promotion.starts_at && now < new Date(promotion.starts_at)) return false;
   if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
@@ -41,7 +44,8 @@ function isPromotionLive(promotion: Promotion, now: Date) {
 }
 
 function isPromotionNotEnded(promotion: Promotion, now: Date) {
-  if (promotion.status === 'ended') return false;
+  // No-expiry rule:
+  // A null end date is not ended. It remains eligible until an end timestamp is written.
   if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
   return true;
 }
