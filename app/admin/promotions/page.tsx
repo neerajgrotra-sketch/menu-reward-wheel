@@ -34,7 +34,6 @@ function locationLabel(r: Restaurant) { return `${r.name} — ${address(r)}`; }
 function statusOf(p: Promotion): Filter {
   const now = new Date();
   if (p.status === 'draft') return 'draft';
-  if (p.status === 'ended') return 'ended';
   if (p.ends_at && new Date(p.ends_at) <= now) return 'ended';
   if (p.status === 'active' && p.starts_at && new Date(p.starts_at) > now) return 'pending';
   if (p.status === 'active') return 'active';
@@ -185,9 +184,9 @@ export default function PromotionsPage() {
     if (!window.confirm(`End ${p.name} now? Customers will no longer be able to play this promotion.`)) return;
     setEndingId(p.id); setError('');
     const endedAt = new Date().toISOString();
-    const result = await supabase.from('promotions').update({ ends_at: endedAt, status: 'ended' }).eq('id', p.id);
+    const result = await supabase.from('promotions').update({ ends_at: endedAt }).eq('id', p.id);
     if (result.error) { setError(result.error.message); setEndingId(null); return; }
-    setPromotions((current) => current.map((item) => item.id === p.id ? { ...item, status: 'ended', ends_at: endedAt } : item));
+    setPromotions((current) => current.map((item) => item.id === p.id ? { ...item, ends_at: endedAt } : item));
     await loadPromotionMetrics();
     setFilter('ended'); setEndingId(null); confetti({ particleCount: 180, spread: 110, origin: { y: 0.62 } });
   }
