@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 type Props = { promotionId: string };
 type GameType = 'wheel' | 'mystery_box';
 
+const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
+
 const games: { value: GameType; title: string; description: string; icon: string }[] = [
   { value: 'wheel', title: 'Spin Wheel', description: 'Customers spin a prize wheel and win a configured reward.', icon: '🎯' },
   { value: 'mystery_box', title: 'Mystery Box Reveal', description: 'Customers tap one of 3 mystery boxes to reveal a prize with stars and confetti.', icon: '🎁' },
@@ -26,8 +28,21 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
   useEffect(() => {
     async function load() {
       const result = await supabase.from('promotions').select('game_type').eq('id', promotionId).single();
+      const pending = window.localStorage.getItem(STORAGE_KEY);
+      const pendingGameType: GameType | null = pending === 'mystery_box' || pending === 'wheel' ? pending : null;
       const value = result.data?.game_type === 'mystery_box' ? 'mystery_box' : 'wheel';
+
+      if (pendingGameType && pendingGameType !== value) {
+        const updateResult = await supabase.from('promotions').update({ game_type: pendingGameType }).eq('id', promotionId);
+        if (!updateResult.error) {
+          setGameType(pendingGameType);
+          window.localStorage.removeItem(STORAGE_KEY);
+          return;
+        }
+      }
+
       setGameType(value);
+      window.localStorage.removeItem(STORAGE_KEY);
     }
     load();
   }, [promotionId, supabase]);
