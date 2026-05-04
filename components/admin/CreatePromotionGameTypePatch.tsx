@@ -1,68 +1,77 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
 
 type GameType = 'wheel' | 'mystery_box';
 
 function findStep3Card() {
-  const labels = Array.from(document.querySelectorAll('p'));
-  const stepLabel = labels.find((node) => node.textContent?.toLowerCase().includes('step 3') && node.textContent?.toLowerCase().includes('game'));
-  return stepLabel?.closest('.rounded-3xl, .rounded-\[2rem\]') as HTMLElement | null;
+  const nodes = Array.from(document.querySelectorAll('p, h2, h3, div'));
+  const stepLabel = nodes.find((node) => {
+    const text = node.textContent?.toLowerCase() || '';
+    return text.includes('step 3') && text.includes('game type');
+  });
+  return stepLabel?.closest('[class*="rounded"]') as HTMLElement | null;
 }
 
 function findSpinWheelButton(card: HTMLElement) {
-  return Array.from(card.querySelectorAll('button')).find((button) => button.textContent?.toLowerCase().includes('spin wheel')) as HTMLButtonElement | undefined;
+  return Array.from(card.querySelectorAll('button')).find((button) => {
+    const text = button.textContent?.toLowerCase() || '';
+    return text.includes('spin wheel');
+  }) as HTMLButtonElement | undefined;
+}
+
+function selectedClass(isSelected: boolean) {
+  return isSelected
+    ? 'mt-3 w-full rounded-3xl border-2 border-green-600 bg-green-50 p-5 text-left'
+    : 'mt-3 w-full rounded-3xl border-2 border-stone-100 bg-stone-50 p-5 text-left';
 }
 
 export default function CreatePromotionGameTypePatch() {
   const [selected, setSelected] = useState<GameType>('wheel');
+  const selectedRef = useRef<GameType>('wheel');
 
   useEffect(() => {
     const current = window.localStorage.getItem(STORAGE_KEY);
-    if (current === 'mystery_box') setSelected('mystery_box');
+    if (current === 'mystery_box') {
+      selectedRef.current = 'mystery_box';
+      setSelected('mystery_box');
+    } else {
+      window.localStorage.setItem(STORAGE_KEY, 'wheel');
+    }
   }, []);
 
   useEffect(() => {
-    let attempts = 0;
+    selectedRef.current = selected;
+  }, [selected]);
+
+  useEffect(() => {
     let spinButton: HTMLButtonElement | undefined;
     let mysteryButton: HTMLButtonElement | null = null;
 
     function apply(next: GameType) {
+      selectedRef.current = next;
       setSelected(next);
       window.localStorage.setItem(STORAGE_KEY, next);
 
-      if (spinButton) {
-        spinButton.className = next === 'wheel'
-          ? 'mt-3 w-full rounded-3xl border-2 border-green-600 bg-green-50 p-5 text-left'
-          : 'mt-3 w-full rounded-3xl border-2 border-stone-100 bg-stone-50 p-5 text-left';
-      }
-      if (mysteryButton) {
-        mysteryButton.className = next === 'mystery_box'
-          ? 'mt-3 w-full rounded-3xl border-2 border-green-600 bg-green-50 p-5 text-left'
-          : 'mt-3 w-full rounded-3xl border-2 border-stone-100 bg-stone-50 p-5 text-left';
-      }
+      if (spinButton) spinButton.className = selectedClass(next === 'wheel');
+      if (mysteryButton) mysteryButton.className = selectedClass(next === 'mystery_box');
     }
 
-    const timer = window.setInterval(() => {
-      attempts += 1;
-      const card = findStep3Card();
-      if (!card) {
-        if (attempts > 40) window.clearInterval(timer);
-        return;
+    function mount() {
+      if (document.getElementById('spinbite-create-mystery-box-option')) {
+        const existing = document.getElementById('spinbite-create-mystery-box-option') as HTMLButtonElement | null;
+        mysteryButton = existing;
+        apply(selectedRef.current);
+        return true;
       }
+
+      const card = findStep3Card();
+      if (!card) return false;
 
       spinButton = findSpinWheelButton(card);
-      if (!spinButton) {
-        if (attempts > 40) window.clearInterval(timer);
-        return;
-      }
-
-      if (document.getElementById('spinbite-create-mystery-box-option')) {
-        window.clearInterval(timer);
-        return;
-      }
+      if (!spinButton) return false;
 
       spinButton.addEventListener('click', (event) => {
         event.preventDefault();
@@ -85,12 +94,20 @@ export default function CreatePromotionGameTypePatch() {
       `;
       mysteryButton.addEventListener('click', () => apply('mystery_box'));
       spinButton.insertAdjacentElement('afterend', mysteryButton);
-      apply(selected);
-      window.clearInterval(timer);
-    }, 200);
+      apply(selectedRef.current);
+      return true;
+    }
 
-    return () => window.clearInterval(timer);
-  }, [selected]);
+    mount();
+    const observer = new MutationObserver(() => mount());
+    observer.observe(document.body, { childList: true, subtree: true });
+    const interval = window.setInterval(() => mount(), 500);
+
+    return () => {
+      observer.disconnect();
+      window.clearInterval(interval);
+    };
+  }, []);
 
   return null;
 }
