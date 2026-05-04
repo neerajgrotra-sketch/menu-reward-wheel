@@ -24,6 +24,7 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
   const [gameType, setGameType] = useState<GameType>('wheel');
   const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const selectedGame = games.find((game) => game.value === gameType) || games[0];
 
   useEffect(() => {
     async function load() {
@@ -32,7 +33,7 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
       const pendingGameType: GameType | null = pending === 'mystery_box' || pending === 'wheel' ? pending : null;
       const value = result.data?.game_type === 'mystery_box' ? 'mystery_box' : 'wheel';
 
-      if (pendingGameType && pendingGameType !== value) {
+      if (pendingGameType) {
         const updateResult = await supabase.from('promotions').update({ game_type: pendingGameType }).eq('id', promotionId);
         if (!updateResult.error) {
           setGameType(pendingGameType);
@@ -58,7 +59,7 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
         setMounted(true);
         window.clearInterval(timer);
       }
-      if (attempts > 30) window.clearInterval(timer);
+      if (attempts > 40) window.clearInterval(timer);
     }, 200);
     return () => window.clearInterval(timer);
   }, []);
@@ -72,7 +73,12 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
 
   return (
     <div id="spinbite-builder-game-type-host" className={mounted ? 'rounded-[2rem] bg-white p-5 shadow-xl' : 'hidden'}>
-      <p className="text-sm font-black uppercase text-[#FF6B00]">Game Type</p>
+      <div className="rounded-3xl bg-green-50 p-4 text-green-800">
+        <p className="text-xs font-black uppercase tracking-[0.14em]">Selected Game</p>
+        <p className="mt-1 text-2xl font-black">{selectedGame.icon} {selectedGame.title}</p>
+        <p className="mt-1 text-sm font-bold">This is the game customers will see after the promotion is published. The large preview above may still show the legacy wheel preview until the builder is fully refactored.</p>
+      </div>
+      <p className="mt-5 text-sm font-black uppercase text-[#FF6B00]">Game Type</p>
       <p className="mt-2 text-sm font-bold text-stone-600">Choose how customers reveal their prize. Rewards, coupons, and reporting stay the same.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {games.map((game) => {
