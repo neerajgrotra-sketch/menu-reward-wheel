@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
 
     const promotionResult = await supabase
       .from('promotions')
-      .select('id,name,slug,status,coupon_expiry_minutes,starts_at,ends_at,max_spins')
+      .select('id,name,slug,game_type,status,coupon_expiry_minutes,starts_at,ends_at,max_spins')
       .eq('restaurant_id', restaurant.id)
       .eq('slug', promotionSlug)
       .single();
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    return NextResponse.json({ restaurant, promotion, rewards });
+    return NextResponse.json({ restaurant, promotion: { ...promotion, game_type: promotion.game_type || 'wheel' }, rewards });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Could not load promotion.' }, { status: 500 });
   }
