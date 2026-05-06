@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 
@@ -59,7 +59,7 @@ function weightBadgeClass(label: string) {
 
 function rewardsHtml(rewards: PreviewReward[]) {
   if (!rewards.length) {
-    return `<div class="mt-5 rounded-2xl bg-white/80 p-4 text-left text-sm font-black text-stone-600">Add rewards below, then click Save Changes. The preview will refresh and use the real saved menu items.</div>`;
+    return `<div class="mt-5 rounded-2xl bg-white/80 p-4 text-left text-sm font-black text-stone-600">Add rewards below, then click Save Changes. The preview will use the real saved menu items.</div>`;
   }
 
   return `
@@ -120,6 +120,8 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
   `;
 
   function runTest(selectedButton?: HTMLElement | null) {
+    wrapper.dataset.revealing = 'true';
+
     const buttons = Array.from(wrapper.querySelectorAll('[data-spinbite-box]')) as HTMLElement[];
     const result = wrapper.querySelector('#spinbite-mystery-result') as HTMLElement | null;
     const heading = wrapper.querySelector('#spinbite-mystery-heading') as HTMLElement | null;
@@ -174,8 +176,7 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
     }, 1500);
 
     window.setTimeout(() => {
-      const fresh = document.getElementById('spinbite-mystery-box-builder-preview');
-      if (fresh) fresh.replaceWith(buildMysteryPreview(rewards));
+      wrapper.dataset.revealing = 'false';
     }, 5200);
   }
 
@@ -189,6 +190,7 @@ export default function BuilderMysteryBoxPreviewPatch({ promotionId }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [isMysteryBox, setIsMysteryBox] = useState(false);
   const [rewards, setRewards] = useState<PreviewReward[]>([]);
+  const lastNonEmptyRewardsRef = useRef<PreviewReward[]>([]);
 
   useEffect(() => {
     async function loadRewards() {
@@ -210,44 +212,50 @@ export default function BuilderMysteryBoxPreviewPatch({ promotionId }: Props) {
         namesById = Object.fromEntries((itemResult.data || []).map((item: any) => [item.id, item.name]));
       }
 
-      setRewards(rawRewards.map((reward: any) => ({
+      const mapped = rawRewards.map((reward: any) => ({
         id: reward.id,
         label: reward.custom_name || namesById[reward.menu_item_id] || 'Reward',
         reward_type: reward.reward_type || 'discount',
         reward_value: reward.reward_value,
         weight: reward.weight || 30,
         weight_label: weightLabel(reward.weight || 30),
-      })));
+      }));
+
+      if (mapped.length) {
+        lastNonEmptyRewardsRef.current = mapped;
+        setRewards(mapped);
+      } else if (!lastNonEmptyRewardsRef.current.length) {
+        setRewards([]);
+      }
     }
 
     loadRewards();
-    const timer = window.setInterval(loadRewards, 2500);
+    const timer = window.setInterval(loadRewards, 3500);
     return () => window.clearInterval(timer);
   }, [promotionId, supabase]);
 
   useEffect(() => {
     if (!isMysteryBox) return;
 
-    function apply() {
+    function apply(force = false) {
       const wheelCard = findWheelPreviewCard();
       if (!wheelCard) return false;
 
       wheelCard.style.display = 'none';
-      const existing = document.getElementById('spinbite-mystery-box-builder-preview');
+      const existing = document.getElementById('spinbite-mystery-box-builder-preview') as HTMLElement | null;
+      if (existing?.dataset.revealing === 'true') return true;
+      if (existing && !force) return true;
+
       const next = buildMysteryPreview(rewards);
       if (existing) existing.replaceWith(next);
       else wheelCard.insertAdjacentElement('afterend', next);
       return true;
     }
 
-    apply();
-    const observer = new MutationObserver(() => {
-      if (!document.getElementById('spinbite-mystery-box-builder-preview')) apply();
-    });
+    apply(true);
+    const observer = new MutationObserver(() => apply(false));
     observer.observe(document.body, { childList: true, subtree: true });
-    const timer = window.setInterval(() => {
-      if (!document.getElementById('spinbite-mystery-box-builder-preview')) apply();
-    }, 1200);
+    const timer = window.setInterval(() => apply(false), 1200);
 
     return () => {
       observer.disconnect();
