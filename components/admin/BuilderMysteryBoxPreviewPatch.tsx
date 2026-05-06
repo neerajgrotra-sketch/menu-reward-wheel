@@ -1,267 +1,97 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 
 type Props = { promotionId: string };
-
-type PreviewReward = {
-  id: string;
-  label: string;
-  reward_type: string;
-  reward_value: number | null;
-  weight: number;
-  weight_label: 'Common' | 'Normal' | 'Rare';
-};
+type WeightLabel = 'Common' | 'Normal' | 'Rare';
+type RewardType = 'free' | 'discount' | 'custom';
+type PreviewReward = { id: string; label: string; reward_type: RewardType; reward_value: number | null; weight: number; weight_label: WeightLabel };
 
 function findWheelPreviewCard() {
-  const nodes = Array.from(document.querySelectorAll('p, div'));
-  const label = nodes.find((node) => {
+  const label = Array.from(document.querySelectorAll('p, div')).find((node) => {
     const text = node.textContent?.toLowerCase().trim() || '';
     return text === 'wheel preview' || text.includes('wheel preview');
   });
   return label?.closest('[class*="rounded-"]') as HTMLElement | null;
 }
 
-function weightLabel(weight?: number | null): 'Common' | 'Normal' | 'Rare' {
-  if (weight === 60) return 'Common';
-  if (weight === 10) return 'Rare';
-  return 'Normal';
-}
-
+function weightFromLabel(label: WeightLabel) { return label === 'Common' ? 60 : label === 'Rare' ? 10 : 30; }
 function rewardText(reward: PreviewReward) {
   const label = reward.label || 'Reward';
   if (reward.reward_type === 'free') return label.toLowerCase().startsWith('free') ? label : `FREE ${label}`;
   if (reward.reward_type === 'discount') return `${reward.reward_value || 0}% ${label}`;
   return label;
 }
+function badgeClass(label: WeightLabel) { return label === 'Common' ? 'bg-green-50 text-green-700' : label === 'Rare' ? 'bg-orange-50 text-[#FF6B00]' : 'bg-stone-100 text-stone-600'; }
+function sig(list: PreviewReward[]) { return list.map((r) => `${r.label}|${r.reward_type}|${r.reward_value}|${r.weight_label}`).join(';;'); }
 
-function pickWeightedReward(rewards: PreviewReward[]) {
-  const pool = rewards.length ? rewards : [
-    { id: 'demo-1', label: 'Lucky Bite', reward_type: 'custom', reward_value: null, weight: 30, weight_label: 'Normal' as const },
-    { id: 'demo-2', label: 'Free Drink', reward_type: 'free', reward_value: null, weight: 30, weight_label: 'Normal' as const },
-    { id: 'demo-3', label: '20% Off', reward_type: 'custom', reward_value: null, weight: 10, weight_label: 'Rare' as const },
-  ];
-  let random = Math.random() * pool.reduce((sum, reward) => sum + Math.max(1, reward.weight || 30), 0);
-  for (const reward of pool) {
-    random -= Math.max(1, reward.weight || 30);
-    if (random <= 0) return reward;
-  }
+function parseBuilderRewards(): PreviewReward[] {
+  const segmentLabels = Array.from(document.querySelectorAll('p')).filter((node) => /^segment\s+\d+/i.test((node.textContent || '').trim()));
+  return segmentLabels.map((segmentLabel, index) => {
+    const card = segmentLabel.closest('[class*="rounded-3xl"]') as HTMLElement | null;
+    if (!card) return null;
+    const paragraphs = Array.from(card.querySelectorAll('p')) as HTMLElement[];
+    const title = paragraphs.find((p) => {
+      const text = (p.textContent || '').trim();
+      return text && !/^segment\s+\d+/i.test(text) && text.toLowerCase() !== 'remove';
+    })?.textContent?.trim() || `Reward ${index + 1}`;
+    const selects = Array.from(card.querySelectorAll('select')) as HTMLSelectElement[];
+    const rewardType = (selects.find((s) => ['free', 'discount', 'custom'].includes(s.value))?.value || 'discount') as RewardType;
+    const weightLabel = (selects.find((s) => ['Common', 'Normal', 'Rare'].includes(s.value))?.value || 'Normal') as WeightLabel;
+    const numbers = Array.from(card.querySelectorAll('input[type="number"]')) as HTMLInputElement[];
+    return { id: `live-${index}-${title}`, label: title, reward_type: rewardType, reward_value: rewardType === 'discount' && numbers[0]?.value ? Number(numbers[0].value) : null, weight: weightFromLabel(weightLabel), weight_label: weightLabel };
+  }).filter(Boolean) as PreviewReward[];
+}
+
+function pickWeighted(rewards: PreviewReward[]) {
+  const fallback: PreviewReward[] = [{ id: 'demo', label: 'Lucky Bite', reward_type: 'custom', reward_value: null, weight: 30, weight_label: 'Normal' }];
+  const pool = rewards.length ? rewards : fallback;
+  let random = Math.random() * pool.reduce((sum, item) => sum + item.weight, 0);
+  for (const reward of pool) { random -= reward.weight; if (random <= 0) return reward; }
   return pool[pool.length - 1];
 }
 
-function weightBadgeClass(label: string) {
-  if (label === 'Common') return 'bg-green-50 text-green-700';
-  if (label === 'Rare') return 'bg-orange-50 text-[#FF6B00]';
-  return 'bg-stone-100 text-stone-600';
-}
+function MysteryBoxPreview({ rewards }: { rewards: PreviewReward[] }) {
+  const [phase, setPhase] = useState<'idle' | 'opening' | 'revealed'>('idle');
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [won, setWon] = useState<PreviewReward | null>(null);
 
-function rewardsHtml(rewards: PreviewReward[]) {
-  if (!rewards.length) {
-    return `<div class="mt-5 rounded-2xl bg-white/80 p-4 text-left text-sm font-black text-stone-600">Add rewards below, then click Save Changes. The preview will use the real saved menu items.</div>`;
+  function test(box?: number) {
+    if (phase !== 'idle') return;
+    const reward = pickWeighted(parseBuilderRewards().length ? parseBuilderRewards() : rewards);
+    setChosen(box ?? Math.floor(Math.random() * 3));
+    setWon(reward);
+    setPhase('opening');
+    setTimeout(() => { confetti({ particleCount: 220, spread: 120, origin: { y: 0.55 }, shapes: ['square', 'circle', 'star'] }); setPhase('revealed'); }, 1000);
+    setTimeout(() => { setPhase('idle'); setChosen(null); setWon(null); }, 5200);
   }
 
-  return `
-    <div class="mt-5 space-y-2 text-left">
-      <div class="flex items-center justify-between gap-3">
-        <p class="text-xs font-black uppercase tracking-[0.14em] text-stone-500">Mystery Box Rewards</p>
-        <p class="text-[10px] font-black uppercase tracking-wide text-green-700">Using saved rewards</p>
-      </div>
-      ${rewards.map((reward) => `
-        <div class="flex items-center justify-between gap-3 rounded-2xl bg-white/90 px-4 py-3 shadow-sm">
-          <p class="min-w-0 truncate text-sm font-black text-stone-900">${rewardText(reward)}</p>
-          <span class="shrink-0 rounded-full px-3 py-1 text-xs font-black uppercase ${weightBadgeClass(reward.weight_label)}">${reward.weight_label}</span>
-        </div>
-      `).join('')}
+  return <div className="min-w-0 rounded-[2rem] bg-white/95 p-4 text-[#1F1F1F] shadow-2xl ring-1 ring-white/50 sm:p-5">
+    <style jsx>{`@keyframes float{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-8px) scale(1.04)}}@keyframes tremble{0%,100%{transform:translate(-50%,-50%) rotate(0deg) scale(1.2)}25%{transform:translate(-50%,-50%) rotate(-7deg) scale(1.3)}50%{transform:translate(-50%,-50%) rotate(7deg) scale(1.35)}75%{transform:translate(-50%,-50%) rotate(-4deg) scale(1.28)}}@keyframes pop{0%{transform:translateY(20px) scale(.7);opacity:0}60%{transform:translateY(-8px) scale(1.05);opacity:1}100%{transform:translateY(0) scale(1);opacity:1}}`}</style>
+    <div className="mb-4 rounded-3xl bg-green-50 p-4 text-green-800"><p className="text-xs font-black uppercase tracking-[0.14em]">Selected Game</p><p className="mt-1 text-2xl font-black">🎁 Mystery Box Reveal</p><p className="mt-1 text-sm font-bold">Customers will tap one of 3 mystery boxes to reveal a reward.</p></div>
+    <div className="rounded-[2rem] bg-gradient-to-br from-orange-50 to-amber-100 p-5 text-center shadow-inner">
+      <div className="mb-4 flex items-center justify-between gap-3"><div className="text-left"><p className="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Mystery Box Preview</p>{phase === 'revealed' && won && <p className="mt-1 text-sm font-black text-green-700">🎉 {rewardText(won)}</p>}</div><button onClick={() => test()} disabled={phase !== 'idle'} className="rounded-full bg-[#1F1F1F] px-5 py-2 text-sm font-black text-white shadow-lg disabled:bg-stone-300">Test</button></div>
+      <h3 className="mt-2 text-3xl font-black leading-tight">{phase === 'idle' ? 'Pick a box to reveal your prize' : phase === 'opening' ? 'Opening your mystery box...' : 'Prize revealed!'}</h3>
+      <div className={`relative mt-6 ${phase === 'idle' ? 'grid min-h-[8rem] grid-cols-3 gap-3' : 'min-h-[15rem]'}`}>{[0,1,2].map((box) => { const isChosen = chosen === box; const hidden = phase !== 'idle' && !isChosen; return <button key={box} onClick={() => test(box)} disabled={phase !== 'idle'} className={`relative flex h-28 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] shadow-xl transition ${hidden ? 'scale-75 opacity-0' : ''}`} style={phase === 'idle' ? { animation: `float 2.4s ease-in-out infinite ${box * .15}s` } : isChosen ? { position: 'absolute', left: '50%', top: '42%', width: '8.5rem', height: '8.5rem', zIndex: 30, animation: phase === 'opening' ? 'tremble 1s ease-in-out infinite' : undefined, transform: 'translate(-50%, -50%) scale(1.15)' } : undefined}><span className="absolute -top-2 text-xl">✨</span><span className="text-5xl">{phase === 'revealed' && isChosen ? '🎉' : '🎁'}</span><span className="absolute bottom-2 text-xs font-black uppercase text-white">{phase === 'revealed' && isChosen ? 'Opened' : `Box ${box + 1}`}</span></button>; })}{phase === 'revealed' && won && <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center px-2 pb-2"><div className="w-full rounded-[2rem] bg-white p-4 text-center shadow-xl" style={{ animation: 'pop .7s ease-out forwards' }}><p className="text-xs font-black uppercase tracking-[0.14em] text-[#FF6B00]">🎉 You won</p><p className="mt-1 text-2xl font-black leading-tight text-green-700">{rewardText(won)}</p><p className="mt-2 text-[10px] font-bold uppercase text-stone-500">Preview only. Coupon issuing happens on the live play page.</p></div></div>}</div>
+      <div className="mt-5 space-y-2 text-left"><div className="flex items-center justify-between gap-3"><p className="text-xs font-black uppercase tracking-[0.14em] text-stone-500">Mystery Box Rewards</p><p className="text-[10px] font-black uppercase tracking-wide text-green-700">Using builder rewards</p></div>{rewards.length ? rewards.map((reward) => <div key={reward.id} className="flex items-center justify-between gap-3 rounded-2xl bg-white/90 px-4 py-3 shadow-sm"><p className="min-w-0 truncate text-sm font-black text-stone-900">{rewardText(reward)}</p><span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black uppercase ${badgeClass(reward.weight_label)}`}>{reward.weight_label}</span></div>) : <div className="rounded-2xl bg-white/80 p-4 text-left text-sm font-black text-stone-600">Add rewards below. The Mystery Box preview uses the same visible rewards as the Spin Wheel builder.</div>}</div>
     </div>
-  `;
-}
-
-function buildMysteryPreview(rewards: PreviewReward[]) {
-  const wrapper = document.createElement('div');
-  wrapper.id = 'spinbite-mystery-box-builder-preview';
-  wrapper.className = 'min-w-0 rounded-[2rem] bg-white/95 p-4 text-[#1F1F1F] shadow-2xl ring-1 ring-white/50 sm:p-5';
-  wrapper.innerHTML = `
-    <style>
-      @keyframes spinbiteBoxFloat { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
-      @keyframes spinbiteSparkle { 0% { transform: translateY(8px) scale(.7); opacity: 0; } 45% { opacity: 1; } 100% { transform: translateY(-34px) scale(1.1); opacity: 0; } }
-      @keyframes spinbitePrizePop { 0% { transform: translateY(20px) scale(.62); opacity: 0; } 55% { transform: translateY(-10px) scale(1.06); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
-      @keyframes spinbiteTremble { 0%,100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.25); } 15% { transform: translate(-50%, -50%) rotate(-7deg) scale(1.32); } 30% { transform: translate(-50%, -50%) rotate(7deg) scale(1.35); } 45% { transform: translate(-50%, -50%) rotate(-5deg) scale(1.36); } 60% { transform: translate(-50%, -50%) rotate(5deg) scale(1.38); } 80% { transform: translate(-50%, -50%) rotate(-3deg) scale(1.32); } }
-      @keyframes spinbiteOpenBox { 0% { transform: translate(-50%, -50%) scale(1.38); } 100% { transform: translate(-50%, -50%) scale(1.18); } }
-      @keyframes spinbiteFadeOut { to { opacity: 0; transform: scale(.78); pointer-events: none; } }
-    </style>
-    <div class="mb-4 rounded-3xl bg-green-50 p-4 text-green-800">
-      <p class="text-xs font-black uppercase tracking-[0.14em]">Selected Game</p>
-      <p class="mt-1 text-2xl font-black">🎁 Mystery Box Reveal</p>
-      <p class="mt-1 text-sm font-bold">Customers will tap one of 3 mystery boxes to reveal a reward.</p>
-    </div>
-    <div class="rounded-[2rem] bg-gradient-to-br from-orange-50 to-amber-100 p-5 text-center shadow-inner">
-      <div class="mb-4 flex items-center justify-between gap-3">
-        <div class="text-left">
-          <p class="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Mystery Box Preview</p>
-          <p id="spinbite-mystery-result" class="mt-1 text-sm font-black text-green-700"></p>
-        </div>
-        <button id="spinbite-mystery-test-button" type="button" class="rounded-full bg-[#1F1F1F] px-5 py-2 text-sm font-black text-white shadow-lg">Test</button>
-      </div>
-      <h3 id="spinbite-mystery-heading" class="mt-2 text-3xl font-black leading-tight">Pick a box to reveal your prize</h3>
-      <div id="spinbite-mystery-stage" class="relative mt-6 grid min-h-[8rem] grid-cols-3 gap-3 overflow-visible">
-        ${[1, 2, 3].map((box) => `
-          <button type="button" data-spinbite-box="${box}" class="relative flex h-28 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] shadow-xl transition active:scale-95" style="animation: spinbiteBoxFloat 2.4s ease-in-out infinite ${box * 0.15}s;">
-            <span class="absolute -top-2 text-xl" style="animation: spinbiteSparkle 1.6s ease-in-out infinite ${box * 0.2}s;">✨</span>
-            <span class="text-5xl">🎁</span>
-            <span class="absolute bottom-2 text-xs font-black uppercase text-white">Box ${box}</span>
-          </button>
-        `).join('')}
-        <div id="spinbite-prize-output" class="pointer-events-none absolute inset-0 z-40 hidden items-center justify-center px-2"></div>
-      </div>
-      ${rewardsHtml(rewards)}
-    </div>
-  `;
-
-  function runTest(selectedButton?: HTMLElement | null) {
-    wrapper.dataset.revealing = 'true';
-
-    const buttons = Array.from(wrapper.querySelectorAll('[data-spinbite-box]')) as HTMLElement[];
-    const result = wrapper.querySelector('#spinbite-mystery-result') as HTMLElement | null;
-    const heading = wrapper.querySelector('#spinbite-mystery-heading') as HTMLElement | null;
-    const stage = wrapper.querySelector('#spinbite-mystery-stage') as HTMLElement | null;
-    const output = wrapper.querySelector('#spinbite-prize-output') as HTMLElement | null;
-    const testButton = wrapper.querySelector('#spinbite-mystery-test-button') as HTMLButtonElement | null;
-    const chosen = selectedButton || buttons[Math.floor(Math.random() * buttons.length)];
-    const reward = pickWeightedReward(rewards);
-
-    if (testButton) testButton.disabled = true;
-    if (heading) heading.textContent = 'Opening your mystery box...';
-    if (result) result.textContent = 'Box selected — reveal in progress...';
-    if (stage) stage.className = 'relative mt-6 min-h-[15rem] overflow-visible';
-
-    buttons.forEach((button) => {
-      button.style.animation = '';
-      if (button !== chosen) button.style.animation = 'spinbiteFadeOut .35s ease-out forwards';
-    });
-
-    if (chosen) {
-      chosen.style.position = 'absolute';
-      chosen.style.left = '50%';
-      chosen.style.top = '40%';
-      chosen.style.zIndex = '30';
-      chosen.style.width = '8.5rem';
-      chosen.style.height = '8.5rem';
-      chosen.style.animation = 'spinbiteTremble 1.05s ease-in-out infinite';
-      chosen.innerHTML = `<span class="absolute -top-5 text-3xl">✨</span><span class="text-6xl">🎁</span><span class="absolute bottom-3 text-xs font-black uppercase text-white">Opening</span>`;
-    }
-
-    window.setTimeout(() => {
-      if (chosen) {
-        chosen.style.animation = 'spinbiteOpenBox .45s ease-out forwards';
-        chosen.innerHTML = `<span class="absolute -top-6 text-4xl">✨</span><span class="text-6xl">🎉</span><span class="absolute bottom-3 text-xs font-black uppercase text-white">Opened</span>`;
-      }
-      confetti({ particleCount: 260, spread: 130, origin: { y: 0.52 }, shapes: ['square', 'circle', 'star'] });
-    }, 1100);
-
-    window.setTimeout(() => {
-      if (heading) heading.textContent = 'Prize revealed!';
-      if (result) result.textContent = '';
-      if (output) {
-        output.className = 'pointer-events-none absolute inset-0 z-40 flex items-end justify-center px-2 pb-2';
-        output.innerHTML = `
-          <div class="w-full rounded-[2rem] bg-white p-4 text-center shadow-xl" style="animation: spinbitePrizePop .7s ease-out forwards;">
-            <p class="text-xs font-black uppercase tracking-[0.14em] text-[#FF6B00]">🎉 You won</p>
-            <p class="mt-1 text-2xl font-black leading-tight text-green-700">${rewardText(reward)}</p>
-            <p class="mt-2 text-[10px] font-bold uppercase text-stone-500">Preview only. Coupon issuing happens on the live play page.</p>
-          </div>
-        `;
-      }
-    }, 1500);
-
-    window.setTimeout(() => {
-      wrapper.dataset.revealing = 'false';
-    }, 5200);
-  }
-
-  wrapper.querySelector('#spinbite-mystery-test-button')?.addEventListener('click', () => runTest());
-  wrapper.querySelectorAll('[data-spinbite-box]').forEach((button) => button.addEventListener('click', () => runTest(button as HTMLElement)));
-
-  return wrapper;
+  </div>;
 }
 
 export default function BuilderMysteryBoxPreviewPatch({ promotionId }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [isMysteryBox, setIsMysteryBox] = useState(false);
+  const [mountNode, setMountNode] = useState<HTMLElement | null>(null);
   const [rewards, setRewards] = useState<PreviewReward[]>([]);
-  const lastNonEmptyRewardsRef = useRef<PreviewReward[]>([]);
+  const last = useRef('');
 
-  useEffect(() => {
-    async function loadRewards() {
-      const result = await supabase.from('promotions').select('game_type').eq('id', promotionId).single();
-      setIsMysteryBox(result.data?.game_type === 'mystery_box');
+  useEffect(() => { supabase.from('promotions').select('game_type').eq('id', promotionId).single().then((r) => setIsMysteryBox(r.data?.game_type === 'mystery_box')); }, [promotionId, supabase]);
+  useEffect(() => { if (!isMysteryBox) return; function mount(){ const wheel = findWheelPreviewCard(); if(!wheel) return; wheel.style.display='none'; let host=document.getElementById('spinbite-mystery-react-preview') as HTMLElement | null; if(!host){host=document.createElement('div'); host.id='spinbite-mystery-react-preview'; wheel.insertAdjacentElement('afterend', host);} setMountNode(host);} mount(); const observer=new MutationObserver(mount); observer.observe(document.body,{childList:true,subtree:true}); const timer=setInterval(mount,1000); return()=>{observer.disconnect(); clearInterval(timer);}; }, [isMysteryBox]);
+  useEffect(() => { if (!isMysteryBox) return; function sync(){ const live=parseBuilderRewards(); const next=sig(live); if(next!==last.current){last.current=next; setRewards(live);} } sync(); const observer=new MutationObserver(sync); observer.observe(document.body,{childList:true,subtree:true,characterData:true}); const timer=setInterval(sync,800); return()=>{observer.disconnect(); clearInterval(timer);}; }, [isMysteryBox]);
 
-      const rewardResult = await supabase
-        .from('promotion_rewards')
-        .select('id,menu_item_id,custom_name,reward_type,reward_value,weight')
-        .eq('promotion_id', promotionId)
-        .order('created_at', { ascending: false });
-
-      const rawRewards = rewardResult.data || [];
-      const menuItemIds = Array.from(new Set(rawRewards.map((reward: any) => reward.menu_item_id).filter(Boolean)));
-      let namesById: Record<string, string> = {};
-
-      if (menuItemIds.length) {
-        const itemResult = await supabase.from('menu_items').select('id,name').in('id', menuItemIds);
-        namesById = Object.fromEntries((itemResult.data || []).map((item: any) => [item.id, item.name]));
-      }
-
-      const mapped = rawRewards.map((reward: any) => ({
-        id: reward.id,
-        label: reward.custom_name || namesById[reward.menu_item_id] || 'Reward',
-        reward_type: reward.reward_type || 'discount',
-        reward_value: reward.reward_value,
-        weight: reward.weight || 30,
-        weight_label: weightLabel(reward.weight || 30),
-      }));
-
-      if (mapped.length) {
-        lastNonEmptyRewardsRef.current = mapped;
-        setRewards(mapped);
-      } else if (!lastNonEmptyRewardsRef.current.length) {
-        setRewards([]);
-      }
-    }
-
-    loadRewards();
-    const timer = window.setInterval(loadRewards, 3500);
-    return () => window.clearInterval(timer);
-  }, [promotionId, supabase]);
-
-  useEffect(() => {
-    if (!isMysteryBox) return;
-
-    function apply(force = false) {
-      const wheelCard = findWheelPreviewCard();
-      if (!wheelCard) return false;
-
-      wheelCard.style.display = 'none';
-      const existing = document.getElementById('spinbite-mystery-box-builder-preview') as HTMLElement | null;
-      if (existing?.dataset.revealing === 'true') return true;
-      if (existing && !force) return true;
-
-      const next = buildMysteryPreview(rewards);
-      if (existing) existing.replaceWith(next);
-      else wheelCard.insertAdjacentElement('afterend', next);
-      return true;
-    }
-
-    apply(true);
-    const observer = new MutationObserver(() => apply(false));
-    observer.observe(document.body, { childList: true, subtree: true });
-    const timer = window.setInterval(() => apply(false), 1200);
-
-    return () => {
-      observer.disconnect();
-      window.clearInterval(timer);
-    };
-  }, [isMysteryBox, rewards]);
-
-  return null;
+  if (!isMysteryBox || !mountNode) return null;
+  return createPortal(<MysteryBoxPreview rewards={rewards} />, mountNode);
 }
