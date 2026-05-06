@@ -31,9 +31,10 @@ function weightLabel(weight?: number | null): 'Common' | 'Normal' | 'Rare' {
 }
 
 function rewardText(reward: PreviewReward) {
-  if (reward.reward_type === 'free') return `FREE ${reward.label}`;
-  if (reward.reward_type === 'discount') return `${reward.reward_value || 0}% ${reward.label}`;
-  return reward.label;
+  const label = reward.label || 'Reward';
+  if (reward.reward_type === 'free') return label.toLowerCase().startsWith('free') ? label : `FREE ${label}`;
+  if (reward.reward_type === 'discount') return `${reward.reward_value || 0}% ${label}`;
+  return label;
 }
 
 function pickWeightedReward(rewards: PreviewReward[]) {
@@ -58,12 +59,15 @@ function weightBadgeClass(label: string) {
 
 function rewardsHtml(rewards: PreviewReward[]) {
   if (!rewards.length) {
-    return `<div class="mt-5 rounded-2xl bg-white/80 p-4 text-left text-sm font-black text-stone-600">Add rewards below to see the real Mystery Box prize list here.</div>`;
+    return `<div class="mt-5 rounded-2xl bg-white/80 p-4 text-left text-sm font-black text-stone-600">Add rewards below, then click Save Changes. The preview will refresh and use the real saved menu items.</div>`;
   }
 
   return `
     <div class="mt-5 space-y-2 text-left">
-      <p class="text-xs font-black uppercase tracking-[0.14em] text-stone-500">Mystery Box Rewards</p>
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-xs font-black uppercase tracking-[0.14em] text-stone-500">Mystery Box Rewards</p>
+        <p class="text-[10px] font-black uppercase tracking-wide text-green-700">Using saved rewards</p>
+      </div>
       ${rewards.map((reward) => `
         <div class="flex items-center justify-between gap-3 rounded-2xl bg-white/90 px-4 py-3 shadow-sm">
           <p class="min-w-0 truncate text-sm font-black text-stone-900">${rewardText(reward)}</p>
@@ -82,9 +86,9 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
     <style>
       @keyframes spinbiteBoxFloat { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
       @keyframes spinbiteSparkle { 0% { transform: translateY(8px) scale(.7); opacity: 0; } 45% { opacity: 1; } 100% { transform: translateY(-34px) scale(1.1); opacity: 0; } }
-      @keyframes spinbitePrizePop { 0% { transform: translateY(24px) scale(.55); opacity: 0; } 45% { transform: translateY(-12px) scale(1.08); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
-      @keyframes spinbiteTremble { 0%,100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.35); } 15% { transform: translate(-50%, -50%) rotate(-7deg) scale(1.42); } 30% { transform: translate(-50%, -50%) rotate(7deg) scale(1.45); } 45% { transform: translate(-50%, -50%) rotate(-5deg) scale(1.46); } 60% { transform: translate(-50%, -50%) rotate(5deg) scale(1.48); } 80% { transform: translate(-50%, -50%) rotate(-3deg) scale(1.42); } }
-      @keyframes spinbiteExplode { 0% { transform: translate(-50%, -50%) scale(1.48); opacity: 1; filter: blur(0); } 100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; filter: blur(3px); } }
+      @keyframes spinbitePrizePop { 0% { transform: translateY(20px) scale(.62); opacity: 0; } 55% { transform: translateY(-10px) scale(1.06); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+      @keyframes spinbiteTremble { 0%,100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.25); } 15% { transform: translate(-50%, -50%) rotate(-7deg) scale(1.32); } 30% { transform: translate(-50%, -50%) rotate(7deg) scale(1.35); } 45% { transform: translate(-50%, -50%) rotate(-5deg) scale(1.36); } 60% { transform: translate(-50%, -50%) rotate(5deg) scale(1.38); } 80% { transform: translate(-50%, -50%) rotate(-3deg) scale(1.32); } }
+      @keyframes spinbiteOpenBox { 0% { transform: translate(-50%, -50%) scale(1.38); } 100% { transform: translate(-50%, -50%) scale(1.18); } }
       @keyframes spinbiteFadeOut { to { opacity: 0; transform: scale(.78); pointer-events: none; } }
     </style>
     <div class="mb-4 rounded-3xl bg-green-50 p-4 text-green-800">
@@ -109,8 +113,8 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
             <span class="absolute bottom-2 text-xs font-black uppercase text-white">Box ${box}</span>
           </button>
         `).join('')}
+        <div id="spinbite-prize-output" class="pointer-events-none absolute inset-0 z-40 hidden items-center justify-center px-2"></div>
       </div>
-      <div id="spinbite-prize-output"></div>
       ${rewardsHtml(rewards)}
     </div>
   `;
@@ -128,21 +132,17 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
     if (testButton) testButton.disabled = true;
     if (heading) heading.textContent = 'Opening your mystery box...';
     if (result) result.textContent = 'Box selected — reveal in progress...';
-    if (stage) {
-      stage.className = 'relative mt-6 min-h-[13rem] overflow-visible';
-    }
+    if (stage) stage.className = 'relative mt-6 min-h-[15rem] overflow-visible';
 
     buttons.forEach((button) => {
       button.style.animation = '';
-      if (button !== chosen) {
-        button.style.animation = 'spinbiteFadeOut .35s ease-out forwards';
-      }
+      if (button !== chosen) button.style.animation = 'spinbiteFadeOut .35s ease-out forwards';
     });
 
     if (chosen) {
       chosen.style.position = 'absolute';
       chosen.style.left = '50%';
-      chosen.style.top = '50%';
+      chosen.style.top = '40%';
       chosen.style.zIndex = '30';
       chosen.style.width = '8.5rem';
       chosen.style.height = '8.5rem';
@@ -152,7 +152,8 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
 
     window.setTimeout(() => {
       if (chosen) {
-        chosen.style.animation = 'spinbiteExplode .55s ease-out forwards';
+        chosen.style.animation = 'spinbiteOpenBox .45s ease-out forwards';
+        chosen.innerHTML = `<span class="absolute -top-6 text-4xl">✨</span><span class="text-6xl">🎉</span><span class="absolute bottom-3 text-xs font-black uppercase text-white">Opened</span>`;
       }
       confetti({ particleCount: 260, spread: 130, origin: { y: 0.52 }, shapes: ['square', 'circle', 'star'] });
     }, 1100);
@@ -161,11 +162,12 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
       if (heading) heading.textContent = 'Prize revealed!';
       if (result) result.textContent = '';
       if (output) {
+        output.className = 'pointer-events-none absolute inset-0 z-40 flex items-end justify-center px-2 pb-2';
         output.innerHTML = `
-          <div class="mt-4 rounded-[2rem] bg-white p-5 text-center shadow-xl" style="animation: spinbitePrizePop .7s ease-out forwards;">
-            <p class="text-sm font-black uppercase tracking-[0.14em] text-[#FF6B00]">🎉 You won</p>
-            <p class="mt-2 text-3xl font-black leading-tight text-green-700">${rewardText(reward)}</p>
-            <p class="mt-2 text-xs font-bold uppercase text-stone-500">This is a preview. Customer coupon issuing happens on the live play page.</p>
+          <div class="w-full rounded-[2rem] bg-white p-4 text-center shadow-xl" style="animation: spinbitePrizePop .7s ease-out forwards;">
+            <p class="text-xs font-black uppercase tracking-[0.14em] text-[#FF6B00]">🎉 You won</p>
+            <p class="mt-1 text-2xl font-black leading-tight text-green-700">${rewardText(reward)}</p>
+            <p class="mt-2 text-[10px] font-bold uppercase text-stone-500">Preview only. Coupon issuing happens on the live play page.</p>
           </div>
         `;
       }
@@ -189,7 +191,7 @@ export default function BuilderMysteryBoxPreviewPatch({ promotionId }: Props) {
   const [rewards, setRewards] = useState<PreviewReward[]>([]);
 
   useEffect(() => {
-    async function load() {
+    async function loadRewards() {
       const result = await supabase.from('promotions').select('game_type').eq('id', promotionId).single();
       setIsMysteryBox(result.data?.game_type === 'mystery_box');
 
@@ -200,7 +202,7 @@ export default function BuilderMysteryBoxPreviewPatch({ promotionId }: Props) {
         .order('created_at', { ascending: false });
 
       const rawRewards = rewardResult.data || [];
-      const menuItemIds = rawRewards.map((reward: any) => reward.menu_item_id).filter(Boolean);
+      const menuItemIds = Array.from(new Set(rawRewards.map((reward: any) => reward.menu_item_id).filter(Boolean)));
       let namesById: Record<string, string> = {};
 
       if (menuItemIds.length) {
@@ -217,7 +219,10 @@ export default function BuilderMysteryBoxPreviewPatch({ promotionId }: Props) {
         weight_label: weightLabel(reward.weight || 30),
       })));
     }
-    load();
+
+    loadRewards();
+    const timer = window.setInterval(loadRewards, 2500);
+    return () => window.clearInterval(timer);
   }, [promotionId, supabase]);
 
   useEffect(() => {
