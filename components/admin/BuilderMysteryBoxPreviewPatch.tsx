@@ -66,10 +66,7 @@ function rewardsHtml(rewards: PreviewReward[]) {
       <p class="text-xs font-black uppercase tracking-[0.14em] text-stone-500">Mystery Box Rewards</p>
       ${rewards.map((reward) => `
         <div class="flex items-center justify-between gap-3 rounded-2xl bg-white/90 px-4 py-3 shadow-sm">
-          <div class="min-w-0">
-            <p class="truncate text-sm font-black text-stone-900">${rewardText(reward)}</p>
-            <p class="text-xs font-bold text-stone-500">Weight ${reward.weight}</p>
-          </div>
+          <p class="min-w-0 truncate text-sm font-black text-stone-900">${rewardText(reward)}</p>
           <span class="shrink-0 rounded-full px-3 py-1 text-xs font-black uppercase ${weightBadgeClass(reward.weight_label)}">${reward.weight_label}</span>
         </div>
       `).join('')}
@@ -85,8 +82,10 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
     <style>
       @keyframes spinbiteBoxFloat { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
       @keyframes spinbiteSparkle { 0% { transform: translateY(8px) scale(.7); opacity: 0; } 45% { opacity: 1; } 100% { transform: translateY(-34px) scale(1.1); opacity: 0; } }
-      @keyframes spinbiteBoxShake { 0%,100% { transform: rotate(0deg) scale(1); } 20% { transform: rotate(-5deg) scale(1.04); } 40% { transform: rotate(5deg) scale(1.08); } 60% { transform: rotate(-4deg) scale(1.08); } 80% { transform: rotate(4deg) scale(1.04); } }
-      @keyframes spinbiteBoxOpen { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-22px) rotate(-10deg); opacity: .35; } }
+      @keyframes spinbitePrizePop { 0% { transform: translateY(24px) scale(.55); opacity: 0; } 45% { transform: translateY(-12px) scale(1.08); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+      @keyframes spinbiteTremble { 0%,100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.35); } 15% { transform: translate(-50%, -50%) rotate(-7deg) scale(1.42); } 30% { transform: translate(-50%, -50%) rotate(7deg) scale(1.45); } 45% { transform: translate(-50%, -50%) rotate(-5deg) scale(1.46); } 60% { transform: translate(-50%, -50%) rotate(5deg) scale(1.48); } 80% { transform: translate(-50%, -50%) rotate(-3deg) scale(1.42); } }
+      @keyframes spinbiteExplode { 0% { transform: translate(-50%, -50%) scale(1.48); opacity: 1; filter: blur(0); } 100% { transform: translate(-50%, -50%) scale(1.9); opacity: 0; filter: blur(3px); } }
+      @keyframes spinbiteFadeOut { to { opacity: 0; transform: scale(.78); pointer-events: none; } }
     </style>
     <div class="mb-4 rounded-3xl bg-green-50 p-4 text-green-800">
       <p class="text-xs font-black uppercase tracking-[0.14em]">Selected Game</p>
@@ -101,8 +100,8 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
         </div>
         <button id="spinbite-mystery-test-button" type="button" class="rounded-full bg-[#1F1F1F] px-5 py-2 text-sm font-black text-white shadow-lg">Test</button>
       </div>
-      <h3 class="mt-2 text-3xl font-black leading-tight">Pick a box to reveal your prize</h3>
-      <div class="mt-6 grid grid-cols-3 gap-3">
+      <h3 id="spinbite-mystery-heading" class="mt-2 text-3xl font-black leading-tight">Pick a box to reveal your prize</h3>
+      <div id="spinbite-mystery-stage" class="relative mt-6 grid min-h-[8rem] grid-cols-3 gap-3 overflow-visible">
         ${[1, 2, 3].map((box) => `
           <button type="button" data-spinbite-box="${box}" class="relative flex h-28 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] shadow-xl transition active:scale-95" style="animation: spinbiteBoxFloat 2.4s ease-in-out infinite ${box * 0.15}s;">
             <span class="absolute -top-2 text-xl" style="animation: spinbiteSparkle 1.6s ease-in-out infinite ${box * 0.2}s;">✨</span>
@@ -111,6 +110,7 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
           </button>
         `).join('')}
       </div>
+      <div id="spinbite-prize-output"></div>
       ${rewardsHtml(rewards)}
     </div>
   `;
@@ -118,30 +118,63 @@ function buildMysteryPreview(rewards: PreviewReward[]) {
   function runTest(selectedButton?: HTMLElement | null) {
     const buttons = Array.from(wrapper.querySelectorAll('[data-spinbite-box]')) as HTMLElement[];
     const result = wrapper.querySelector('#spinbite-mystery-result') as HTMLElement | null;
+    const heading = wrapper.querySelector('#spinbite-mystery-heading') as HTMLElement | null;
+    const stage = wrapper.querySelector('#spinbite-mystery-stage') as HTMLElement | null;
+    const output = wrapper.querySelector('#spinbite-prize-output') as HTMLElement | null;
+    const testButton = wrapper.querySelector('#spinbite-mystery-test-button') as HTMLButtonElement | null;
     const chosen = selectedButton || buttons[Math.floor(Math.random() * buttons.length)];
     const reward = pickWeightedReward(rewards);
 
+    if (testButton) testButton.disabled = true;
+    if (heading) heading.textContent = 'Opening your mystery box...';
+    if (result) result.textContent = 'Box selected — reveal in progress...';
+    if (stage) {
+      stage.className = 'relative mt-6 min-h-[13rem] overflow-visible';
+    }
+
     buttons.forEach((button) => {
-      button.style.opacity = button === chosen ? '1' : '.45';
-      button.style.animation = button === chosen ? 'spinbiteBoxShake .7s ease-in-out infinite' : '';
+      button.style.animation = '';
+      if (button !== chosen) {
+        button.style.animation = 'spinbiteFadeOut .35s ease-out forwards';
+      }
     });
-    if (result) result.textContent = 'Opening mystery box...';
+
+    if (chosen) {
+      chosen.style.position = 'absolute';
+      chosen.style.left = '50%';
+      chosen.style.top = '50%';
+      chosen.style.zIndex = '30';
+      chosen.style.width = '8.5rem';
+      chosen.style.height = '8.5rem';
+      chosen.style.animation = 'spinbiteTremble 1.05s ease-in-out infinite';
+      chosen.innerHTML = `<span class="absolute -top-5 text-3xl">✨</span><span class="text-6xl">🎁</span><span class="absolute bottom-3 text-xs font-black uppercase text-white">Opening</span>`;
+    }
 
     window.setTimeout(() => {
       if (chosen) {
-        chosen.style.animation = 'spinbiteBoxOpen .55s ease-out forwards';
-        chosen.innerHTML = `<span class="absolute -top-4 text-3xl">✨</span><span class="text-5xl">🎉</span><span class="absolute bottom-2 text-xs font-black uppercase text-white">Winner</span>`;
+        chosen.style.animation = 'spinbiteExplode .55s ease-out forwards';
       }
-      if (result) result.textContent = `🎉 ${rewardText(reward)}`;
-      confetti({ particleCount: 170, spread: 110, origin: { y: 0.62 } });
-    }, 900);
+      confetti({ particleCount: 260, spread: 130, origin: { y: 0.52 }, shapes: ['square', 'circle', 'star'] });
+    }, 1100);
+
+    window.setTimeout(() => {
+      if (heading) heading.textContent = 'Prize revealed!';
+      if (result) result.textContent = '';
+      if (output) {
+        output.innerHTML = `
+          <div class="mt-4 rounded-[2rem] bg-white p-5 text-center shadow-xl" style="animation: spinbitePrizePop .7s ease-out forwards;">
+            <p class="text-sm font-black uppercase tracking-[0.14em] text-[#FF6B00]">🎉 You won</p>
+            <p class="mt-2 text-3xl font-black leading-tight text-green-700">${rewardText(reward)}</p>
+            <p class="mt-2 text-xs font-bold uppercase text-stone-500">This is a preview. Customer coupon issuing happens on the live play page.</p>
+          </div>
+        `;
+      }
+    }, 1500);
 
     window.setTimeout(() => {
       const fresh = document.getElementById('spinbite-mystery-box-builder-preview');
-      if (fresh) {
-        fresh.replaceWith(buildMysteryPreview(rewards));
-      }
-    }, 3600);
+      if (fresh) fresh.replaceWith(buildMysteryPreview(rewards));
+    }, 5200);
   }
 
   wrapper.querySelector('#spinbite-mystery-test-button')?.addEventListener('click', () => runTest());
