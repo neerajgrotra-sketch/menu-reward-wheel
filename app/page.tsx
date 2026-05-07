@@ -4,12 +4,12 @@ import LandingPageClient, { type HomeHeroContent } from './LandingPageClient';
 const fallbackHero: HomeHeroContent = {
   eyebrow: 'QR games for restaurants',
   headline: 'Turn Every Meal Into a Game',
-  subheadline: 'Restaurants create spin wheels tied to real menu items. Diners scan a QR code, spin, win, and redeem instantly. Fun that actually drives sales.',
+  subheadline: 'Restaurants launch QR games tied to real menu rewards. Guests scan, play, win, and come back for their next visit. No app download. Instant redemption. Built for repeat sales.',
   badge_1: 'No app download',
-  badge_2: 'Instant redemption',
-  badge_3: 'Margin-safe controls',
+  badge_2: 'Multiple game types',
+  badge_3: 'Return-visit coupons',
   primary_cta_label: 'Get Started Free',
-  spin_button_label: 'Spin the Wheel',
+  spin_button_label: 'Play Demo',
 };
 
 export default async function LandingPage() {
