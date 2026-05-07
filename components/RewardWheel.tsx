@@ -41,7 +41,7 @@ export function RewardWheel({
     .join(', ');
 
   return (
-    <div className="relative mx-auto h-80 w-80 max-w-full rounded-full p-3 shadow-glow">
+    <div className="relative mx-auto aspect-square w-80 max-w-full rounded-full p-3 shadow-glow">
       <div
         className="relative h-full w-full rounded-full border-8 border-white shadow-2xl transition-transform ease-out"
         style={{
