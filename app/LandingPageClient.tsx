@@ -52,10 +52,38 @@ const gameCards = [
 type ShowcaseGame = 'wheel' | 'mystery';
 type MysteryPhase = 'idle' | 'opening' | 'revealed';
 
+function PrizeCard({ prize }: { prize: string }) {
+  return (
+    <div className="w-full rounded-2xl bg-white p-4 text-center shadow-lg">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-[#FF6B00]">You won</p>
+      <p className="mt-1 text-2xl font-black leading-tight text-green-700">{prize}</p>
+      <div className="mt-3 flex items-center justify-center gap-2 rounded-full bg-green-50 px-3 py-2 text-xs font-black uppercase text-green-700">
+        <span>⏱</span>
+        <span>Coupon valid for 20 minutes</span>
+      </div>
+    </div>
+  );
+}
+
+function WheelShowcase({ rotation, spinning, result }: { rotation: number; spinning: boolean; result: string | null }) {
+  return (
+    <div className="relative flex h-full min-h-[360px] flex-col justify-center rounded-[2rem] bg-white/80 p-3 text-center sm:min-h-[410px]">
+      <div className="mx-auto w-full max-w-[340px]">
+        <RewardWheel rewards={landingRewards} rotation={rotation} spinning={spinning} />
+      </div>
+      {result && (
+        <div className="pointer-events-none absolute inset-x-4 bottom-5 z-30" style={{ animation: 'prizePop .7s ease-out forwards' }}>
+          <PrizeCard prize={result} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MysteryBoxShowcase({ phase, chosenBox }: { phase: MysteryPhase; chosenBox: number | null }) {
   return (
     <div className="flex h-full min-h-[360px] flex-col justify-center rounded-[2rem] bg-gradient-to-br from-orange-50 to-amber-100 p-5 text-center shadow-inner ring-1 ring-orange-100 sm:min-h-[410px]">
-      <style jsx>{`
+      <style jsx global>{`
         @keyframes boxFloat { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
         @keyframes boxTremble { 0%,100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.18); } 20% { transform: translate(-50%, -50%) rotate(-7deg) scale(1.28); } 40% { transform: translate(-50%, -50%) rotate(7deg) scale(1.34); } 60% { transform: translate(-50%, -50%) rotate(-5deg) scale(1.3); } 80% { transform: translate(-50%, -50%) rotate(5deg) scale(1.24); } }
         @keyframes prizePop { 0% { transform: translateY(18px) scale(.7); opacity: 0; } 60% { transform: translateY(-8px) scale(1.05); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
@@ -67,11 +95,7 @@ function MysteryBoxShowcase({ phase, chosenBox }: { phase: MysteryPhase; chosenB
           const isChosen = chosenBox === box;
           const hidden = phase !== 'idle' && !isChosen;
           return (
-            <div
-              key={box}
-              className={`relative flex h-28 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] shadow-xl transition duration-300 ${hidden ? 'scale-75 opacity-0' : ''}`}
-              style={phase === 'idle' ? { animation: `boxFloat 2.4s ease-in-out infinite ${box * 0.15}s` } : isChosen ? { position: 'absolute', left: '50%', top: '45%', width: '8.5rem', height: '8.5rem', zIndex: 20, animation: phase === 'opening' ? 'boxTremble 1.05s ease-in-out infinite' : undefined, transform: 'translate(-50%, -50%) scale(1.16)' } : undefined}
-            >
+            <div key={box} className={`relative flex h-28 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] shadow-xl transition duration-300 ${hidden ? 'scale-75 opacity-0' : ''}`} style={phase === 'idle' ? { animation: `boxFloat 2.4s ease-in-out infinite ${box * 0.15}s` } : isChosen ? { position: 'absolute', left: '50%', top: '45%', width: '8.5rem', height: '8.5rem', zIndex: 20, animation: phase === 'opening' ? 'boxTremble 1.05s ease-in-out infinite' : undefined, transform: 'translate(-50%, -50%) scale(1.16)' } : undefined}>
               <span className="absolute -top-2 text-xl">✨</span>
               <span className="text-5xl">{phase === 'revealed' && isChosen ? '🎉' : '🎁'}</span>
               <span className="absolute bottom-3 text-xs font-black uppercase tracking-wide text-white">{phase === 'revealed' && isChosen ? 'Opened' : `Box ${box + 1}`}</span>
@@ -79,13 +103,45 @@ function MysteryBoxShowcase({ phase, chosenBox }: { phase: MysteryPhase; chosenB
           );
         })}
         {phase === 'revealed' && (
-          <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center px-2 pb-2">
-            <div className="w-full rounded-2xl bg-white p-4 shadow-lg" style={{ animation: 'prizePop .7s ease-out forwards' }}>
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#FF6B00]">You won</p>
-              <p className="mt-1 text-2xl font-black text-green-700">20% off your next meal</p>
-            </div>
+          <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center px-2 pb-2" style={{ animation: 'prizePop .7s ease-out forwards' }}>
+            <PrizeCard prize="20% off your next meal" />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function CustomerJourneyPreview() {
+  return (
+    <div className="mt-8 grid w-full max-w-5xl gap-4 md:grid-cols-[0.85fr_1.15fr]">
+      <div className="rounded-[2rem] bg-[#1F1F1F] p-5 text-left text-white shadow-xl">
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-white/55">Reusable QR poster</p>
+        <div className="mt-4 rounded-3xl bg-white p-5 text-center text-[#1F1F1F]">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-[#FF6B00]">Scan to play</p>
+          <div className="mx-auto mt-3 grid h-36 w-36 grid-cols-5 gap-1 rounded-2xl bg-white p-3 shadow-inner ring-1 ring-stone-200">
+            {Array.from({ length: 25 }).map((_, index) => <span key={index} className={`rounded-sm ${[0,1,3,4,5,7,10,12,14,16,18,20,21,23,24].includes(index) ? 'bg-[#1F1F1F]' : 'bg-stone-100'}`} />)}
+          </div>
+          <p className="mt-3 text-sm font-black">One QR. Many games.</p>
+          <p className="mt-1 text-xs font-bold text-stone-500">Update campaigns without reprinting.</p>
+        </div>
+      </div>
+      <div className="rounded-[2rem] bg-white p-5 text-left shadow-xl ring-1 ring-orange-100">
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-[#FF6B00]">What the guest experiences</p>
+        <h3 className="mt-2 text-2xl font-black">Scan → play → win → redeem</h3>
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          {[
+            ['1', 'Scan QR'],
+            ['2', 'Choose game'],
+            ['3', 'Reveal coupon'],
+            ['4', 'Redeem before timer ends'],
+          ].map(([num, label]) => <div key={num} className="rounded-2xl bg-orange-50 p-4 text-center"><p className="text-2xl font-black text-[#FF6B00]">{num}</p><p className="mt-1 text-xs font-black uppercase text-stone-700">{label}</p></div>)}
+        </div>
+        <div className="mt-4 rounded-3xl bg-green-50 p-4 text-green-800">
+          <div className="flex items-center justify-between gap-3"><p className="text-sm font-black uppercase tracking-wide">Live coupon preview</p><span className="rounded-full bg-white px-3 py-1 text-xs font-black">19:58 left</span></div>
+          <p className="mt-2 text-2xl font-black">20% off your next meal</p>
+          <p className="mt-1 text-sm font-bold text-green-700/80">Countdown creates urgency. Staff can validate or redeem the coupon instantly.</p>
+        </div>
       </div>
     </div>
   );
@@ -180,13 +236,13 @@ export default function LandingPageClient({ hero }: { hero: HomeHeroContent }) {
           <div className="w-full max-w-md rounded-[2rem] bg-white/80 p-4 shadow-2xl shadow-orange-200/60 ring-1 ring-orange-100">
             <div className="flex min-h-[420px] items-center justify-center sm:min-h-[470px]">
               <motion.div key={activeGame} initial={{ opacity: 0, x: activeGame === 'wheel' ? -18 : 18 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.25 }} className="w-full">
-                {activeGame === 'wheel' ? <RewardWheel rewards={landingRewards} rotation={rotation} spinning={spinning} /> : <MysteryBoxShowcase phase={mysteryPhase} chosenBox={chosenBox} />}
+                {activeGame === 'wheel' ? <WheelShowcase rotation={rotation} spinning={spinning} result={result} /> : <MysteryBoxShowcase phase={mysteryPhase} chosenBox={chosenBox} />}
               </motion.div>
             </div>
           </div>
           <button onClick={playDemo} disabled={spinning || mysteryPhase !== 'idle'} aria-label="Play demo game" className="mt-6 w-full max-w-xs rounded-full bg-gradient-to-r from-[#00C853] to-[#00A846] px-8 py-4 text-lg font-black text-white shadow-xl shadow-green-200 transition active:scale-95 disabled:bg-stone-400">{spinning ? 'Spinning...' : mysteryPhase === 'opening' ? 'Opening...' : demoButtonLabel}</button>
-          {result && activeGame === 'wheel' && <motion.p initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mt-5 rounded-2xl bg-white px-6 py-3 text-2xl font-black shadow-lg">🎉 You won: {result}</motion.p>}
           <a href="/auth" className="mt-5 rounded-full bg-gradient-to-r from-[#FF6B00] to-[#E63939] px-7 py-3 font-black text-white shadow-xl shadow-orange-200">{hero.primary_cta_label}</a>
+          <CustomerJourneyPreview />
         </div>
       </section>
 
