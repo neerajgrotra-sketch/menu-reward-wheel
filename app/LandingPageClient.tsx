@@ -79,6 +79,104 @@ const games = [
   },
 ];
 
+type MysteryPhase = 'idle' | 'opening' | 'revealed';
+
+function MysteryBoxDemo() {
+  const [phase, setPhase] = useState<MysteryPhase>('idle');
+  const [chosenBox, setChosenBox] = useState<number | null>(null);
+
+  function chooseBox(box: number) {
+    if (phase !== 'idle') return;
+    setChosenBox(box);
+    setPhase('opening');
+
+    window.setTimeout(() => {
+      confetti({ particleCount: 220, spread: 120, origin: { y: 0.62 }, shapes: ['square', 'circle', 'star'] });
+      setPhase('revealed');
+    }, 1050);
+
+    window.setTimeout(() => {
+      setPhase('idle');
+      setChosenBox(null);
+    }, 5600);
+  }
+
+  return (
+    <div className="mt-8 rounded-[2rem] bg-gradient-to-br from-orange-50 to-amber-100 p-5 text-center shadow-inner ring-1 ring-orange-100 sm:p-6">
+      <style jsx>{`
+        @keyframes boxFloat { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(1.04); } }
+        @keyframes boxTremble { 0%,100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.18); } 20% { transform: translate(-50%, -50%) rotate(-7deg) scale(1.28); } 40% { transform: translate(-50%, -50%) rotate(7deg) scale(1.34); } 60% { transform: translate(-50%, -50%) rotate(-5deg) scale(1.3); } 80% { transform: translate(-50%, -50%) rotate(5deg) scale(1.24); } }
+        @keyframes prizePop { 0% { transform: translateY(18px) scale(.7); opacity: 0; } 60% { transform: translateY(-8px) scale(1.05); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+      `}</style>
+
+      <div className="mx-auto max-w-3xl">
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-[#FF6B00]">Try Game #2</p>
+        <h3 className="mt-2 text-3xl font-black">Mystery Box Reveal</h3>
+        <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-6 text-stone-600">
+          Pick one box. The other boxes disappear, the selected box opens, and the prize is revealed with confetti.
+        </p>
+
+        <div className={`relative mx-auto mt-6 max-w-xl ${phase === 'idle' ? 'grid min-h-[8rem] grid-cols-3 gap-3' : 'min-h-[16rem]'}`}>
+          {[0, 1, 2].map((box) => {
+            const isChosen = chosenBox === box;
+            const hidden = phase !== 'idle' && !isChosen;
+            return (
+              <button
+                key={box}
+                type="button"
+                onClick={() => chooseBox(box)}
+                disabled={phase !== 'idle'}
+                aria-label={`Choose mystery box ${box + 1}`}
+                className={`relative flex h-28 items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] shadow-xl transition duration-300 active:scale-95 disabled:cursor-default ${hidden ? 'scale-75 opacity-0' : ''}`}
+                style={
+                  phase === 'idle'
+                    ? { animation: `boxFloat 2.4s ease-in-out infinite ${box * 0.15}s` }
+                    : isChosen
+                      ? {
+                          position: 'absolute',
+                          left: '50%',
+                          top: '42%',
+                          width: '8.75rem',
+                          height: '8.75rem',
+                          zIndex: 20,
+                          animation: phase === 'opening' ? 'boxTremble 1.05s ease-in-out infinite' : undefined,
+                          transform: 'translate(-50%, -50%) scale(1.16)',
+                        }
+                      : undefined
+                }
+              >
+                <span className="absolute -top-2 text-xl">✨</span>
+                <span className="text-5xl">{phase === 'revealed' && isChosen ? '🎉' : '🎁'}</span>
+                <span className="absolute bottom-3 text-xs font-black uppercase tracking-wide text-white">
+                  {phase === 'revealed' && isChosen ? 'Opened' : `Box ${box + 1}`}
+                </span>
+              </button>
+            );
+          })}
+
+          {phase === 'revealed' && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-end justify-center px-2 pb-2" style={{ animation: 'prizePop .7s ease-out forwards' }}>
+              <div className="w-full max-w-md rounded-2xl bg-white p-4 text-center shadow-lg">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#FF6B00]">You won</p>
+                <p className="mt-1 text-2xl font-black leading-tight text-green-700">20% off your next meal</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => chooseBox(1)}
+          disabled={phase !== 'idle'}
+          className="mt-5 w-full max-w-xs rounded-full bg-gradient-to-r from-[#00C853] to-[#00A846] px-8 py-4 text-lg font-black text-white shadow-xl shadow-green-200 transition active:scale-95 disabled:bg-stone-400"
+        >
+          {phase === 'opening' ? 'Opening...' : phase === 'revealed' ? 'Prize Revealed' : 'Choose a Box'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPageClient({ hero }: { hero: HomeHeroContent }) {
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
@@ -179,6 +277,8 @@ export default function LandingPageClient({ hero }: { hero: HomeHeroContent }) {
               2 live games • more coming soon
             </div>
           </div>
+
+          <MysteryBoxDemo />
 
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {games.map((game) => (
