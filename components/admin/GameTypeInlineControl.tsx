@@ -2,16 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { availableGames } from '@/lib/games/registry';
+import type { GameType } from '@/lib/games/types';
 
 type Props = { promotionId: string };
-type GameType = 'wheel' | 'mystery_box';
 
 const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
 
-const games: { value: GameType; title: string; description: string; icon: string }[] = [
-  { value: 'wheel', title: 'Spin Wheel', description: 'Customers spin a prize wheel and win a configured reward.', icon: '🎯' },
-  { value: 'mystery_box', title: 'Mystery Box Reveal', description: 'Customers tap one of 3 mystery boxes to reveal a prize with stars and confetti.', icon: '🎁' },
-];
+function normalizeGameType(value?: string | null): GameType {
+  if (value === 'mystery_box') return 'mystery_box';
+  if (value === 'scratch_card') return 'scratch_card';
+  return 'wheel';
+}
 
 function findHeroCard() {
   const headings = Array.from(document.querySelectorAll('p'));
@@ -24,14 +26,14 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
   const [gameType, setGameType] = useState<GameType>('wheel');
   const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
-  const selectedGame = games.find((game) => game.value === gameType) || games[0];
+  const selectedGame = availableGames.find((game) => game.type === gameType) || availableGames[0];
 
   useEffect(() => {
     async function load() {
       const result = await supabase.from('promotions').select('game_type').eq('id', promotionId).single();
       const pending = window.localStorage.getItem(STORAGE_KEY);
-      const pendingGameType: GameType | null = pending === 'mystery_box' || pending === 'wheel' ? pending : null;
-      const value = result.data?.game_type === 'mystery_box' ? 'mystery_box' : 'wheel';
+      const pendingGameType = pending === 'mystery_box' || pending === 'scratch_card' || pending === 'wheel' ? pending : null;
+      const value = normalizeGameType(result.data?.game_type);
 
       if (pendingGameType) {
         const updateResult = await supabase.from('promotions').update({ game_type: pendingGameType }).eq('id', promotionId);
@@ -75,27 +77,27 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
     <div id="spinbite-builder-game-type-host" className={mounted ? 'rounded-[2rem] bg-white p-5 shadow-xl' : 'hidden'}>
       <div className="rounded-3xl bg-green-50 p-4 text-green-800">
         <p className="text-xs font-black uppercase tracking-[0.14em]">Selected Game</p>
-        <p className="mt-1 text-2xl font-black">{selectedGame.icon} {selectedGame.title}</p>
-        <p className="mt-1 text-sm font-bold">This is the game customers will see after the promotion is published. The large preview above may still show the legacy wheel preview until the builder is fully refactored.</p>
+        <p className="mt-1 text-2xl font-black">{selectedGame.icon} {selectedGame.name}</p>
+        <p className="mt-1 text-sm font-bold">This is the game customers will see after the promotion is published.</p>
       </div>
       <p className="mt-5 text-sm font-black uppercase text-[#FF6B00]">Game Type</p>
       <p className="mt-2 text-sm font-bold text-stone-600">Choose how customers reveal their prize. Rewards, coupons, and reporting stay the same.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        {games.map((game) => {
-          const selected = gameType === game.value;
+        {availableGames.map((game) => {
+          const selected = gameType === game.type;
           return (
             <button
-              key={game.value}
+              key={game.type}
               type="button"
-              onClick={() => choose(game.value)}
+              onClick={() => choose(game.type)}
               disabled={saving}
               className={`rounded-3xl border-2 p-4 text-left transition active:scale-[0.99] ${selected ? 'border-green-600 bg-green-50 shadow' : 'border-stone-100 bg-stone-50 hover:border-[#FF6B00]'}`}
             >
               <div className="flex items-start gap-3">
                 <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-2xl shadow-inner">{game.icon}</span>
                 <span>
-                  <span className="block text-xl font-black">{game.title}</span>
-                  <span className="mt-1 block text-sm font-bold text-stone-600">{game.description}</span>
+                  <span className="block text-xl font-black">{game.createCard.title}</span>
+                  <span className="mt-1 block text-sm font-bold text-stone-600">{game.createCard.description}</span>
                   <span className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-black uppercase ${selected ? 'bg-green-600 text-white' : 'bg-white text-stone-500'}`}>{selected ? 'Selected' : 'Select'}</span>
                 </span>
               </div>
