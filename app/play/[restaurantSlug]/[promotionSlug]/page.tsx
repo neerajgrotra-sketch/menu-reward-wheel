@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
-import MysteryBoxGame from '@/components/games/MysteryBoxGame';
-import { RewardWheel, getRewardWheelTargetRotation } from '@/components/RewardWheel';
+import { getGameDefinition } from '@/lib/games/registry';
 import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
 import type { Reward } from '@/types/reward';
 
@@ -58,26 +57,26 @@ export default function PromotionPlayPage() {
   const [promotion, setPromotion] = useState<Promotion | null>(null);
   const [rewards, setRewards] = useState<Reward[]>([]);
   const [rotation, setRotation] = useState(0);
-  const [spinning, setSpinning] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [wonCoupons, setWonCoupons] = useState<WonCoupon[]>([]);
   const [activeCouponId, setActiveCouponId] = useState<string | null>(null);
   const [showReveal, setShowReveal] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const [spinsUsed, setSpinsUsed] = useState(0);
+  const [playsUsed, setPlaysUsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [couponIssueError, setCouponIssueError] = useState('');
 
+  const game = useMemo(() => getGameDefinition(promotion?.game_type), [promotion?.game_type]);
+  const PlayComponent = game.PlayComponent;
   const segmentAngle = useMemo(() => (rewards.length ? 360 / rewards.length : 0), [rewards.length]);
-  const maxSpins = Math.max(1, promotion?.max_spins || 1);
-  const spinsRemaining = Math.max(0, maxSpins - spinsUsed);
-  const canSpin = !spinning && rewards.length > 0 && spinsRemaining > 0;
+  const maxPlays = Math.max(1, promotion?.max_spins || 1);
+  const playsRemaining = Math.max(0, maxPlays - playsUsed);
+  const canPlay = !playing && rewards.length > 0 && playsRemaining > 0;
   const expiryMinutes = promotion?.coupon_expiry_minutes || 20;
   const activeCoupon = wonCoupons.find((item) => item.id === activeCouponId) || wonCoupons[0] || null;
   const activeExpiresAt = activeCoupon ? activeCoupon.issuedAt + expiryMinutes * 60 * 1000 : null;
   const activeExpired = Boolean(activeExpiresAt && now >= activeExpiresAt);
-  const gameType = promotion?.game_type || 'wheel';
-  const isMysteryBox = gameType === 'mystery_box';
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -115,14 +114,15 @@ export default function PromotionPlayPage() {
   }, [restaurantSlug, promotionSlug]);
 
   function playGame() {
-    if (!canSpin || !promotion || !restaurant) return;
+    if (!canPlay || !promotion || !restaurant) return;
     const selected = pickWeightedReward(rewards);
     const selectedIndex = rewards.findIndex((item) => item.id === selected.id);
-    const finalRotation = getRewardWheelTargetRotation({ currentRotation: rotation, selectedIndex, segmentAngle, rotations: 5 });
+    const finalRotation = game.getTargetRotation?.({ currentRotation: rotation, selectedIndex, segmentAngle });
+
     setCouponIssueError('');
-    setSpinning(true);
+    setPlaying(true);
     setShowReveal(false);
-    if (!isMysteryBox) setRotation(finalRotation);
+    if (typeof finalRotation === 'number') setRotation(finalRotation);
 
     setTimeout(async () => {
       const code = createCouponCode();
@@ -145,11 +145,11 @@ export default function PromotionPlayPage() {
       const nextCoupon: WonCoupon = { id: `${issuedAt}-${Math.random()}`, redemptionId, reward: selected, code, issuedAt };
       setWonCoupons((current) => [nextCoupon, ...current]);
       setActiveCouponId(nextCoupon.id);
-      setSpinsUsed((current) => current + 1);
-      setSpinning(false);
+      setPlaysUsed((current) => current + 1);
+      setPlaying(false);
       setShowReveal(true);
-      confetti({ particleCount: isMysteryBox ? 240 : 180, spread: isMysteryBox ? 120 : 100, origin: { y: 0.6 }, shapes: isMysteryBox ? ['square', 'circle', 'star'] : undefined });
-    }, isMysteryBox ? 1250 : 2900);
+      confetti(game.confetti);
+    }, game.resultDelayMs);
   }
 
   if (loading) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">Loading promotion...</div>;
@@ -165,23 +165,36 @@ export default function PromotionPlayPage() {
         <div className="rounded-3xl bg-white/85 p-5 text-center shadow-xl">
           <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{restaurant.name}</p>
           {address && <p className="mt-1 text-xs font-black uppercase tracking-wide text-stone-500">{address}</p>}
-          <h1 className="mt-2 text-3xl font-black">{isMysteryBox ? 'Mystery Box Reveal' : 'Spin & Win'}</h1>
-          <p className="mt-2 text-sm text-stone-600">{isMysteryBox ? 'Pick a mystery box to unlock your reward.' : 'Spin to unlock your reward.'}</p>
+          <h1 className="mt-2 text-3xl font-black">{game.labels.title}</h1>
+          <p className="mt-2 text-sm text-stone-600">{game.labels.instruction}</p>
         </div>
 
         <div className="mt-5 rounded-3xl bg-white/80 p-4 text-center shadow-lg">
-          <p className="text-lg font-black text-[#FF6B00]">{spinsRemaining > 0 ? `You have ${spinsRemaining} ${spinsRemaining === 1 ? 'play' : 'plays'} left 🎯` : 'No plays left — enjoy your rewards 🎉'}</p>
-          <p className="mt-1 text-sm font-bold text-stone-600">{spinsUsed} of {maxSpins} used</p>
+          <p className="text-lg font-black text-[#FF6B00]">
+            {playsRemaining > 0
+              ? `You have ${playsRemaining} ${playsRemaining === 1 ? 'play' : game.labels.playsAvailableSuffix}`
+              : game.labels.noPlaysText}
+          </p>
+          <p className="mt-1 text-sm font-bold text-stone-600">{playsUsed} of {maxPlays} used</p>
         </div>
 
-        {isMysteryBox ? <MysteryBoxGame canPlay={canSpin} spinning={spinning} spinsRemaining={spinsRemaining} onPick={playGame} /> : <><div className="mt-6"><RewardWheel rewards={rewards} rotation={rotation} spinning={spinning} /></div><button onClick={playGame} disabled={!canSpin} className="mt-6 w-full rounded-3xl bg-green-600 px-6 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400">{spinning ? 'Spinning...' : spinsRemaining > 0 && wonCoupons.length > 0 ? 'Spin Again' : spinsRemaining > 0 ? 'Spin Now' : 'All Spins Used'}</button></>}
+        <PlayComponent
+          rewards={rewards}
+          canPlay={canPlay}
+          playing={playing}
+          playsRemaining={playsRemaining}
+          playsUsed={playsUsed}
+          maxPlays={maxPlays}
+          onPlay={playGame}
+          rotation={rotation}
+        />
 
         {couponIssueError && <div className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-black text-red-700">{couponIssueError}</div>}
 
         {wonCoupons.length > 0 && <section className="mt-6 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Rewards</p><div className="mt-4 space-y-4">{wonCoupons.map((item, index) => { const expiresAt = item.issuedAt + expiryMinutes * 60 * 1000; const expired = now >= expiresAt; return <button key={item.id} onClick={() => { setActiveCouponId(item.id); setShowReveal(true); }} className="relative w-full rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left shadow-sm">{expired && <span className="absolute right-3 top-3 rotate-[-8deg] rounded-lg border-2 border-red-600 px-2 py-1 text-xs font-black uppercase text-red-600">Expired</span>}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Reward {wonCoupons.length - index}</p><p className="mt-1 pr-20 text-xl font-black">{item.reward.description}</p><p className="mt-2 text-sm font-bold text-stone-500">Code: {item.code}</p><p className={expired ? 'mt-1 text-sm font-black text-red-600' : 'mt-1 text-sm font-bold text-green-700'}>{expired ? 'Expired' : `Expires in ${formatRemaining(expiresAt - now)}`}</p></button>; })}</div></section>}
       </section>
 
-      {showReveal && activeCoupon && <div className="fixed inset-0 z-50 flex items-end bg-black/40 px-3 pb-3 backdrop-blur-sm"><section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 text-center shadow-2xl"><div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" /><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">🎉 You won</p><h2 className="mt-2 text-4xl font-black leading-tight">{activeCoupon.reward.description}</h2><div className="relative mt-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">{activeExpired && <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">Expired</div>}<p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p><p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p></div><p className={activeExpired ? 'mt-4 text-lg font-black text-red-600' : 'mt-4 text-lg font-bold text-red-600'}>{activeExpired ? 'Coupon expired' : `Expires in ${formatRemaining((activeExpiresAt || 0) - now)}`}</p><div className="relative mt-4 rounded-3xl bg-stone-50 p-4">{activeExpired && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded-xl border-4 border-red-600 bg-white/85 px-5 py-2 text-2xl font-black uppercase text-red-600 shadow-lg">Expired</div>}{activeExpired && <div className="absolute inset-4 z-10 rounded-3xl bg-white/65" />}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p><img src={couponQrUrl(activeCoupon.code)} alt="Coupon QR code" className={activeExpired ? 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 opacity-35 shadow' : 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow'} /></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button><button onClick={playGame} disabled={!canSpin} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{spinsRemaining > 0 ? (isMysteryBox ? 'Pick Again' : 'Spin Again') : 'No Plays Left'}</button></div><p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p></section></div>}
+      {showReveal && activeCoupon && <div className="fixed inset-0 z-50 flex items-end bg-black/40 px-3 pb-3 backdrop-blur-sm"><section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 text-center shadow-2xl"><div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" /><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">🎉 You won</p><h2 className="mt-2 text-4xl font-black leading-tight">{activeCoupon.reward.description}</h2><div className="relative mt-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">{activeExpired && <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">Expired</div>}<p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p><p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p></div><p className={activeExpired ? 'mt-4 text-lg font-black text-red-600' : 'mt-4 text-lg font-bold text-red-600'}>{activeExpired ? 'Coupon expired' : `Expires in ${formatRemaining((activeExpiresAt || 0) - now)}`}</p><div className="relative mt-4 rounded-3xl bg-stone-50 p-4">{activeExpired && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded-xl border-4 border-red-600 bg-white/85 px-5 py-2 text-2xl font-black uppercase text-red-600 shadow-lg">Expired</div>}{activeExpired && <div className="absolute inset-4 z-10 rounded-3xl bg-white/65" />}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p><img src={couponQrUrl(activeCoupon.code)} alt="Coupon QR code" className={activeExpired ? 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 opacity-35 shadow' : 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow'} /></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button><button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button></div><p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p></section></div>}
     </main>
   );
 }
