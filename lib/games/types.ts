@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 import type { Options as ConfettiOptions } from 'canvas-confetti';
 import type { Reward } from '@/types/reward';
 
-export type GameType = 'wheel' | 'mystery_box';
+export type GameType = 'wheel' | 'mystery_box' | 'scratch_card';
 
 export type GameLabels = {
   title: string;
