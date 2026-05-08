@@ -5,19 +5,28 @@ import confetti from 'canvas-confetti';
 import { getGameDefinition } from '@/lib/games/registry';
 import { usePromotionBuilder } from '@/lib/builder/context';
 import type { BuilderReward } from '@/lib/builder/types';
-import type { Reward } from '@/types/reward';
+import type { Reward, RewardType } from '@/types/reward';
+
+function toRuntimeRewardType(reward: BuilderReward): RewardType {
+  if (reward.reward_type === 'free') return 'FREE_ITEM_WITH_PURCHASE';
+  if (reward.reward_type === 'custom') return 'CHEF_SPECIAL';
+  return 'PERCENT_OFF_ITEM';
+}
 
 function toRuntimeReward(reward: BuilderReward, index: number): Reward {
+  const label = reward.label || reward.custom_name || `Reward ${index + 1}`;
+
   return {
     id: reward.id || reward.temp_id || `preview-${index}`,
-    label: reward.label || reward.custom_name || `Reward ${index + 1}`,
+    label,
+    description: reward.reward_value ? `${reward.reward_value}% off ${label}` : label,
     weight: reward.weight || 30,
-    daily_limit: reward.daily_limit || 10,
-    reward_type: reward.reward_type || 'discount',
-    reward_value: reward.reward_value,
-    menu_item_id: reward.menu_item_id,
-    custom_name: reward.custom_name,
-  } as Reward;
+    terms: 'Builder preview only.',
+    rewardType: toRuntimeRewardType(reward),
+    menuItemId: reward.menu_item_id || undefined,
+    dailyLimit: reward.daily_limit || 10,
+    active: true,
+  };
 }
 
 function pickWeighted(list: Reward[]) {
