@@ -3,6 +3,7 @@ import BuilderMysteryBoxPreviewPatch from '@/components/admin/BuilderMysteryBoxP
 import GameTypeInlineControl from '@/components/admin/GameTypeInlineControl';
 import LaunchBlockedModalWatcher from '@/components/admin/LaunchBlockedModalWatcher';
 import NoExpiryInlinePatch from '@/components/admin/NoExpiryInlinePatch';
+import { PromotionBuilderProvider } from '@/lib/builder/context';
 
 export default function PromotionBuilderLayout({
   children,
@@ -12,12 +13,12 @@ export default function PromotionBuilderLayout({
   params: { id: string };
 }) {
   return (
-    <>
+    <PromotionBuilderProvider>
       {children}
       <BuilderMysteryBoxPreviewPatch promotionId={params.id} />
       <LaunchBlockedModalWatcher />
       <GameTypeInlineControl promotionId={params.id} />
       <NoExpiryInlinePatch promotionId={params.id} />
-    </>
+    </PromotionBuilderProvider>
   );
 }
