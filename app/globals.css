@@ -19,3 +19,41 @@ section.bg-gradient-to-br.from-\[\#FF6B00\].to-\[\#E63939\] .bg-white\/15.p-3 {
 section.mx-auto.max-w-5xl > .bg-gradient-to-br.from-\[\#FF6B00\].to-\[\#E63939\] .bg-white\/15.p-4 {
   display: none;
 }
+
+@keyframes spinbiteMysteryBoxBounce {
+  0%, 100% { transform: translateY(0) rotate(0deg) scale(1); box-shadow: inset 0 2px 8px rgba(0,0,0,.08), 0 0 0 rgba(255,107,0,0); }
+  35% { transform: translateY(-5px) rotate(-3deg) scale(1.04); box-shadow: inset 0 2px 8px rgba(0,0,0,.08), 0 10px 24px rgba(255,107,0,.22); }
+  65% { transform: translateY(1px) rotate(3deg) scale(1.02); }
+}
+
+@keyframes spinbiteScratchCardPulse {
+  0%, 100% { transform: rotate(-1deg) scale(1); filter: saturate(1); }
+  50% { transform: rotate(2deg) scale(1.05); filter: saturate(1.25); }
+}
+
+@keyframes spinbiteScratchSweep {
+  0% { transform: translateX(-160%) rotate(18deg); opacity: 0; }
+  25% { opacity: .65; }
+  55% { opacity: .5; }
+  100% { transform: translateX(165%) rotate(18deg); opacity: 0; }
+}
+
+button:has(p:nth-child(1):not(:empty)) div.flex.h-16.w-16.shrink-0.items-center.justify-center.rounded-3xl.bg-white.text-4xl.shadow-inner {
+  animation: spinbiteMysteryBoxBounce 2.4s ease-in-out infinite;
+}
+
+button div.flex.h-16.w-16.shrink-0.items-center.justify-center.rounded-3xl.bg-gradient-to-br.from-orange-400.via-yellow-300.to-red-500.text-4xl.shadow-inner {
+  position: relative;
+  overflow: hidden;
+  animation: spinbiteScratchCardPulse 2.2s ease-in-out infinite;
+}
+
+button div.flex.h-16.w-16.shrink-0.items-center.justify-center.rounded-3xl.bg-gradient-to-br.from-orange-400.via-yellow-300.to-red-500.text-4xl.shadow-inner::after {
+  content: '';
+  position: absolute;
+  inset: -18px auto -18px 0;
+  width: 18px;
+  background: rgba(255,255,255,.72);
+  box-shadow: 0 0 18px rgba(255,255,255,.65);
+  animation: spinbiteScratchSweep 1.8s ease-in-out infinite;
+}
