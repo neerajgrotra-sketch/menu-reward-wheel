@@ -1,4 +1,4 @@
-import MysteryBoxGame from '@/components/games/MysteryBoxGame';
+import MysteryBoxGameAdapter from '@/components/games/MysteryBoxGameAdapter';
 import WheelGame from '@/components/games/WheelGame';
 import { getRewardWheelTargetRotation } from '@/components/RewardWheel';
 import type { GameDefinition, GameType } from '@/lib/games/types';
@@ -48,14 +48,7 @@ const mysteryBoxGame: GameDefinition = {
     origin: { y: 0.6 },
     shapes: ['square', 'circle', 'star'],
   },
-  PlayComponent: ({ canPlay, playing, playsRemaining, onPlay }) => (
-    <MysteryBoxGame
-      canPlay={canPlay}
-      spinning={playing}
-      spinsRemaining={playsRemaining}
-      onPick={onPlay}
-    />
-  ),
+  PlayComponent: MysteryBoxGameAdapter,
   getTargetRotation: () => null,
 };
 
