@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import BuilderGameTypeStateSync from '@/components/admin/BuilderGameTypeStateSync';
 import BuilderMysteryBoxPreviewPatch from '@/components/admin/BuilderMysteryBoxPreviewPatch';
+import BuilderPreviewSlotReplacement from '@/components/admin/BuilderPreviewSlotReplacement';
 import BuilderRewardsStateSync from '@/components/admin/BuilderRewardsStateSync';
 import GameTypeInlineControl from '@/components/admin/GameTypeInlineControl';
 import LaunchBlockedModalWatcher from '@/components/admin/LaunchBlockedModalWatcher';
@@ -19,6 +20,7 @@ export default function PromotionBuilderLayout({
       <BuilderGameTypeStateSync promotionId={params.id} />
       <BuilderRewardsStateSync promotionId={params.id} />
       {children}
+      <BuilderPreviewSlotReplacement />
       <BuilderMysteryBoxPreviewPatch promotionId={params.id} />
       <LaunchBlockedModalWatcher />
       <GameTypeInlineControl promotionId={params.id} />
