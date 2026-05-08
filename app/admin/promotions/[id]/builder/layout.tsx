@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import BuilderGamePreviewRuntime from '@/components/admin/BuilderGamePreviewRuntime';
-import BuilderGameSettingsPanel from '@/components/admin/BuilderGameSettingsPanel';
+import BuilderMysteryBoxPreviewPatch from '@/components/admin/BuilderMysteryBoxPreviewPatch';
+import GameTypeInlineControl from '@/components/admin/GameTypeInlineControl';
 import LaunchBlockedModalWatcher from '@/components/admin/LaunchBlockedModalWatcher';
 import NoExpiryInlinePatch from '@/components/admin/NoExpiryInlinePatch';
 
@@ -14,9 +14,9 @@ export default function PromotionBuilderLayout({
   return (
     <>
       {children}
-      <BuilderGameSettingsPanel promotionId={params.id} />
-      <BuilderGamePreviewRuntime promotionId={params.id} />
+      <BuilderMysteryBoxPreviewPatch promotionId={params.id} />
       <LaunchBlockedModalWatcher />
+      <GameTypeInlineControl promotionId={params.id} />
       <NoExpiryInlinePatch promotionId={params.id} />
     </>
   );
