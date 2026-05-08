@@ -10,7 +10,9 @@ type Props = {
 };
 
 function normalizeGameType(value?: string | null): BuilderGameType {
-  return value === 'mystery_box' ? 'mystery_box' : 'wheel';
+  if (value === 'mystery_box') return 'mystery_box';
+  if (value === 'scratch_card') return 'scratch_card';
+  return 'wheel';
 }
 
 export default function BuilderGameTypeStateSync({ promotionId }: Props) {
