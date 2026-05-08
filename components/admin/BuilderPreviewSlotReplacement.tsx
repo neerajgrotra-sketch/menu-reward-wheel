@@ -10,8 +10,21 @@ function findPreviewSlot() {
   return previewLabel?.closest('.rounded-\[2rem\]') as HTMLElement | null;
 }
 
+function applySlotReplacement(slot: HTMLElement) {
+  slot.setAttribute('data-spinbite-preview-slot', 'shared');
+  slot.setAttribute('aria-label', 'Shared game preview');
+
+  Array.from(slot.children).forEach((child) => {
+    const element = child as HTMLElement;
+    if (element.dataset.spinbiteSharedPreviewHost === 'true') return;
+    element.style.display = 'none';
+    element.setAttribute('aria-hidden', 'true');
+  });
+}
+
 export default function BuilderPreviewSlotReplacement() {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     let attempts = 0;
@@ -21,8 +34,17 @@ export default function BuilderPreviewSlotReplacement() {
       if (cancelled) return;
       const found = findPreviewSlot();
       if (found) {
-        found.setAttribute('data-spinbite-preview-slot', 'shared');
+        applySlotReplacement(found);
+
+        let nextHost = found.querySelector('[data-spinbite-shared-preview-host="true"]') as HTMLElement | null;
+        if (!nextHost) {
+          nextHost = document.createElement('div');
+          nextHost.dataset.spinbiteSharedPreviewHost = 'true';
+          found.appendChild(nextHost);
+        }
+
         setSlot(found);
+        setHost(nextHost);
         return;
       }
 
@@ -37,12 +59,12 @@ export default function BuilderPreviewSlotReplacement() {
     };
   }, []);
 
-  if (!slot) return null;
+  if (!slot || !host) return null;
 
   return createPortal(
     <div className="text-[#1F1F1F]">
       <BuilderGamePreviewCard />
     </div>,
-    slot
+    host
   );
 }
