@@ -64,7 +64,7 @@ export function promotionBuilderReducer(
           ...state.preview,
           ...action.state.preview,
         },
-        gameType: normalizeGameType(action.state.gameType),
+        gameType: action.state.gameType ? normalizeGameType(action.state.gameType) : state.gameType,
       };
     case 'setPromotion':
       return {
