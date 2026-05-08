@@ -52,6 +52,40 @@ export function promotionBuilderReducer(
   action: PromotionBuilderAction
 ): PromotionBuilderState {
   switch (action.type) {
+    case 'hydrate':
+      return {
+        ...state,
+        ...action.state,
+        rules: {
+          ...state.rules,
+          ...action.state.rules,
+        },
+        preview: {
+          ...state.preview,
+          ...action.state.preview,
+        },
+        gameType: action.state.gameType ? normalizeGameType(action.state.gameType) : state.gameType,
+      };
+    case 'setPromotion':
+      return {
+        ...state,
+        promotion: action.promotion,
+      };
+    case 'setRestaurant':
+      return {
+        ...state,
+        restaurant: action.restaurant,
+      };
+    case 'setMenus':
+      return {
+        ...state,
+        menus: action.menus,
+      };
+    case 'setMenuItems':
+      return {
+        ...state,
+        menuItems: action.menuItems,
+      };
     case 'setGameType':
       return {
         ...state,
@@ -84,6 +118,11 @@ export function promotionBuilderReducer(
           ...action.preview,
         },
       };
+    case 'setValidationErrors':
+      return {
+        ...state,
+        validationErrors: action.validationErrors,
+      };
     case 'setSelectedMenuId':
       return {
         ...state,
@@ -95,6 +134,11 @@ export function promotionBuilderReducer(
         saved: false,
         launchSuccess: false,
       };
+    case 'setLoading':
+      return {
+        ...state,
+        loading: action.loading,
+      };
     case 'setSaving':
       return {
         ...state,
@@ -104,6 +148,16 @@ export function promotionBuilderReducer(
       return {
         ...state,
         launching: action.launching,
+      };
+    case 'setSaved':
+      return {
+        ...state,
+        saved: action.saved,
+      };
+    case 'setLaunchSuccess':
+      return {
+        ...state,
+        launchSuccess: action.launchSuccess,
       };
     case 'setError':
       return {

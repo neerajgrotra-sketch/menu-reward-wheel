@@ -94,12 +94,21 @@ export type PromotionBuilderState = {
 };
 
 export type PromotionBuilderAction =
+  | { type: 'hydrate'; state: Partial<PromotionBuilderState> }
+  | { type: 'setPromotion'; promotion: BuilderPromotion | null }
+  | { type: 'setRestaurant'; restaurant: BuilderRestaurant | null }
+  | { type: 'setMenus'; menus: BuilderMenu[] }
+  | { type: 'setMenuItems'; menuItems: BuilderMenuItem[] }
   | { type: 'setGameType'; gameType: BuilderGameType }
   | { type: 'setRewards'; rewards: BuilderReward[] }
   | { type: 'setRules'; rules: Partial<BuilderRules> }
   | { type: 'setPreview'; preview: Partial<BuilderPreviewState> }
+  | { type: 'setValidationErrors'; validationErrors: string[] }
   | { type: 'setSelectedMenuId'; selectedMenuId: string }
   | { type: 'markDirty' }
+  | { type: 'setLoading'; loading: boolean }
   | { type: 'setSaving'; saving: boolean }
   | { type: 'setLaunching'; launching: boolean }
+  | { type: 'setSaved'; saved: boolean }
+  | { type: 'setLaunchSuccess'; launchSuccess: boolean }
   | { type: 'setError'; error: string };
