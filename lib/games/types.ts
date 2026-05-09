@@ -7,13 +7,6 @@ import type { Reward } from '@/types/reward';
  *
  * This file establishes the formal game-contract architecture foundation
  * without changing current runtime or Promotion Builder behavior.
- *
- * Future PRs will:
- * - Move builder previews into per-game folders
- * - Move runtime implementations into per-game folders
- * - Move animation choreography into per-game folders
- * - Introduce formal state machines per game
- * - Reduce hardcoded Promotion Builder branching
  */
 
 export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card';
@@ -78,13 +71,16 @@ export type GameTargetRotationArgs = {
   segmentAngle: number;
 };
 
-/**
- * Formal game contract foundation.
- *
- * PR 1 intentionally keeps the current game implementations and runtime logic
- * untouched. This contract creates the stable architecture layer that future
- * PRs will build on.
- */
+export type GameBuilderPreviewProps = {
+  rewards?: Reward[];
+  rotation?: number;
+};
+
+export type GameConfigPanelProps = {
+  title?: string;
+  description?: string;
+};
+
 export type GameContract = {
   type: GameType;
   name: string;
@@ -102,16 +98,18 @@ export type GameContract = {
   formatReward?: (reward: Reward) => string;
 
   /**
-   * Future extraction targets.
+   * PR 10
    *
-   * Upcoming PRs will move these into:
-   * /lib/games/<game>/builderPreview.tsx
-   * /lib/games/<game>/runtime.tsx
-   * /lib/games/<game>/animations.ts
-   * /lib/games/<game>/stateMachine.ts
+   * Games now formally own:
+   * - Builder previews
+   * - Config panels
+   * - Runtime components
+   *
+   * Promotion Builder can now evolve into a true orchestration shell.
    */
   components?: {
-    BuilderPreview?: ComponentType<any>;
+    BuilderPreview?: ComponentType<GameBuilderPreviewProps>;
+    ConfigPanel?: ComponentType<GameConfigPanelProps>;
     Runtime?: ComponentType<any>;
   };
 
@@ -119,10 +117,4 @@ export type GameContract = {
   getTargetRotation?: (args: GameTargetRotationArgs) => number | null;
 };
 
-/**
- * Backwards-compatible alias.
- *
- * Existing code may still reference GameDefinition.
- * Keeping this alias avoids runtime or compile regressions during PR 1.
- */
 export type GameDefinition = GameContract;
