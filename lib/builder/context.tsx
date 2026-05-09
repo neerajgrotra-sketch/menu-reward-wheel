@@ -207,8 +207,12 @@ export function PromotionBuilderProvider({ children, initialState }: PromotionBu
   );
 }
 
+export function useOptionalPromotionBuilder() {
+  return useContext(PromotionBuilderContext);
+}
+
 export function usePromotionBuilder() {
-  const value = useContext(PromotionBuilderContext);
+  const value = useOptionalPromotionBuilder();
   if (!value) {
     throw new Error('usePromotionBuilder must be used inside PromotionBuilderProvider');
   }
