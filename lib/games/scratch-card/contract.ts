@@ -1,4 +1,7 @@
 import ScratchCardGame from '@/components/games/ScratchCardGame';
+import ScratchCardBuilderPreview from '@/lib/games/scratch-card/builderPreview';
+import ScratchCardConfigPanel from '@/lib/games/scratch-card/configPanel';
+import ScratchCardRuntime from '@/lib/games/scratch-card/runtime';
 import type { GameContract, GamePhase, ValidationResult } from '@/lib/games/types';
 
 const supportedPhases: GamePhase[] = [
@@ -24,16 +27,6 @@ function defaultRewardFormatter(reward: any): string {
     : reward.label || '';
 }
 
-/**
- * Scratch Card game contract.
- *
- * PR 5 extracts Scratch Card into its formal per-game folder and introduces
- * a dedicated scratch-card state machine foundation.
- *
- * Future PRs can move scratch choreography, reveal masking,
- * gesture tracking, animation sequencing, and builder preview behavior
- * behind this contract.
- */
 export const scratchCardContract: GameContract = {
   type: 'scratch_card',
   name: 'Scratch Card',
@@ -68,6 +61,11 @@ export const scratchCardContract: GameContract = {
     particleCount: 220,
     spread: 110,
     origin: { y: 0.6 },
+  },
+  components: {
+    BuilderPreview: ScratchCardBuilderPreview,
+    ConfigPanel: ScratchCardConfigPanel,
+    Runtime: ScratchCardRuntime,
   },
   PlayComponent: ScratchCardGame,
   getTargetRotation: () => null,
