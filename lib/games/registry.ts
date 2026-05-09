@@ -1,90 +1,31 @@
-import ScratchCardGame from '@/components/games/ScratchCardGame';
 import { mysteryBoxContract } from '@/lib/games/mystery-box/contract';
+import { scratchCardContract } from '@/lib/games/scratch-card/contract';
 import { spinWheelContract } from '@/lib/games/spin-wheel/contract';
 import type {
   GameContract,
   GameDefinition,
-  GamePhase,
-  ValidationResult,
 } from '@/lib/games/types';
 
 /**
- * PR 4
+ * PR 5
  *
- * Spin Wheel and Mystery Box now use formal per-game contract folders.
- * Scratch Card remains inline temporarily and will be migrated in a future PR.
+ * All current customer games now use formal per-game contract folders:
+ * - Spin Wheel
+ * - Mystery Box
+ * - Scratch Card
  *
- * Promotion Builder should continue migrating toward consuming contracts
- * through getGameContract() instead of direct hardcoded branching.
+ * Scratch Card now also has a dedicated state-machine foundation for
+ * future choreography and reveal sequencing improvements.
+ *
+ * Promotion Builder should continue migrating away from hardcoded game
+ * branches and toward contract-driven rendering.
  */
-
-const defaultSupportedPhases: GamePhase[] = [
-  'idle',
-  'previewing',
-  'playing',
-  'animating',
-  'revealing',
-  'completed',
-];
-
-function createDefaultValidationResult(): ValidationResult {
-  return {
-    valid: true,
-    errors: [],
-  };
-}
-
-function defaultRewardFormatter(reward: any): string {
-  if (!reward) return '';
-  return reward.description
-    ? `${reward.label} — ${reward.description}`
-    : reward.label || '';
-}
-
-const scratchCardGame: GameContract = {
-  type: 'scratch_card',
-  name: 'Scratch Card',
-  icon: '🪙',
-  availability: 'active',
-  labels: {
-    title: 'Scratch & Win',
-    instruction: 'Scratch the card to reveal your reward.',
-    playsAvailableSuffix: 'scratches left 🪙',
-    noPlaysText: 'No scratches left — enjoy your rewards 🎉',
-    playAgainText: 'Scratch Again',
-  },
-  createCard: {
-    title: 'Scratch Card',
-    description: 'Customers tap a digital scratch card to reveal a surprise reward using the same coupon engine.',
-    statusLabel: 'Available now',
-  },
-  preview: {
-    supportsBuilderPreview: true,
-    previewTitle: 'Scratch Card Preview',
-    previewDisclaimer: 'Preview only. Coupon issuing happens on the live play page.',
-  },
-  analytics: {
-    category: 'instant_win',
-    eventPrefix: 'scratch_card',
-  },
-  resultDelayMs: 1400,
-  supportedPhases: defaultSupportedPhases,
-  validateConfig: () => createDefaultValidationResult(),
-  formatReward: defaultRewardFormatter,
-  confetti: {
-    particleCount: 220,
-    spread: 110,
-    origin: { y: 0.6 },
-  },
-  PlayComponent: ScratchCardGame,
-  getTargetRotation: () => null,
-};
 
 export const gameRegistry: Record<string, GameContract> = {
   wheel: spinWheelContract,
   spin_wheel: spinWheelContract,
   mystery_box: mysteryBoxContract,
-  scratch_card: scratchCardGame,
+  scratch_card: scratchCardContract,
 };
 
 export const availableGames = Object.values(gameRegistry).filter(
