@@ -2,13 +2,6 @@ import type { ComponentType } from 'react';
 import type { Options as ConfettiOptions } from 'canvas-confetti';
 import type { Reward } from '@/types/reward';
 
-/**
- * PR 1 FOUNDATION
- *
- * This file establishes the formal game-contract architecture foundation
- * without changing current runtime or Promotion Builder behavior.
- */
-
 export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card';
 
 export type GamePhase =
@@ -55,14 +48,14 @@ export type GameAnalytics = {
 };
 
 export type GamePlayProps = {
-  rewards: Reward[];
+  rewards?: Reward[];
   canPlay: boolean;
   playing: boolean;
   playsRemaining: number;
-  playsUsed: number;
-  maxPlays: number;
+  playsUsed?: number;
+  maxPlays?: number;
   onPlay: () => void;
-  rotation: number;
+  rotation?: number;
 };
 
 export type GameTargetRotationArgs = {
@@ -97,16 +90,6 @@ export type GameContract = {
   validateConfig?: (config: unknown) => ValidationResult;
   formatReward?: (reward: Reward) => string;
 
-  /**
-   * PR 10
-   *
-   * Games now formally own:
-   * - Builder previews
-   * - Config panels
-   * - Runtime components
-   *
-   * Promotion Builder can now evolve into a true orchestration shell.
-   */
   components?: {
     BuilderPreview?: ComponentType<GameBuilderPreviewProps>;
     ConfigPanel?: ComponentType<GameConfigPanelProps>;
