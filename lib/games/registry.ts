@@ -2,9 +2,52 @@ import MysteryBoxGameAdapter from '@/components/games/MysteryBoxGameAdapter';
 import ScratchCardGame from '@/components/games/ScratchCardGame';
 import WheelGame from '@/components/games/WheelGame';
 import { getRewardWheelTargetRotation } from '@/components/RewardWheel';
-import type { GameDefinition, GameType } from '@/lib/games/types';
+import type {
+  GameContract,
+  GameDefinition,
+  GamePhase,
+  GameType,
+  ValidationResult,
+} from '@/lib/games/types';
 
-const wheelGame: GameDefinition = {
+/**
+ * PR 1 FOUNDATION
+ *
+ * This registry intentionally wraps the EXISTING game implementations
+ * without changing runtime behavior.
+ *
+ * Future PRs will:
+ * - Move each game into its own /lib/games/<game>/ folder
+ * - Extract builder previews from Promotion Builder
+ * - Extract animation choreography
+ * - Add formal game state machines
+ * - Reduce hardcoded game branches
+ */
+
+const defaultSupportedPhases: GamePhase[] = [
+  'idle',
+  'previewing',
+  'playing',
+  'animating',
+  'revealing',
+  'completed',
+];
+
+function createDefaultValidationResult(): ValidationResult {
+  return {
+    valid: true,
+    errors: [],
+  };
+}
+
+function defaultRewardFormatter(reward: any): string {
+  if (!reward) return '';
+  return reward.description
+    ? `${reward.label} — ${reward.description}`
+    : reward.label || '';
+}
+
+const wheelGame: GameContract = {
   type: 'wheel',
   name: 'Spin Wheel',
   icon: '🎯',
@@ -31,6 +74,9 @@ const wheelGame: GameDefinition = {
     eventPrefix: 'wheel',
   },
   resultDelayMs: 2900,
+  supportedPhases: defaultSupportedPhases,
+  validateConfig: () => createDefaultValidationResult(),
+  formatReward: defaultRewardFormatter,
   confetti: {
     particleCount: 180,
     spread: 100,
@@ -46,7 +92,7 @@ const wheelGame: GameDefinition = {
     }),
 };
 
-const mysteryBoxGame: GameDefinition = {
+const mysteryBoxGame: GameContract = {
   type: 'mystery_box',
   name: 'Mystery Box Reveal',
   icon: '🎁',
@@ -73,6 +119,9 @@ const mysteryBoxGame: GameDefinition = {
     eventPrefix: 'mystery_box',
   },
   resultDelayMs: 1250,
+  supportedPhases: defaultSupportedPhases,
+  validateConfig: () => createDefaultValidationResult(),
+  formatReward: defaultRewardFormatter,
   confetti: {
     particleCount: 240,
     spread: 120,
@@ -83,7 +132,7 @@ const mysteryBoxGame: GameDefinition = {
   getTargetRotation: () => null,
 };
 
-const scratchCardGame: GameDefinition = {
+const scratchCardGame: GameContract = {
   type: 'scratch_card',
   name: 'Scratch Card',
   icon: '🪙',
@@ -110,6 +159,9 @@ const scratchCardGame: GameDefinition = {
     eventPrefix: 'scratch_card',
   },
   resultDelayMs: 1400,
+  supportedPhases: defaultSupportedPhases,
+  validateConfig: () => createDefaultValidationResult(),
+  formatReward: defaultRewardFormatter,
   confetti: {
     particleCount: 220,
     spread: 110,
@@ -119,16 +171,34 @@ const scratchCardGame: GameDefinition = {
   getTargetRotation: () => null,
 };
 
-export const gameRegistry: Record<GameType, GameDefinition> = {
+export const gameRegistry: Record<string, GameContract> = {
   wheel: wheelGame,
+  spin_wheel: wheelGame,
   mystery_box: mysteryBoxGame,
   scratch_card: scratchCardGame,
 };
 
-export const availableGames = Object.values(gameRegistry).filter((game) => game.availability !== 'hidden');
+export const availableGames = Object.values(gameRegistry).filter(
+  (game) => game.availability !== 'hidden',
+);
 
 export function getGameDefinition(gameType?: string | null): GameDefinition {
   if (gameType === 'mystery_box') return gameRegistry.mystery_box;
   if (gameType === 'scratch_card') return gameRegistry.scratch_card;
+  if (gameType === 'spin_wheel') return gameRegistry.spin_wheel;
   return gameRegistry.wheel;
+}
+
+/**
+ * New architecture-facing helper.
+ *
+ * Future Promotion Builder refactors should use this helper instead of
+ * hardcoded game branching.
+ */
+export function getGameContract(gameType?: string | null): GameContract {
+  return getGameDefinition(gameType);
+}
+
+export function getAvailableGameContracts(): GameContract[] {
+  return availableGames;
 }
