@@ -62,6 +62,7 @@ function GameCard({ selected, onClick, children }: { selected: boolean; onClick:
 
 export function GameSelectionSection({ label, gameType, onChange }: GameSelectionSectionProps) {
   const wheelGame = getGameContract('wheel');
+  const mysteryBoxGame = getGameContract('mystery_box');
 
   return (
     <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
@@ -82,11 +83,13 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
         <div className="flex items-start gap-4">
           <MiniMysteryBox />
           <div>
-            <p className="text-2xl font-black">Mystery Box Reveal</p>
+            <p className="text-2xl font-black">{mysteryBoxGame.name}</p>
             <p className="mt-1 text-sm font-bold text-stone-600">
-              Customers tap one of 3 mystery boxes and reveal a surprise coupon with stars and confetti.
+              {mysteryBoxGame.createCard.description}
             </p>
-            <p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p>
+            <p className="mt-2 text-xs font-black uppercase text-green-700">
+              {mysteryBoxGame.createCard.statusLabel}
+            </p>
           </div>
         </div>
       </GameCard>
