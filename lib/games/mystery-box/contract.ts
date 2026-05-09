@@ -1,4 +1,7 @@
 import MysteryBoxGameAdapter from '@/components/games/MysteryBoxGameAdapter';
+import MysteryBoxBuilderPreview from '@/lib/games/mystery-box/builderPreview';
+import MysteryBoxConfigPanel from '@/lib/games/mystery-box/configPanel';
+import MysteryBoxRuntime from '@/lib/games/mystery-box/runtime';
 import type { GameContract, GamePhase, ValidationResult } from '@/lib/games/types';
 
 const supportedPhases: GamePhase[] = [
@@ -24,15 +27,6 @@ function defaultRewardFormatter(reward: any): string {
     : reward.label || '';
 }
 
-/**
- * Mystery Box game contract.
- *
- * PR 4 extracts Mystery Box into its formal per-game folder without changing
- * the underlying MysteryBoxGameAdapter component or runtime behavior.
- *
- * Future Mystery Box PRs can move builder preview, runtime, animation
- * choreography, reveal timing, and state machine logic into this folder.
- */
 export const mysteryBoxContract: GameContract = {
   type: 'mystery_box',
   name: 'Mystery Box Reveal',
@@ -68,6 +62,11 @@ export const mysteryBoxContract: GameContract = {
     spread: 120,
     origin: { y: 0.6 },
     shapes: ['square', 'circle', 'star'],
+  },
+  components: {
+    BuilderPreview: MysteryBoxBuilderPreview,
+    ConfigPanel: MysteryBoxConfigPanel,
+    Runtime: MysteryBoxRuntime,
   },
   PlayComponent: MysteryBoxGameAdapter,
   getTargetRotation: () => null,
