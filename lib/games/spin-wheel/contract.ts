@@ -1,5 +1,8 @@
 import WheelGame from '@/components/games/WheelGame';
 import { getRewardWheelTargetRotation } from '@/components/RewardWheel';
+import SpinWheelBuilderPreview from '@/lib/games/spin-wheel/builderPreview';
+import SpinWheelConfigPanel from '@/lib/games/spin-wheel/configPanel';
+import SpinWheelRuntime from '@/lib/games/spin-wheel/runtime';
 import type { GameContract, GamePhase, ValidationResult } from '@/lib/games/types';
 
 const supportedPhases: GamePhase[] = [
@@ -25,15 +28,6 @@ function defaultRewardFormatter(reward: any): string {
     : reward.label || '';
 }
 
-/**
- * Spin Wheel game contract.
- *
- * PR 2 extracts the Spin Wheel contract into its formal per-game folder
- * without changing the underlying WheelGame component or runtime behavior.
- *
- * Future Spin Wheel PRs can move builder preview, runtime, animation
- * choreography, and state machine logic into this folder behind this contract.
- */
 export const spinWheelContract: GameContract = {
   type: 'wheel',
   name: 'Spin Wheel',
@@ -68,6 +62,11 @@ export const spinWheelContract: GameContract = {
     particleCount: 180,
     spread: 100,
     origin: { y: 0.6 },
+  },
+  components: {
+    BuilderPreview: SpinWheelBuilderPreview,
+    ConfigPanel: SpinWheelConfigPanel,
+    Runtime: SpinWheelRuntime,
   },
   PlayComponent: WheelGame,
   getTargetRotation: ({ currentRotation, selectedIndex, segmentAngle }) =>
