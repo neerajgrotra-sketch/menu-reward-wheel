@@ -83,8 +83,8 @@ function useHideLegacyWheelHeader(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     const host = document.querySelector('[data-spinbite-non-wheel-builder-preview="true"]');
-    const card = host?.closest('.rounded-\[2rem\]');
-    const header = card?.querySelector('div.mb-3') as HTMLElement | null;
+    const card = host?.parentElement;
+    const header = Array.from(card?.children || []).find((child) => child instanceof HTMLElement && child.classList.contains('mb-3')) as HTMLElement | undefined;
     if (header) {
       header.style.display = 'none';
       header.setAttribute('aria-hidden', 'true');
