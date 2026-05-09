@@ -40,10 +40,11 @@ function toRuntimeRewardType(reward: WheelReward): RewardType {
 
 function toRuntimeReward(reward: WheelReward, index: number): Reward {
   const label = reward.label || `Reward ${index + 1}`;
+  const displayLabel = wheelLabel({ ...reward, label });
   return {
     id: reward.id || reward.temp_id || `builder-preview-${index}`,
-    label,
-    description: reward.reward_value ? `${reward.reward_value}% off ${label}` : label,
+    label: displayLabel,
+    description: displayLabel,
     weight: reward.weight || 30,
     terms: 'Builder preview only.',
     rewardType: toRuntimeRewardType(reward),
@@ -119,38 +120,46 @@ function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boo
   const revealMode = active || selectedBox !== null;
 
   return (
-    <div className={revealMode ? 'relative mx-auto mt-5 min-h-[13rem] w-full max-w-sm' : 'mx-auto mt-5 grid w-full max-w-sm grid-cols-3 gap-3'}>
-      {[0, 1, 2].map((index) => {
-        const selected = selectedBox === index;
-        const hidden = selectedBox !== null && !selected;
+    <div className="mx-auto mt-5 w-full max-w-sm">
+      {selectedBox !== null && (
+        <p className="mb-3 rounded-2xl bg-orange-50 px-4 py-2 text-center text-sm font-black text-[#FF6B00]">
+          Opening Box {selectedBox + 1}...
+        </p>
+      )}
 
-        return (
-          <div
-            key={index}
-            className={`relative flex h-28 items-center justify-center rounded-[1.35rem] border-2 border-white bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-2 text-center shadow-xl transition-all duration-500 ${hidden ? 'scale-75 opacity-0' : ''}`}
-            style={
-              revealMode
-                ? selected
-                  ? { position: 'absolute', left: '50%', top: '46%', width: '9.25rem', height: '9.25rem', zIndex: 20, animation: 'selectedTremble 0.85s ease-in-out infinite', transform: 'translate(-50%, -50%)' }
-                  : undefined
-                : { animation: `boxFloat 2.4s ease-in-out infinite ${index * 0.15}s` }
-            }
-          >
-            {selected && (
-              <>
-                <span className="absolute left-1/2 top-1 z-20 -translate-x-1/2 text-3xl" style={{ animation: 'sparkleBurst 1.05s ease-out infinite' }}>✨</span>
-                <span className="absolute left-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .1s' }}>⭐</span>
-                <span className="absolute right-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .2s' }}>💫</span>
-              </>
-            )}
-            <span className="text-4xl drop-shadow-sm">{selected ? '🎉' : '🎁'}</span>
-            <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">{selected ? 'Opening...' : `Box ${index + 1}`}</span>
-          </div>
-        );
-      })}
+      <div className={revealMode ? 'relative min-h-[12rem] w-full' : 'grid w-full grid-cols-3 gap-3'}>
+        {[0, 1, 2].map((index) => {
+          const selected = selectedBox === index;
+          const hidden = selectedBox !== null && !selected;
+
+          return (
+            <div
+              key={index}
+              className={`relative flex h-28 items-center justify-center rounded-[1.35rem] border-2 border-white bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-2 text-center shadow-xl transition-all duration-500 ${hidden ? 'scale-75 opacity-0' : ''}`}
+              style={
+                revealMode
+                  ? selected
+                    ? { position: 'absolute', left: '50%', top: '44%', width: '8.25rem', height: '8.25rem', zIndex: 20, animation: 'selectedTremble 0.85s ease-in-out infinite', transform: 'translate(-50%, -50%)' }
+                    : undefined
+                  : { animation: `boxFloat 2.4s ease-in-out infinite ${index * 0.15}s` }
+              }
+            >
+              {selected && (
+                <>
+                  <span className="absolute left-1/2 top-1 z-20 -translate-x-1/2 text-3xl" style={{ animation: 'sparkleBurst 1.05s ease-out infinite' }}>✨</span>
+                  <span className="absolute left-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .1s' }}>⭐</span>
+                  <span className="absolute right-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .2s' }}>💫</span>
+                </>
+              )}
+              <span className="text-4xl drop-shadow-sm">{selected ? '🎉' : '🎁'}</span>
+              <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">{selected ? `Box ${index + 1}` : `Box ${index + 1}`}</span>
+            </div>
+          );
+        })}
+      </div>
 
       {selectedBox !== null && result && (
-        <div className="absolute inset-x-0 bottom-0 rounded-3xl bg-green-50 px-4 py-3 text-center text-sm font-black text-green-800 shadow-inner">
+        <div className="mt-3 rounded-3xl bg-green-50 px-4 py-3 text-center text-sm font-black text-green-800 shadow-inner">
           Prize revealed: {result}
         </div>
       )}
@@ -158,7 +167,7 @@ function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boo
   );
 }
 
-function ScratchCardBuilderPreview({ active }: { active: boolean }) {
+function ScratchCardBuilderPreview({ active, result }: { active: boolean; result: string }) {
   return (
     <div className="mx-auto mt-5 max-w-sm">
       <div className="relative aspect-[1.45/1] w-full overflow-hidden rounded-[2rem] border-4 border-white bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 p-5 text-left shadow-2xl">
@@ -169,7 +178,7 @@ function ScratchCardBuilderPreview({ active }: { active: boolean }) {
             <h2 className="mt-2 text-4xl font-black leading-none drop-shadow">Scratch<br />& Win</h2>
           </div>
           <div className="rounded-2xl bg-black/20 p-3 text-center shadow-inner">
-            <p className="text-sm font-black uppercase tracking-wide">{active ? 'Revealing...' : 'Tap Test to Reveal'}</p>
+            <p className="text-sm font-black uppercase tracking-wide">{active ? 'Revealing...' : result ? `Won: ${result}` : 'Tap Test to Reveal'}</p>
           </div>
         </div>
         {active && <div className="absolute inset-0 z-20 bg-white/20" />}
@@ -216,7 +225,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
     }, game.resultDelayMs);
 
     if (nextSelectedBox !== null) {
-      window.setTimeout(() => setSelectedBox(null), game.resultDelayMs + 1700);
+      window.setTimeout(() => setSelectedBox(null), game.resultDelayMs + 2200);
     }
   }
 
@@ -228,11 +237,11 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
           50% { transform: translateY(-7px) scale(1.04); }
         }
         @keyframes selectedTremble {
-          0%, 100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.18); }
-          20% { transform: translate(-50%, -50%) rotate(-6deg) scale(1.27); }
-          40% { transform: translate(-50%, -50%) rotate(6deg) scale(1.34); }
-          60% { transform: translate(-50%, -50%) rotate(-4deg) scale(1.31); }
-          80% { transform: translate(-50%, -50%) rotate(4deg) scale(1.24); }
+          0%, 100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.12); }
+          20% { transform: translate(-50%, -50%) rotate(-6deg) scale(1.22); }
+          40% { transform: translate(-50%, -50%) rotate(6deg) scale(1.28); }
+          60% { transform: translate(-50%, -50%) rotate(-4deg) scale(1.24); }
+          80% { transform: translate(-50%, -50%) rotate(4deg) scale(1.18); }
         }
         @keyframes sparkleBurst {
           0% { transform: translateY(8px) scale(.65); opacity: 0; }
@@ -257,7 +266,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
         </button>
       </div>
 
-      {gameType === 'scratch_card' ? <ScratchCardBuilderPreview active={playing} /> : <MysteryBoxBuilderPreview active={playing} selectedBox={selectedBox} result={result} />}
+      {gameType === 'scratch_card' ? <ScratchCardBuilderPreview active={playing} result={result} /> : <MysteryBoxBuilderPreview active={playing} selectedBox={selectedBox} result={result} />}
       <RewardLegend rewards={rewards} />
     </div>
   );
