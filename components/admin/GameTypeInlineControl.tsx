@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { usePromotionBuilder } from '@/lib/builder/context';
 import { availableGames } from '@/lib/games/registry';
 import type { GameType } from '@/lib/games/types';
 
@@ -23,10 +24,16 @@ function findHeroCard() {
 
 export default function GameTypeInlineControl({ promotionId }: Props) {
   const supabase = useMemo(() => createClient(), []);
+  const { dispatch } = usePromotionBuilder();
   const [gameType, setGameType] = useState<GameType>('wheel');
   const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
   const selectedGame = availableGames.find((game) => game.type === gameType) || availableGames[0];
+
+  function applyGameType(next: GameType) {
+    setGameType(next);
+    dispatch({ type: 'setGameType', gameType: next });
+  }
 
   useEffect(() => {
     async function load() {
@@ -38,13 +45,13 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
       if (pendingGameType) {
         const updateResult = await supabase.from('promotions').update({ game_type: pendingGameType }).eq('id', promotionId);
         if (!updateResult.error) {
-          setGameType(pendingGameType);
+          applyGameType(pendingGameType);
           window.localStorage.removeItem(STORAGE_KEY);
           return;
         }
       }
 
-      setGameType(value);
+      applyGameType(value);
       window.localStorage.removeItem(STORAGE_KEY);
     }
     load();
@@ -69,7 +76,7 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
   async function choose(next: GameType) {
     setSaving(true);
     const result = await supabase.from('promotions').update({ game_type: next }).eq('id', promotionId);
-    if (!result.error) setGameType(next);
+    if (!result.error) applyGameType(next);
     setSaving(false);
   }
 
