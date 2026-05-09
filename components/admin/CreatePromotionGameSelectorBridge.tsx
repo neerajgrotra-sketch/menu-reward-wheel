@@ -10,12 +10,18 @@ type SlotState = {
   host: HTMLElement;
 };
 
+const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
+
 function gameTypeFromText(text: string): GameType | null {
   const normalized = text.toLowerCase();
   if (normalized.includes('spin wheel')) return 'wheel';
   if (normalized.includes('mystery box')) return 'mystery_box';
   if (normalized.includes('scratch card')) return 'scratch_card';
   return null;
+}
+
+function persistPendingGameType(gameType: GameType) {
+  window.localStorage.setItem(STORAGE_KEY, gameType);
 }
 
 function findStep3Slot() {
@@ -42,6 +48,7 @@ function getSelectedGameType(slot: HTMLElement): GameType {
 }
 
 function selectOriginalGameType(slot: HTMLElement, gameType: GameType) {
+  persistPendingGameType(gameType);
   const button = getOriginalButtons(slot).find((item) => gameTypeFromText(item.textContent || '') === gameType);
   button?.click();
 }
@@ -76,7 +83,9 @@ export default function CreatePromotionGameSelectorBridge() {
       const slot = findStep3Slot();
       if (slot) {
         const host = applyReplacement(slot);
-        setSelectedGameType(getSelectedGameType(slot));
+        const current = getSelectedGameType(slot);
+        persistPendingGameType(current);
+        setSelectedGameType(current);
         setSlotState({ slot, host });
         return;
       }
