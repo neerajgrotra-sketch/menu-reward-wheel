@@ -11,8 +11,8 @@ import {
 } from '@/lib/games/spin-wheel/stateMachine';
 
 export default function SpinWheelRuntime({
-  rewards,
-  rotation,
+  rewards = [],
+  rotation = 0,
   playing,
   canPlay,
   playsRemaining,
