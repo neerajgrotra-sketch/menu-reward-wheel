@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { getGameDefinition } from '@/lib/games/registry';
 import { useOptionalPromotionBuilder } from '@/lib/builder/context';
@@ -25,6 +25,10 @@ type SpinWheelPreviewProps = {
 };
 
 const COLORS = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c', '#fef3c7', '#facc15'];
+const SCRATCH_COLUMNS = 10;
+const SCRATCH_ROWS = 6;
+const SCRATCH_CELL_COUNT = SCRATCH_COLUMNS * SCRATCH_ROWS;
+const SCRATCH_THRESHOLD = 58;
 
 function wheelLabel(reward: WheelReward) {
   if (reward.reward_type === 'free') return `FREE ${reward.label}`;
@@ -56,12 +60,12 @@ function toRuntimeReward(reward: WheelReward, index: number): Reward {
 
 function demoRewards(): WheelReward[] {
   return [
-    { label: 'Lucky Bite', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: '15% Pasta', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: 'Free App', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: 'Free Drink', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: 'BOGO Dessert', reward_type: 'custom', reward_value: null, weight: 1 },
-    { label: '20% Off', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Reward 1', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Reward 2', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Reward 3', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Reward 4', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Reward 5', reward_type: 'custom', reward_value: null, weight: 1 },
+    { label: 'Reward 6', reward_type: 'custom', reward_value: null, weight: 1 },
   ];
 }
 
@@ -78,6 +82,15 @@ function weightName(weight: number) {
   if (weight >= 60) return 'Common';
   if (weight <= 10) return 'Rare';
   return 'Normal';
+}
+
+function getScratchCellIndex(clientX: number, clientY: number, element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+  const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+  const column = Math.min(SCRATCH_COLUMNS - 1, Math.floor((x / rect.width) * SCRATCH_COLUMNS));
+  const row = Math.min(SCRATCH_ROWS - 1, Math.floor((y / rect.height) * SCRATCH_ROWS));
+  return row * SCRATCH_COLUMNS + column;
 }
 
 function useHideLegacyWheelHeader(enabled: boolean) {
@@ -116,9 +129,8 @@ function RewardLegend({ rewards }: { rewards: WheelReward[] }) {
   );
 }
 
-function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boolean; selectedBox: number | null; result: string }) {
-  const revealMode = active || selectedBox !== null;
-
+function MysteryBoxBuilderPreview({ selectedBox, result }: { selectedBox: number | null; result: string }) {
+  const revealMode = selectedBox !== null;
   return (
     <div className="mx-auto mt-5 w-full max-w-sm">
       {selectedBox !== null && (
@@ -126,12 +138,10 @@ function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boo
           Opening Box {selectedBox + 1}...
         </p>
       )}
-
       <div className={revealMode ? 'relative min-h-[12rem] w-full' : 'grid w-full grid-cols-3 gap-3'}>
         {[0, 1, 2].map((index) => {
           const selected = selectedBox === index;
           const hidden = selectedBox !== null && !selected;
-
           return (
             <div
               key={index}
@@ -144,20 +154,13 @@ function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boo
                   : { animation: `boxFloat 2.4s ease-in-out infinite ${index * 0.15}s` }
               }
             >
-              {selected && (
-                <>
-                  <span className="absolute left-1/2 top-1 z-20 -translate-x-1/2 text-3xl" style={{ animation: 'sparkleBurst 1.05s ease-out infinite' }}>✨</span>
-                  <span className="absolute left-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .1s' }}>⭐</span>
-                  <span className="absolute right-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .2s' }}>💫</span>
-                </>
-              )}
+              {selected && <span className="absolute left-1/2 top-1 z-20 -translate-x-1/2 text-3xl" style={{ animation: 'sparkleBurst 1.05s ease-out infinite' }}>✨</span>}
               <span className="text-4xl drop-shadow-sm">{selected ? '🎉' : '🎁'}</span>
-              <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">{selected ? `Box ${index + 1}` : `Box ${index + 1}`}</span>
+              <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">Box {index + 1}</span>
             </div>
           );
         })}
       </div>
-
       {selectedBox !== null && result && (
         <div className="mt-3 rounded-3xl bg-green-50 px-4 py-3 text-center text-sm font-black text-green-800 shadow-inner">
           Prize revealed: {result}
@@ -167,22 +170,131 @@ function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boo
   );
 }
 
-function ScratchCardBuilderPreview({ active, result }: { active: boolean; result: string }) {
+function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: string; resetKey: number; onReveal: () => void }) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [scratchedCells, setScratchedCells] = useState<Set<number>>(() => new Set());
+  const [isPointerDown, setIsPointerDown] = useState(false);
+  const [coin, setCoin] = useState<{ x: number; y: number } | null>(null);
+  const [revealed, setRevealed] = useState(false);
+  const progress = Math.min(100, Math.round((scratchedCells.size / SCRATCH_CELL_COUNT) * 100));
+
+  useEffect(() => {
+    setScratchedCells(new Set());
+    setIsPointerDown(false);
+    setCoin(null);
+    setRevealed(false);
+  }, [resetKey]);
+
+  useEffect(() => {
+    if (!revealed && progress >= SCRATCH_THRESHOLD) {
+      setRevealed(true);
+      onReveal();
+    }
+  }, [onReveal, progress, revealed]);
+
+  function scratchAt(clientX: number, clientY: number) {
+    const card = cardRef.current;
+    if (!card || revealed) return;
+    const rect = card.getBoundingClientRect();
+    setCoin({ x: clientX - rect.left, y: clientY - rect.top });
+    const cellIndex = getScratchCellIndex(clientX, clientY, card);
+    setScratchedCells((current) => {
+      const next = new Set(current);
+      const neighbours = [
+        cellIndex,
+        cellIndex - 1,
+        cellIndex + 1,
+        cellIndex - SCRATCH_COLUMNS,
+        cellIndex + SCRATCH_COLUMNS,
+        cellIndex - SCRATCH_COLUMNS - 1,
+        cellIndex + SCRATCH_COLUMNS + 1,
+      ];
+      neighbours.forEach((neighbour) => {
+        if (neighbour >= 0 && neighbour < SCRATCH_CELL_COUNT) next.add(neighbour);
+      });
+      return next;
+    });
+  }
+
+  function handlePointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (revealed) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsPointerDown(true);
+    scratchAt(event.clientX, event.clientY);
+  }
+
+  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (!isPointerDown || revealed) return;
+    scratchAt(event.clientX, event.clientY);
+  }
+
+  function handlePointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setIsPointerDown(false);
+    setCoin(null);
+  }
+
   return (
     <div className="mx-auto mt-5 max-w-sm">
-      <div className="relative aspect-[1.45/1] w-full overflow-hidden rounded-[2rem] border-4 border-white bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 p-5 text-left shadow-2xl">
+      <div
+        ref={cardRef}
+        role="button"
+        tabIndex={0}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="relative aspect-[1.45/1] w-full touch-none overflow-hidden rounded-[2rem] border-4 border-white bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 p-5 text-left shadow-2xl select-none"
+        aria-label="Scratch the card preview"
+      >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,.55),transparent_25%),radial-gradient(circle_at_80%_30%,rgba(255,255,255,.35),transparent_20%),radial-gradient(circle_at_50%_90%,rgba(255,255,255,.25),transparent_28%)]" />
         <div className="relative z-10 flex h-full flex-col justify-between rounded-[1.4rem] border-2 border-white/65 bg-white/18 p-4 text-white backdrop-blur-[1px]">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-white/80">Scratch Card</p>
             <h2 className="mt-2 text-4xl font-black leading-none drop-shadow">Scratch<br />& Win</h2>
           </div>
-          <div className="rounded-2xl bg-black/20 p-3 text-center shadow-inner">
-            <p className="text-sm font-black uppercase tracking-wide">{active ? 'Revealing...' : result ? `Won: ${result}` : 'Tap Test to Reveal'}</p>
+          <div className="rounded-2xl bg-black/25 p-3 text-center shadow-inner">
+            <p className="text-sm font-black uppercase tracking-wide">
+              {revealed || result ? `Won: ${result || 'Reward'}` : 'Prize hidden below scratch layer'}
+            </p>
           </div>
         </div>
-        {active && <div className="absolute inset-0 z-20 bg-white/20" />}
+
+        {!revealed && (
+          <div className="absolute inset-0 z-20 grid" style={{ gridTemplateColumns: `repeat(${SCRATCH_COLUMNS}, 1fr)`, gridTemplateRows: `repeat(${SCRATCH_ROWS}, 1fr)` }}>
+            {Array.from({ length: SCRATCH_CELL_COUNT }).map((_, index) => (
+              <div
+                key={index}
+                className="border border-white/10 bg-gradient-to-br from-stone-300 via-stone-200 to-stone-400 transition-opacity duration-150"
+                style={{ opacity: scratchedCells.has(index) ? 0 : 0.96 }}
+              />
+            ))}
+          </div>
+        )}
+
+        {!revealed && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
+            <div className="rounded-full bg-white/95 px-5 py-3 text-sm font-black text-stone-700 shadow-xl">
+              {progress === 0 ? '🪙 Use your finger like a coin' : `${progress}% scratched`}
+            </div>
+          </div>
+        )}
+
+        {coin && !revealed && (
+          <div
+            className="pointer-events-none absolute z-40 grid h-12 w-12 place-items-center rounded-full border-4 border-stone-300 bg-stone-100 text-2xl shadow-2xl"
+            style={{ left: coin.x - 24, top: coin.y - 24 }}
+          >
+            🪙
+          </div>
+        )}
       </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-200">
+        <div className="h-full rounded-full bg-[#FF6B00] transition-all duration-150" style={{ width: `${progress}%` }} />
+      </div>
+      <p className="mt-2 text-center text-xs font-black text-stone-500">
+        Scratch at least {SCRATCH_THRESHOLD}% to reveal the prize.
+      </p>
     </div>
   );
 }
@@ -192,6 +304,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
   const [localResult, setLocalResult] = useState('');
   const [playing, setPlaying] = useState(false);
   const [selectedBox, setSelectedBox] = useState<number | null>(null);
+  const [scratchResetKey, setScratchResetKey] = useState(0);
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
   const gameType = builder?.state.gameType || 'wheel';
   const game = getGameDefinition(gameType);
@@ -208,11 +321,25 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
     }
   }
 
+  function revealScratchPrize() {
+    if (!runtimeRewards.length) return;
+    const selectedIndex = pickWeighted(runtimeRewards);
+    const nextResult = runtimeRewards[selectedIndex]?.label || 'Reward';
+    updatePreview(false, nextResult);
+    confetti(game.confetti);
+  }
+
   function testPlay() {
     if (!canPlay) return;
-    const selectedIndex = pickWeighted(runtimeRewards);
-    const nextSelectedBox = gameType === 'mystery_box' ? Math.floor(Math.random() * 3) : null;
 
+    if (gameType === 'scratch_card') {
+      updatePreview(false, '');
+      setScratchResetKey((current) => current + 1);
+      return;
+    }
+
+    const selectedIndex = pickWeighted(runtimeRewards);
+    const nextSelectedBox = Math.floor(Math.random() * 3);
     setPlaying(true);
     setSelectedBox(nextSelectedBox);
     updatePreview(true, '');
@@ -224,9 +351,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
       confetti(game.confetti);
     }, game.resultDelayMs);
 
-    if (nextSelectedBox !== null) {
-      window.setTimeout(() => setSelectedBox(null), game.resultDelayMs + 2200);
-    }
+    window.setTimeout(() => setSelectedBox(null), game.resultDelayMs + 2200);
   }
 
   return (
@@ -262,11 +387,13 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
           disabled={!canPlay}
           className="rounded-full bg-[#1F1F1F] px-5 py-3 text-sm font-black text-white shadow disabled:bg-stone-300"
         >
-          {playing ? 'Testing...' : 'Test'}
+          {gameType === 'scratch_card' ? 'Reset' : playing ? 'Testing...' : 'Test'}
         </button>
       </div>
 
-      {gameType === 'scratch_card' ? <ScratchCardBuilderPreview active={playing} result={result} /> : <MysteryBoxBuilderPreview active={playing} selectedBox={selectedBox} result={result} />}
+      {gameType === 'scratch_card'
+        ? <ScratchCardBuilderPreview result={result} resetKey={scratchResetKey} onReveal={revealScratchPrize} />
+        : <MysteryBoxBuilderPreview selectedBox={selectedBox} result={result} />}
       <RewardLegend rewards={rewards} />
     </div>
   );
@@ -295,15 +422,11 @@ function WheelOnlyPreview({ rewards, rotation = 0, spinning = false }: SpinWheel
               const radius = visibleRewards.length > 6 ? labelRadius - 6 : labelRadius;
               const x = Math.cos(radians) * radius;
               const y = Math.sin(radians) * radius;
-
               return (
                 <div
                   key={reward.id || `${reward.label}-${index}`}
                   className="absolute left-1/2 top-1/2 z-10 flex w-[68px] items-center justify-center text-center sm:w-[82px]"
-                  style={{
-                    transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${angle}deg)`,
-                    transformOrigin: 'center center',
-                  }}
+                  style={{ transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) rotate(${angle}deg)`, transformOrigin: 'center center' }}
                 >
                   <span className="block text-[9px] font-black uppercase leading-tight tracking-tight text-stone-900 sm:text-[11px]">
                     {wheelLabel(reward)}
@@ -311,16 +434,13 @@ function WheelOnlyPreview({ rewards, rotation = 0, spinning = false }: SpinWheel
                 </div>
               );
             })}
-
             <div className="absolute left-1/2 top-1/2 z-20 grid h-14 w-14 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-4 border-white bg-stone-900 text-center text-[11px] font-black uppercase tracking-wide text-white shadow-xl sm:h-16 sm:w-16 sm:text-xs">
               Spin
             </div>
           </div>
-
           <div className="absolute -right-1 top-1/2 z-30 -translate-y-1/2 text-4xl drop-shadow-lg sm:text-5xl">◀</div>
           {spinning && <div className="absolute inset-0 rounded-full bg-white/10" />}
         </div>
-
         <RewardLegend rewards={rewards} />
       </div>
     </div>
