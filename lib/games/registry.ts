@@ -1,5 +1,5 @@
-import MysteryBoxGameAdapter from '@/components/games/MysteryBoxGameAdapter';
 import ScratchCardGame from '@/components/games/ScratchCardGame';
+import { mysteryBoxContract } from '@/lib/games/mystery-box/contract';
 import { spinWheelContract } from '@/lib/games/spin-wheel/contract';
 import type {
   GameContract,
@@ -9,14 +9,13 @@ import type {
 } from '@/lib/games/types';
 
 /**
- * PR 2
+ * PR 4
  *
- * Spin Wheel has now been extracted into a formal per-game folder structure.
- * Mystery Box and Scratch Card remain inline temporarily and will be migrated
- * in future PRs.
+ * Spin Wheel and Mystery Box now use formal per-game contract folders.
+ * Scratch Card remains inline temporarily and will be migrated in a future PR.
  *
- * Promotion Builder should begin consuming contracts through
- * getGameContract() instead of direct game branching.
+ * Promotion Builder should continue migrating toward consuming contracts
+ * through getGameContract() instead of direct hardcoded branching.
  */
 
 const defaultSupportedPhases: GamePhase[] = [
@@ -41,46 +40,6 @@ function defaultRewardFormatter(reward: any): string {
     ? `${reward.label} — ${reward.description}`
     : reward.label || '';
 }
-
-const mysteryBoxGame: GameContract = {
-  type: 'mystery_box',
-  name: 'Mystery Box Reveal',
-  icon: '🎁',
-  availability: 'active',
-  labels: {
-    title: 'Mystery Box Reveal',
-    instruction: 'Pick a mystery box to unlock your reward.',
-    playsAvailableSuffix: 'plays left 🎯',
-    noPlaysText: 'No plays left — enjoy your rewards 🎉',
-    playAgainText: 'Pick Again',
-  },
-  createCard: {
-    title: 'Mystery Box Reveal',
-    description: 'Customers tap one of 3 mystery boxes and reveal a surprise coupon with stars and confetti.',
-    statusLabel: 'Available now',
-  },
-  preview: {
-    supportsBuilderPreview: true,
-    previewTitle: 'Mystery Box Preview',
-    previewDisclaimer: 'Preview only. Coupon issuing happens on the live play page.',
-  },
-  analytics: {
-    category: 'reveal',
-    eventPrefix: 'mystery_box',
-  },
-  resultDelayMs: 1250,
-  supportedPhases: defaultSupportedPhases,
-  validateConfig: () => createDefaultValidationResult(),
-  formatReward: defaultRewardFormatter,
-  confetti: {
-    particleCount: 240,
-    spread: 120,
-    origin: { y: 0.6 },
-    shapes: ['square', 'circle', 'star'],
-  },
-  PlayComponent: MysteryBoxGameAdapter,
-  getTargetRotation: () => null,
-};
 
 const scratchCardGame: GameContract = {
   type: 'scratch_card',
@@ -124,7 +83,7 @@ const scratchCardGame: GameContract = {
 export const gameRegistry: Record<string, GameContract> = {
   wheel: spinWheelContract,
   spin_wheel: spinWheelContract,
-  mystery_box: mysteryBoxGame,
+  mystery_box: mysteryBoxContract,
   scratch_card: scratchCardGame,
 };
 
