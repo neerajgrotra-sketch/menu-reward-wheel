@@ -98,6 +98,60 @@ function useHideLegacyWheelHeader(enabled: boolean) {
   }, [enabled]);
 }
 
+function RewardLegend({ rewards }: { rewards: WheelReward[] }) {
+  if (!rewards.length) return null;
+  return (
+    <div className="mt-5 grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+      {rewards.map((reward, index) => (
+        <div key={reward.id || reward.temp_id || `${reward.label}-${index}`} className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-black shadow-sm">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+            <span className="truncate text-stone-800">{wheelLabel(reward)}</span>
+          </div>
+          <span className="shrink-0 text-stone-500">{weightName(reward.weight)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MysteryBoxBuilderPreview({ active }: { active: boolean }) {
+  return (
+    <div className="mx-auto mt-5 grid w-full max-w-sm grid-cols-3 gap-3">
+      {[0, 1, 2].map((index) => (
+        <div
+          key={index}
+          className="relative flex h-28 items-center justify-center rounded-[1.35rem] border-2 border-white bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-2 text-center shadow-xl transition-transform"
+          style={{ animation: active ? `boxFloat 1.2s ease-in-out infinite ${index * 0.1}s` : `boxFloat 2.4s ease-in-out infinite ${index * 0.15}s` }}
+        >
+          <span className="text-4xl drop-shadow-sm">{active ? '🎉' : '🎁'}</span>
+          <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">Box {index + 1}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ScratchCardBuilderPreview({ active }: { active: boolean }) {
+  return (
+    <div className="mx-auto mt-5 max-w-sm">
+      <div className="relative aspect-[1.45/1] w-full overflow-hidden rounded-[2rem] border-4 border-white bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 p-5 text-left shadow-2xl">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,.55),transparent_25%),radial-gradient(circle_at_80%_30%,rgba(255,255,255,.35),transparent_20%),radial-gradient(circle_at_50%_90%,rgba(255,255,255,.25),transparent_28%)]" />
+        <div className="relative z-10 flex h-full flex-col justify-between rounded-[1.4rem] border-2 border-white/65 bg-white/18 p-4 text-white backdrop-blur-[1px]">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-white/80">Scratch Card</p>
+            <h2 className="mt-2 text-4xl font-black leading-none drop-shadow">Scratch<br />& Win</h2>
+          </div>
+          <div className="rounded-2xl bg-black/20 p-3 text-center shadow-inner">
+            <p className="text-sm font-black uppercase tracking-wide">{active ? 'Revealing...' : 'Tap Test to Reveal'}</p>
+          </div>
+        </div>
+        {active && <div className="absolute inset-0 z-20 bg-white/20" />}
+      </div>
+    </div>
+  );
+}
+
 function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
   const builder = useOptionalPromotionBuilder();
   const [localResult, setLocalResult] = useState('');
@@ -105,10 +159,8 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
   const gameType = builder?.state.gameType || 'wheel';
   const game = getGameDefinition(gameType);
-  const PlayComponent = game.PlayComponent;
   const canPlay = runtimeRewards.length > 0 && !playing;
   const result = builder?.state.preview.result || localResult;
-  const rotation = builder?.state.preview.rotation || 0;
 
   useHideLegacyWheelHeader(true);
 
@@ -135,7 +187,13 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
 
   return (
     <div data-spinbite-non-wheel-builder-preview="true" className="w-full text-[#1F1F1F]">
-      <div className="mb-4 flex items-start justify-between gap-4">
+      <style jsx>{`
+        @keyframes boxFloat {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-7px) scale(1.04); }
+        }
+      `}</style>
+      <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.16em] text-[#FF6B00]">Game Preview</p>
           <h2 className="mt-1 text-2xl font-black">{game.icon} {game.name}</h2>
@@ -152,16 +210,8 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
         </button>
       </div>
 
-      <PlayComponent
-        rewards={runtimeRewards}
-        canPlay={canPlay}
-        playing={playing}
-        playsRemaining={1}
-        playsUsed={0}
-        maxPlays={1}
-        onPlay={testPlay}
-        rotation={rotation}
-      />
+      {gameType === 'scratch_card' ? <ScratchCardBuilderPreview active={playing} /> : <MysteryBoxBuilderPreview active={playing} />}
+      <RewardLegend rewards={rewards} />
     </div>
   );
 }
@@ -215,19 +265,7 @@ function WheelOnlyPreview({ rewards, rotation = 0, spinning = false }: SpinWheel
           {spinning && <div className="absolute inset-0 rounded-full bg-white/10" />}
         </div>
 
-        {rewards.length > 0 && (
-          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-            {rewards.map((reward, index) => (
-              <div key={reward.id || `${reward.label}-${index}`} className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 text-xs font-black shadow-sm">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                  <span className="truncate text-stone-800">{wheelLabel(reward)}</span>
-                </div>
-                <span className="shrink-0 text-stone-500">{weightName(reward.weight)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <RewardLegend rewards={rewards} />
       </div>
     </div>
   );
