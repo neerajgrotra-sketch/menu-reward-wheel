@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { getGameDefinition } from '@/lib/games/registry';
-import { usePromotionBuilder } from '@/lib/builder/context';
+import { useOptionalPromotionBuilder } from '@/lib/builder/context';
 import type { Reward, RewardType } from '@/types/reward';
 
 type WheelReward = {
@@ -99,24 +99,36 @@ function useHideLegacyWheelHeader(enabled: boolean) {
 }
 
 function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
-  const { state, dispatch } = usePromotionBuilder();
+  const builder = useOptionalPromotionBuilder();
+  const [localResult, setLocalResult] = useState('');
   const [playing, setPlaying] = useState(false);
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
-  const game = getGameDefinition(state.gameType);
+  const gameType = builder?.state.gameType || 'wheel';
+  const game = getGameDefinition(gameType);
   const PlayComponent = game.PlayComponent;
   const canPlay = runtimeRewards.length > 0 && !playing;
+  const result = builder?.state.preview.result || localResult;
+  const rotation = builder?.state.preview.rotation || 0;
 
   useHideLegacyWheelHeader(true);
+
+  function updatePreview(spinning: boolean, previewResult: string) {
+    if (builder) {
+      builder.dispatch({ type: 'setPreview', preview: { spinning, result: previewResult } });
+    } else {
+      setLocalResult(previewResult);
+    }
+  }
 
   function testPlay() {
     if (!canPlay) return;
     const selectedIndex = pickWeighted(runtimeRewards);
     setPlaying(true);
-    dispatch({ type: 'setPreview', preview: { spinning: true, result: '' } });
+    updatePreview(true, '');
     window.setTimeout(() => {
-      const result = runtimeRewards[selectedIndex]?.label || 'Reward';
+      const nextResult = runtimeRewards[selectedIndex]?.label || 'Reward';
       setPlaying(false);
-      dispatch({ type: 'setPreview', preview: { spinning: false, result } });
+      updatePreview(false, nextResult);
       confetti(game.confetti);
     }, game.resultDelayMs);
   }
@@ -128,7 +140,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
           <p className="text-xs font-black uppercase tracking-[0.16em] text-[#FF6B00]">Game Preview</p>
           <h2 className="mt-1 text-2xl font-black">{game.icon} {game.name}</h2>
           <p className="mt-1 text-sm font-bold text-stone-500">{game.labels.instruction}</p>
-          {state.preview.result && <p className="mt-2 text-sm font-black text-green-700">🎉 {state.preview.result}</p>}
+          {result && <p className="mt-2 text-sm font-black text-green-700">🎉 {result}</p>}
         </div>
         <button
           type="button"
@@ -148,7 +160,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
         playsUsed={0}
         maxPlays={1}
         onPlay={testPlay}
-        rotation={state.preview.rotation}
+        rotation={rotation}
       />
     </div>
   );
@@ -222,9 +234,9 @@ function WheelOnlyPreview({ rewards, rotation = 0, spinning = false }: SpinWheel
 }
 
 export default function SpinWheelPreview(props: SpinWheelPreviewProps) {
-  const { state } = usePromotionBuilder();
+  const builder = useOptionalPromotionBuilder();
 
-  if (state.gameType !== 'wheel') {
+  if (builder && builder.state.gameType !== 'wheel') {
     return <NonWheelPreview rewards={props.rewards} />;
   }
 
