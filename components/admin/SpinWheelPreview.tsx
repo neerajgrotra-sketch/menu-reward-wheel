@@ -1,5 +1,8 @@
 'use client';
 
+import BuilderGamePreviewCard from '@/components/admin/BuilderGamePreviewCard';
+import { usePromotionBuilder } from '@/lib/builder/context';
+
 type WheelReward = {
   id?: string;
   label: string;
@@ -40,7 +43,7 @@ function weightName(weight: number) {
   return 'Normal';
 }
 
-export default function SpinWheelPreview({ rewards, rotation = 0, spinning = false }: SpinWheelPreviewProps) {
+function WheelOnlyPreview({ rewards, rotation = 0, spinning = false }: SpinWheelPreviewProps) {
   const visibleRewards = rewards.length > 0 ? rewards : demoRewards();
   const segmentAngle = 360 / visibleRewards.length;
   const labelRadius = 76;
@@ -105,4 +108,14 @@ export default function SpinWheelPreview({ rewards, rotation = 0, spinning = fal
       </div>
     </div>
   );
+}
+
+export default function SpinWheelPreview(props: SpinWheelPreviewProps) {
+  const { state } = usePromotionBuilder();
+
+  if (state.gameType !== 'wheel') {
+    return <BuilderGamePreviewCard />;
+  }
+
+  return <WheelOnlyPreview {...props} />;
 }
