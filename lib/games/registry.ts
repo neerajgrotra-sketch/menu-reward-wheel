@@ -1,27 +1,22 @@
 import MysteryBoxGameAdapter from '@/components/games/MysteryBoxGameAdapter';
 import ScratchCardGame from '@/components/games/ScratchCardGame';
-import WheelGame from '@/components/games/WheelGame';
-import { getRewardWheelTargetRotation } from '@/components/RewardWheel';
+import { spinWheelContract } from '@/lib/games/spin-wheel/contract';
 import type {
   GameContract,
   GameDefinition,
   GamePhase,
-  GameType,
   ValidationResult,
 } from '@/lib/games/types';
 
 /**
- * PR 1 FOUNDATION
+ * PR 2
  *
- * This registry intentionally wraps the EXISTING game implementations
- * without changing runtime behavior.
+ * Spin Wheel has now been extracted into a formal per-game folder structure.
+ * Mystery Box and Scratch Card remain inline temporarily and will be migrated
+ * in future PRs.
  *
- * Future PRs will:
- * - Move each game into its own /lib/games/<game>/ folder
- * - Extract builder previews from Promotion Builder
- * - Extract animation choreography
- * - Add formal game state machines
- * - Reduce hardcoded game branches
+ * Promotion Builder should begin consuming contracts through
+ * getGameContract() instead of direct game branching.
  */
 
 const defaultSupportedPhases: GamePhase[] = [
@@ -46,51 +41,6 @@ function defaultRewardFormatter(reward: any): string {
     ? `${reward.label} — ${reward.description}`
     : reward.label || '';
 }
-
-const wheelGame: GameContract = {
-  type: 'wheel',
-  name: 'Spin Wheel',
-  icon: '🎯',
-  availability: 'active',
-  labels: {
-    title: 'Spin & Win',
-    instruction: 'Spin to unlock your reward.',
-    playsAvailableSuffix: 'plays left 🎯',
-    noPlaysText: 'No plays left — enjoy your rewards 🎉',
-    playAgainText: 'Spin Again',
-  },
-  createCard: {
-    title: 'Spin Wheel',
-    description: 'Customers scan a QR code, spin a branded prize wheel, and win configured rewards.',
-    statusLabel: 'Available now',
-  },
-  preview: {
-    supportsBuilderPreview: true,
-    previewTitle: 'Wheel Preview',
-    previewDisclaimer: 'Preview only. Coupon issuing happens on the live play page.',
-  },
-  analytics: {
-    category: 'chance',
-    eventPrefix: 'wheel',
-  },
-  resultDelayMs: 2900,
-  supportedPhases: defaultSupportedPhases,
-  validateConfig: () => createDefaultValidationResult(),
-  formatReward: defaultRewardFormatter,
-  confetti: {
-    particleCount: 180,
-    spread: 100,
-    origin: { y: 0.6 },
-  },
-  PlayComponent: WheelGame,
-  getTargetRotation: ({ currentRotation, selectedIndex, segmentAngle }) =>
-    getRewardWheelTargetRotation({
-      currentRotation,
-      selectedIndex,
-      segmentAngle,
-      rotations: 5,
-    }),
-};
 
 const mysteryBoxGame: GameContract = {
   type: 'mystery_box',
@@ -172,8 +122,8 @@ const scratchCardGame: GameContract = {
 };
 
 export const gameRegistry: Record<string, GameContract> = {
-  wheel: wheelGame,
-  spin_wheel: wheelGame,
+  wheel: spinWheelContract,
+  spin_wheel: spinWheelContract,
   mystery_box: mysteryBoxGame,
   scratch_card: scratchCardGame,
 };
@@ -189,12 +139,6 @@ export function getGameDefinition(gameType?: string | null): GameDefinition {
   return gameRegistry.wheel;
 }
 
-/**
- * New architecture-facing helper.
- *
- * Future Promotion Builder refactors should use this helper instead of
- * hardcoded game branching.
- */
 export function getGameContract(gameType?: string | null): GameContract {
   return getGameDefinition(gameType);
 }
