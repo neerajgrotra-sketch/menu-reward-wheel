@@ -4,13 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { usePromotionBuilder } from '@/lib/builder/context';
 import { availableGames } from '@/lib/games/registry';
+import type { BuilderGameType } from '@/lib/builder/types';
 import type { GameType } from '@/lib/games/types';
 
 type Props = { promotionId: string };
 
 const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
 
-function normalizeGameType(value?: string | null): GameType {
+function normalizeGameType(value?: string | null): BuilderGameType {
   if (value === 'mystery_box') return 'mystery_box';
   if (value === 'scratch_card') return 'scratch_card';
   return 'wheel';
@@ -25,12 +26,12 @@ function findHeroCard() {
 export default function GameTypeInlineControl({ promotionId }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const { dispatch } = usePromotionBuilder();
-  const [gameType, setGameType] = useState<GameType>('wheel');
+  const [gameType, setGameType] = useState<BuilderGameType>('wheel');
   const [mounted, setMounted] = useState(false);
   const [saving, setSaving] = useState(false);
-  const selectedGame = availableGames.find((game) => game.type === gameType) || availableGames[0];
+  const selectedGame = availableGames.find((game) => normalizeGameType(game.type) === gameType) || availableGames[0];
 
-  function applyGameType(next: GameType) {
+  function applyGameType(next: BuilderGameType) {
     setGameType(next);
     dispatch({ type: 'setGameType', gameType: next });
   }
@@ -39,7 +40,9 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
     async function load() {
       const result = await supabase.from('promotions').select('game_type').eq('id', promotionId).single();
       const pending = window.localStorage.getItem(STORAGE_KEY);
-      const pendingGameType = pending === 'mystery_box' || pending === 'scratch_card' || pending === 'wheel' ? pending : null;
+      const pendingGameType = pending === 'mystery_box' || pending === 'scratch_card' || pending === 'wheel' || pending === 'spin_wheel'
+        ? normalizeGameType(pending)
+        : null;
       const value = normalizeGameType(result.data?.game_type);
 
       if (pendingGameType) {
@@ -74,9 +77,10 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
   }, []);
 
   async function choose(next: GameType) {
+    const normalized = normalizeGameType(next);
     setSaving(true);
-    const result = await supabase.from('promotions').update({ game_type: next }).eq('id', promotionId);
-    if (!result.error) applyGameType(next);
+    const result = await supabase.from('promotions').update({ game_type: normalized }).eq('id', promotionId);
+    if (!result.error) applyGameType(normalized);
     setSaving(false);
   }
 
@@ -91,7 +95,8 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
       <p className="mt-2 text-sm font-bold text-stone-600">Choose how customers reveal their prize. Rewards, coupons, and reporting stay the same.</p>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {availableGames.map((game) => {
-          const selected = gameType === game.type;
+          const normalizedType = normalizeGameType(game.type);
+          const selected = gameType === normalizedType;
           return (
             <button
               key={game.type}
