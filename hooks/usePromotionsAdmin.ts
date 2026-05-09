@@ -27,6 +27,7 @@ export type Promotion = {
 
 export type CountsByPromotion = Record<string, { issued: number; redeemed: number }>;
 export type Filter = 'active' | 'pending' | 'draft' | 'ended' | 'all';
+export type PromotionsAdminMode = 'create' | 'drafts' | 'manage';
 export type GameType = 'wheel' | 'mystery_box' | 'scratch_card';
 
 export type PerformanceCoupon = {
@@ -73,16 +74,19 @@ export const fallbackPromotionsCopy = {
   eyebrow: 'Promotions',
   create_headline: 'Start a new campaign draft.',
   create_subheadline: 'Choose a restaurant location, name the campaign, select the game, then build rewards and publish.',
+  drafts_headline: 'Continue building draft campaigns.',
+  drafts_subheadline: 'Drafts are promotions that have been created but not published yet.',
   manage_headline: 'Operate active and ended campaigns.',
   manage_subheadline: 'Edit, end, copy links, print posters, and track redemption performance.',
   create_tab_label: 'Create Promotion',
+  drafts_tab_label: 'Drafts',
   manage_tab_label: 'Manage Promotions',
   select_location_label: 'Step 1: Select Restaurant Location',
   name_promotion_label: 'Step 2: Name Promotion',
   select_game_label: 'Step 3: Select Game Type',
   create_button_label: 'Create Promotion',
   no_drafts_title: 'No drafts in progress',
-  no_drafts_copy: 'Create a new draft above.',
+  no_drafts_copy: 'Create a new promotion draft from the Create Promotion tab.',
 };
 
 export function toPromotionSlug(value: string) {
@@ -128,7 +132,7 @@ export function usePromotionsAdmin() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [endingId, setEndingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'create' | 'manage'>('manage');
+  const [mode, setMode] = useState<PromotionsAdminMode>('manage');
   const [filter, setFilter] = useState<Filter>('active');
   const [performance, setPerformance] = useState<PromotionPerformance | null>(null);
   const [loadingPerformanceId, setLoadingPerformanceId] = useState<string | null>(null);
@@ -219,7 +223,7 @@ export function usePromotionsAdmin() {
       const requestedMode = params.get('mode');
       const requestedSlug = params.get('slug');
 
-      if (requestedMode === 'create' || requestedMode === 'manage') {
+      if (requestedMode === 'create' || requestedMode === 'drafts' || requestedMode === 'manage') {
         setMode(requestedMode);
       }
 
@@ -340,9 +344,15 @@ export function usePromotionsAdmin() {
     return accumulator;
   }, { active: 0, pending: 0, draft: 0, ended: 0, all: 0 });
 
-  const visiblePromotions = mode === 'create'
+  const visiblePromotions = mode === 'drafts'
     ? promotions.filter((promotion) => getPromotionStatus(promotion) === 'draft')
-    : promotions.filter((promotion) => filter === 'all' || getPromotionStatus(promotion) === filter);
+    : mode === 'create'
+      ? []
+      : promotions.filter((promotion) => {
+          const status = getPromotionStatus(promotion);
+          if (status === 'draft') return false;
+          return filter === 'all' || status === filter;
+        });
 
   const canCreate = Boolean(selectedRestaurant && name.trim() && !saving);
 
