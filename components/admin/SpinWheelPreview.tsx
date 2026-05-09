@@ -115,19 +115,45 @@ function RewardLegend({ rewards }: { rewards: WheelReward[] }) {
   );
 }
 
-function MysteryBoxBuilderPreview({ active }: { active: boolean }) {
+function MysteryBoxBuilderPreview({ active, selectedBox, result }: { active: boolean; selectedBox: number | null; result: string }) {
+  const revealMode = active || selectedBox !== null;
+
   return (
-    <div className="mx-auto mt-5 grid w-full max-w-sm grid-cols-3 gap-3">
-      {[0, 1, 2].map((index) => (
-        <div
-          key={index}
-          className="relative flex h-28 items-center justify-center rounded-[1.35rem] border-2 border-white bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-2 text-center shadow-xl transition-transform"
-          style={{ animation: active ? `boxFloat 1.2s ease-in-out infinite ${index * 0.1}s` : `boxFloat 2.4s ease-in-out infinite ${index * 0.15}s` }}
-        >
-          <span className="text-4xl drop-shadow-sm">{active ? '🎉' : '🎁'}</span>
-          <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">Box {index + 1}</span>
+    <div className={revealMode ? 'relative mx-auto mt-5 min-h-[13rem] w-full max-w-sm' : 'mx-auto mt-5 grid w-full max-w-sm grid-cols-3 gap-3'}>
+      {[0, 1, 2].map((index) => {
+        const selected = selectedBox === index;
+        const hidden = selectedBox !== null && !selected;
+
+        return (
+          <div
+            key={index}
+            className={`relative flex h-28 items-center justify-center rounded-[1.35rem] border-2 border-white bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-2 text-center shadow-xl transition-all duration-500 ${hidden ? 'scale-75 opacity-0' : ''}`}
+            style={
+              revealMode
+                ? selected
+                  ? { position: 'absolute', left: '50%', top: '46%', width: '9.25rem', height: '9.25rem', zIndex: 20, animation: 'selectedTremble 0.85s ease-in-out infinite', transform: 'translate(-50%, -50%)' }
+                  : undefined
+                : { animation: `boxFloat 2.4s ease-in-out infinite ${index * 0.15}s` }
+            }
+          >
+            {selected && (
+              <>
+                <span className="absolute left-1/2 top-1 z-20 -translate-x-1/2 text-3xl" style={{ animation: 'sparkleBurst 1.05s ease-out infinite' }}>✨</span>
+                <span className="absolute left-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .1s' }}>⭐</span>
+                <span className="absolute right-3 top-10 z-20 text-2xl" style={{ animation: 'sparkleBurst 1.2s ease-out infinite .2s' }}>💫</span>
+              </>
+            )}
+            <span className="text-4xl drop-shadow-sm">{selected ? '🎉' : '🎁'}</span>
+            <span className="absolute bottom-3 text-[11px] font-black uppercase tracking-wide text-white">{selected ? 'Opening...' : `Box ${index + 1}`}</span>
+          </div>
+        );
+      })}
+
+      {selectedBox !== null && result && (
+        <div className="absolute inset-x-0 bottom-0 rounded-3xl bg-green-50 px-4 py-3 text-center text-sm font-black text-green-800 shadow-inner">
+          Prize revealed: {result}
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -156,6 +182,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
   const builder = useOptionalPromotionBuilder();
   const [localResult, setLocalResult] = useState('');
   const [playing, setPlaying] = useState(false);
+  const [selectedBox, setSelectedBox] = useState<number | null>(null);
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
   const gameType = builder?.state.gameType || 'wheel';
   const game = getGameDefinition(gameType);
@@ -175,14 +202,22 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
   function testPlay() {
     if (!canPlay) return;
     const selectedIndex = pickWeighted(runtimeRewards);
+    const nextSelectedBox = gameType === 'mystery_box' ? Math.floor(Math.random() * 3) : null;
+
     setPlaying(true);
+    setSelectedBox(nextSelectedBox);
     updatePreview(true, '');
+
     window.setTimeout(() => {
       const nextResult = runtimeRewards[selectedIndex]?.label || 'Reward';
       setPlaying(false);
       updatePreview(false, nextResult);
       confetti(game.confetti);
     }, game.resultDelayMs);
+
+    if (nextSelectedBox !== null) {
+      window.setTimeout(() => setSelectedBox(null), game.resultDelayMs + 1700);
+    }
   }
 
   return (
@@ -191,6 +226,18 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
         @keyframes boxFloat {
           0%, 100% { transform: translateY(0) scale(1); }
           50% { transform: translateY(-7px) scale(1.04); }
+        }
+        @keyframes selectedTremble {
+          0%, 100% { transform: translate(-50%, -50%) rotate(0deg) scale(1.18); }
+          20% { transform: translate(-50%, -50%) rotate(-6deg) scale(1.27); }
+          40% { transform: translate(-50%, -50%) rotate(6deg) scale(1.34); }
+          60% { transform: translate(-50%, -50%) rotate(-4deg) scale(1.31); }
+          80% { transform: translate(-50%, -50%) rotate(4deg) scale(1.24); }
+        }
+        @keyframes sparkleBurst {
+          0% { transform: translateY(8px) scale(.65); opacity: 0; }
+          45% { transform: translateY(-22px) scale(1.2); opacity: 1; }
+          100% { transform: translateY(-46px) scale(.8); opacity: 0; }
         }
       `}</style>
       <div className="flex items-start justify-between gap-4">
@@ -210,7 +257,7 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
         </button>
       </div>
 
-      {gameType === 'scratch_card' ? <ScratchCardBuilderPreview active={playing} /> : <MysteryBoxBuilderPreview active={playing} />}
+      {gameType === 'scratch_card' ? <ScratchCardBuilderPreview active={playing} /> : <MysteryBoxBuilderPreview active={playing} selectedBox={selectedBox} result={result} />}
       <RewardLegend rewards={rewards} />
     </div>
   );
