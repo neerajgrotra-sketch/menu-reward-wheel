@@ -21,7 +21,7 @@ export type ScratchCardState = {
 export const defaultScratchCardState: ScratchCardState = {
   phase: 'idle',
   progress: 0,
-  threshold: 68,
+  threshold: 72,
 };
 
 export function reduceScratchCardState(
@@ -60,9 +60,9 @@ export function reduceScratchCardState(
 }
 
 export function getScratchCardStatusText(state: ScratchCardState, playing: boolean): string {
-  if (playing || state.phase === 'revealing') return 'Revealing...';
+  if (playing || state.phase === 'revealing') return 'Revealing your reward...';
   if (state.phase === 'completed') return 'Reward revealed!';
-  if (state.phase === 'threshold_reached') return 'Release to reveal';
-  if (state.phase === 'scratching') return `${Math.round(state.progress)}% scratched`;
-  return 'Drag to scratch';
+  if (state.phase === 'threshold_reached') return 'Almost there...';
+  if (state.phase === 'scratching') return 'Keep scratching...';
+  return 'Scratch to reveal';
 }
