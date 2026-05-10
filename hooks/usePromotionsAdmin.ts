@@ -5,6 +5,8 @@ import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
 
+export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card';
+
 export type Restaurant = {
   id: string;
   name: string;
@@ -21,6 +23,7 @@ export type Promotion = {
   status: string;
   created_at: string;
   restaurant_id: string;
+  game_type?: GameType | null;
   starts_at?: string | null;
   ends_at?: string | null;
 };
@@ -28,7 +31,7 @@ export type Promotion = {
 export type CountsByPromotion = Record<string, { issued: number; redeemed: number }>;
 export type Filter = 'active' | 'pending' | 'draft' | 'ended' | 'all';
 export type PromotionsAdminMode = 'create' | 'drafts' | 'manage';
-export type GameType = 'wheel' | 'mystery_box' | 'scratch_card';
+export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card';
 
 export type PerformanceCoupon = {
   id: string;
@@ -114,6 +117,12 @@ export function getPromotionStatus(promotion: Promotion): Filter {
   return 'draft';
 }
 
+export function normalizeBuilderGameType(value?: string | null): BuilderGameType {
+  if (value === 'mystery_box') return 'mystery_box';
+  if (value === 'scratch_card') return 'scratch_card';
+  return 'wheel';
+}
+
 export function usePromotionsAdmin() {
   const supabase = useMemo(() => createClient(), []);
 
@@ -126,7 +135,7 @@ export function usePromotionsAdmin() {
   const [metricsError, setMetricsError] = useState('');
   const [metricsInfo, setMetricsInfo] = useState('');
   const [name, setName] = useState('');
-  const [gameType, setGameType] = useState<GameType>('wheel');
+  const [gameType, setGameType] = useState<BuilderGameType>('wheel');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -187,7 +196,7 @@ export function usePromotionsAdmin() {
   async function loadPromotions(restaurantId: string) {
     const result = await supabase
       .from('promotions')
-      .select('id,name,slug,status,created_at,restaurant_id,starts_at,ends_at')
+      .select('id,name,slug,status,created_at,restaurant_id,game_type,starts_at,ends_at')
       .eq('restaurant_id', restaurantId)
       .order('created_at', { ascending: false });
 
