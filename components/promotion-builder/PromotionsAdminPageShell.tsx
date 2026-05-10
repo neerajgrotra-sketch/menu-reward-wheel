@@ -38,6 +38,12 @@ function statusBadgeClass(status: string) {
   return 'bg-orange-50 text-[#FF6B00]';
 }
 
+function gameBadge(gameType?: string | null) {
+  if (gameType === 'scratch_card') return { icon: '🪙', label: 'Scratch Card' };
+  if (gameType === 'mystery_box') return { icon: '🎁', label: 'Mystery Box' };
+  return { icon: '🎯', label: 'Spin Wheel' };
+}
+
 function modeLabel(mode: PromotionsAdminMode, copy: any) {
   if (mode === 'create') return copy.create_tab_label;
   if (mode === 'drafts') return copy.drafts_tab_label || 'Drafts';
@@ -88,6 +94,7 @@ function PromotionCard({
   onEnd: () => void;
 }) {
   const status = getPromotionStatus(promotion);
+  const game = gameBadge(promotion.game_type);
   const redemptionRate = issued ? Math.round((redeemed / issued) * 100) : 0;
   const playHref = `/play/${selectedRestaurantSlug}/${promotion.slug}`;
 
@@ -96,7 +103,13 @@ function PromotionCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-3xl font-black">{promotion.name}</h3>
-          <p className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-black uppercase ${promotionBadgeClass(status)}`}>{status}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <p className={`inline-block rounded-full px-3 py-1 text-xs font-black uppercase ${promotionBadgeClass(status)}`}>{status}</p>
+            <p className="inline-flex items-center gap-2 rounded-full bg-stone-100 px-3 py-1 text-xs font-black uppercase text-stone-700">
+              <span>{game.icon}</span>
+              <span>{game.label}</span>
+            </p>
+          </div>
         </div>
         <a href={`/admin/promotions/${promotion.id}/builder`} className="rounded-full bg-orange-50 px-4 py-2 text-center text-sm font-black text-[#FF6B00]">
           {status === 'draft' ? 'Build' : 'Edit'}
