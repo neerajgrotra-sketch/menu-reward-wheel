@@ -25,10 +25,10 @@ type SpinWheelPreviewProps = {
 };
 
 const COLORS = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c', '#fef3c7', '#facc15'];
-const SCRATCH_COLUMNS = 10;
-const SCRATCH_ROWS = 6;
+const SCRATCH_COLUMNS = 14;
+const SCRATCH_ROWS = 8;
 const SCRATCH_CELL_COUNT = SCRATCH_COLUMNS * SCRATCH_ROWS;
-const SCRATCH_THRESHOLD = 58;
+const SCRATCH_THRESHOLD = 72;
 
 function wheelLabel(reward: WheelReward) {
   if (reward.reward_type === 'free') return `FREE ${reward.label}`;
@@ -177,6 +177,7 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
   const [coin, setCoin] = useState<{ x: number; y: number } | null>(null);
   const [revealed, setRevealed] = useState(false);
   const progress = Math.min(100, Math.round((scratchedCells.size / SCRATCH_CELL_COUNT) * 100));
+  const showReward = revealed || Boolean(result);
 
   useEffect(() => {
     setScratchedCells(new Set());
@@ -200,18 +201,7 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
     const cellIndex = getScratchCellIndex(clientX, clientY, card);
     setScratchedCells((current) => {
       const next = new Set(current);
-      const neighbours = [
-        cellIndex,
-        cellIndex - 1,
-        cellIndex + 1,
-        cellIndex - SCRATCH_COLUMNS,
-        cellIndex + SCRATCH_COLUMNS,
-        cellIndex - SCRATCH_COLUMNS - 1,
-        cellIndex + SCRATCH_COLUMNS + 1,
-      ];
-      neighbours.forEach((neighbour) => {
-        if (neighbour >= 0 && neighbour < SCRATCH_CELL_COUNT) next.add(neighbour);
-      });
+      next.add(cellIndex);
       return next;
     });
   }
@@ -248,16 +238,19 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
         aria-label="Scratch the card preview"
       >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,.55),transparent_25%),radial-gradient(circle_at_80%_30%,rgba(255,255,255,.35),transparent_20%),radial-gradient(circle_at_50%_90%,rgba(255,255,255,.25),transparent_28%)]" />
-        <div className="relative z-10 flex h-full flex-col justify-between rounded-[1.4rem] border-2 border-white/65 bg-white/18 p-4 text-white backdrop-blur-[1px]">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-white/80">Scratch Card</p>
-            <h2 className="mt-2 text-4xl font-black leading-none drop-shadow">Scratch<br />& Win</h2>
-          </div>
-          <div className="rounded-2xl bg-black/25 p-3 text-center shadow-inner">
-            <p className="text-sm font-black uppercase tracking-wide">
-              {revealed || result ? `Won: ${result || 'Reward'}` : 'Prize hidden below scratch layer'}
-            </p>
-          </div>
+        <div className="relative z-10 flex h-full flex-col items-center justify-center rounded-[1.4rem] border-2 border-white/65 bg-white/18 p-4 text-center text-white backdrop-blur-[1px]">
+          <p className="absolute left-4 top-4 text-xs font-black uppercase tracking-[0.18em] text-white/80">Scratch Card</p>
+          {showReward ? (
+            <div className="rounded-[1.5rem] bg-black/35 px-5 py-4 shadow-2xl backdrop-blur-sm">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-white/80">You won</p>
+              <h2 className="mt-1 text-3xl font-black leading-tight drop-shadow">{result || 'Reward'}</h2>
+            </div>
+          ) : (
+            <div>
+              <h2 className="text-4xl font-black leading-none drop-shadow">Scratch<br />& Win</h2>
+              <p className="mt-4 rounded-full bg-black/20 px-4 py-2 text-xs font-black uppercase tracking-wide">Prize hidden below</p>
+            </div>
+          )}
         </div>
 
         {!revealed && (
@@ -265,8 +258,8 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
             {Array.from({ length: SCRATCH_CELL_COUNT }).map((_, index) => (
               <div
                 key={index}
-                className="border border-white/10 bg-gradient-to-br from-stone-300 via-stone-200 to-stone-400 transition-opacity duration-150"
-                style={{ opacity: scratchedCells.has(index) ? 0 : 0.96 }}
+                className="border border-white/10 bg-gradient-to-br from-stone-300 via-stone-100 to-stone-400 transition-opacity duration-150"
+                style={{ opacity: scratchedCells.has(index) ? 0 : 0.97 }}
               />
             ))}
           </div>
@@ -275,7 +268,7 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
         {!revealed && (
           <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
             <div className="rounded-full bg-white/95 px-5 py-3 text-sm font-black text-stone-700 shadow-xl">
-              {progress === 0 ? '🪙 Use your finger like a coin' : `${progress}% scratched`}
+              {progress === 0 ? '🪙 Scratch to reveal' : 'Keep scratching...'}
             </div>
           </div>
         )}
@@ -293,7 +286,7 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
         <div className="h-full rounded-full bg-[#FF6B00] transition-all duration-150" style={{ width: `${progress}%` }} />
       </div>
       <p className="mt-2 text-center text-xs font-black text-stone-500">
-        Scratch at least {SCRATCH_THRESHOLD}% to reveal the prize.
+        Keep scratching until the reward appears.
       </p>
     </div>
   );
