@@ -1,8 +1,6 @@
 'use client';
 
-import {
-  PromotionBuilderShell,
-} from '@/components/promotion-builder/PromotionBuilderShell';
+import { GameSelectionSection } from '@/components/promotion-builder/GameSelectionSection';
 import type { BuilderGameType } from '@/components/promotion-builder/GameSelectionSection';
 import type { Reward } from '@/types/reward';
 
@@ -22,20 +20,17 @@ export type CreatePromotionFlowProps = {
 };
 
 /**
- * CreatePromotionFlow is the migration adapter between the legacy
- * app/admin/promotions/page.tsx create-mode JSX and the new
- * PromotionBuilderShell.
+ * CreatePromotionFlow is intentionally minimal.
  *
- * It owns no Supabase logic and no coupon logic. It only receives state and
- * callbacks from the page and delegates rendering to the shell.
+ * Create mode should only create a draft promotion. Builder-only concerns such
+ * as reward configuration, previews, publishing, and game test experiences
+ * belong in the promotion builder route after the draft exists.
  */
 export function CreatePromotionFlow({
   promotionName,
   onPromotionNameChange,
   gameType,
   onGameTypeChange,
-  rewards,
-  rotation,
   saving,
   canCreate,
   onCreatePromotion,
@@ -44,19 +39,36 @@ export function CreatePromotionFlow({
   createButtonLabel,
 }: CreatePromotionFlowProps) {
   return (
-    <PromotionBuilderShell
-      promotionName={promotionName}
-      onPromotionNameChange={onPromotionNameChange}
-      gameType={gameType}
-      onGameTypeChange={onGameTypeChange}
-      rewards={rewards}
-      rotation={rotation}
-      saving={saving}
-      canSave={canCreate}
-      onSave={onCreatePromotion}
-      metadataLabel={nameLabel}
-      gameSelectionLabel={gameLabel}
-      publishLabel={createButtonLabel}
-    />
+    <>
+      <section className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+        <p className="text-sm font-black uppercase text-[#FF6B00]">{nameLabel}</p>
+        <input
+          value={promotionName}
+          onChange={(event) => onPromotionNameChange(event.target.value)}
+          placeholder="Halloween, Lunch Rush, Weekend Spin..."
+          className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 font-semibold outline-none focus:border-[#FF6B00]"
+        />
+      </section>
+
+      <GameSelectionSection
+        label={gameLabel}
+        gameType={gameType}
+        onChange={onGameTypeChange}
+      />
+
+      <section className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+        <p className="text-sm font-black uppercase text-[#FF6B00]">Step 4: {createButtonLabel}</p>
+        <button
+          onClick={onCreatePromotion}
+          disabled={!canCreate}
+          className="mt-3 w-full rounded-3xl bg-green-600 px-5 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400"
+        >
+          {saving ? 'Creating...' : createButtonLabel}
+        </button>
+        <p className="mt-3 text-sm font-bold text-stone-500">
+          This creates a draft. Rewards, previews, scheduling, and publishing happen inside the builder.
+        </p>
+      </section>
+    </>
   );
 }
