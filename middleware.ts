@@ -10,6 +10,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  if (req.nextUrl.pathname === '/admin/promotions') {
+    const rewriteUrl = req.nextUrl.clone();
+    rewriteUrl.pathname = '/admin/promotions-shell';
+    return NextResponse.rewrite(rewriteUrl);
+  }
+
   const res = NextResponse.next();
 
   const supabase = createServerClient(url, key, {
