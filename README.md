@@ -36,3 +36,7 @@ http://localhost:3000/staff
 - Store issued coupons with expiry and redemption status.
 - Add daily caps and one-spin-per-device rules.
 - Add admin campaign management.
+
+## Deployment note
+
+Main branch redeploy trigger.
