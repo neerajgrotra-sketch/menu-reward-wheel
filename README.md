@@ -1,4 +1,4 @@
-# Menu Reward Wheel
+# Menu Reward Wheel 2
 
 QR-based restaurant spin-to-win promotional web app.
 
