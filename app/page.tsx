@@ -14,12 +14,23 @@ const fallbackHero: HomeHeroContent = {
 
 export default async function LandingPage() {
   const supabase = createClient();
+
   const { data } = await supabase
     .from('site_content')
     .select('field_key,value')
     .eq('page_key', 'home')
     .eq('section_key', 'hero')
     .eq('is_active', true);
+
+  const { data: video } = await supabase
+    .from('site_media')
+    .select('title,description,youtube_url')
+    .eq('page_key', 'home')
+    .eq('section_key', 'how_it_works')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
   const values = Object.fromEntries((data || []).map((item: { field_key: string; value: string }) => [item.field_key, item.value]));
 
@@ -34,5 +45,10 @@ export default async function LandingPage() {
     spin_button_label: values.spin_button_label || fallbackHero.spin_button_label,
   };
 
-  return <LandingPageClient hero={hero} />;
+  return (
+    <LandingPageClient
+      hero={hero}
+      explainerVideo={video || null}
+    />
+  );
 }
