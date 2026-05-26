@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { RewardWheel } from '@/components/RewardWheel';
 import { BarChart3, ChefHat, Flame, QrCode, ShieldCheck, Sparkles, Trophy } from 'lucide-react';
 import type { Reward } from '@/types/reward';
+import ExplainerVideo from '@/components/ExplainerVideo';
 
 export type HomeHeroContent = {
   eyebrow: string;
@@ -101,7 +102,17 @@ function MysteryBoxHero({ phase, chosenBox, onChoose }: { phase: MysteryPhase; c
   );
 }
 
-export default function LandingPageClient({ hero }: { hero: HomeHeroContent }) {
+export default function LandingPageClient({
+  hero,
+  explainerVideo,
+}: {
+  hero: HomeHeroContent;
+  explainerVideo?: {
+    title?: string | null;
+    description?: string | null;
+    youtube_url?: string | null;
+  } | null;
+}) {
   const [rotation, setRotation] = useState(0);
   const [spinning, setSpinning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -201,7 +212,50 @@ export default function LandingPageClient({ hero }: { hero: HomeHeroContent }) {
         </div>
       </section>
 
-      <section id="product" className="px-4 py-12 sm:px-6"><div className="mx-auto max-w-6xl"><h2 className="text-center text-3xl font-black sm:text-4xl">How SpinBite Works</h2><div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{steps.map((step) => <motion.div key={step.title} whileHover={{ y: -6 }} className="rounded-3xl bg-white p-6 shadow-lg ring-1 ring-orange-100"><step.icon className="h-8 w-8 text-[#FF6B00]" /><h3 className="mt-4 text-xl font-black">{step.title}</h3><p className="mt-2 text-sm leading-6 text-stone-600">{step.body}</p>{step.learnMore && <a href="/faq" className="mt-4 inline-flex rounded-full bg-orange-50 px-4 py-2 text-sm font-black text-[#FF6B00]">Learn more</a>}</motion.div>)}</div></div></section>
+<section id="product" className="px-4 py-12 sm:px-6">
+  <div className="mx-auto max-w-6xl">
+    
+    <h2 className="text-center text-3xl font-black sm:text-4xl">
+      How SpinBite Works
+    </h2>
+
+    <ExplainerVideo
+      title={explainerVideo?.title}
+      description={explainerVideo?.description}
+      youtubeUrl={explainerVideo?.youtube_url}
+    />
+
+    <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {steps.map((step) => (
+        <motion.div
+          key={step.title}
+          whileHover={{ y: -6 }}
+          className="rounded-3xl bg-white p-6 shadow-lg ring-1 ring-orange-100"
+        >
+          <step.icon className="h-8 w-8 text-[#FF6B00]" />
+
+          <h3 className="mt-4 text-xl font-black">
+            {step.title}
+          </h3>
+
+          <p className="mt-2 text-sm leading-6 text-stone-600">
+            {step.body}
+          </p>
+
+          {step.learnMore && (
+            <a
+              href="/faq"
+              className="mt-4 inline-flex rounded-full bg-orange-50 px-4 py-2 text-sm font-black text-[#FF6B00]"
+            >
+              Learn more
+            </a>
+          )}
+        </motion.div>
+      ))}
+    </div>
+
+  </div>
+</section>
       <section id="restaurants" className="px-4 py-12 sm:px-6"><div className="mx-auto max-w-6xl rounded-[2rem] bg-[#1F1F1F] p-6 text-white sm:p-10"><h2 className="text-3xl font-black sm:text-4xl">Built for restaurant economics</h2><div className="mt-8 grid gap-4 md:grid-cols-3">{benefits.map((benefit) => <div key={benefit.title} className="rounded-3xl bg-white/10 p-6 ring-1 ring-white/10"><benefit.icon className="h-8 w-8 text-[#00C853]" /><h3 className="mt-4 text-xl font-black">{benefit.title}</h3><p className="mt-2 text-sm leading-6 text-white/70">{benefit.body}</p></div>)}</div></div></section>
       <section id="pricing" className="px-4 py-12 sm:px-6"><div className="mx-auto max-w-6xl text-center"><h2 className="text-3xl font-black sm:text-4xl">Simple pricing that grows with you</h2><div className="mt-8 grid gap-4 md:grid-cols-3">{[['Starter', 'Free', 'Launch one reward wheel'], ['Pro', '$49/mo', 'Analytics, caps, QR campaigns'], ['Enterprise', 'Custom', 'Multi-location controls']].map(([plan, price, copy]) => <div key={plan} className="rounded-3xl bg-white p-6 text-left shadow-lg ring-1 ring-orange-100"><p className="text-sm font-black uppercase text-[#FF6B00]">{plan}</p><h3 className="mt-2 text-3xl font-black">{price}</h3><p className="mt-3 text-sm text-stone-600">{copy}</p></div>)}</div></div></section>
       <section className="px-4 py-16 text-center sm:px-6"><div className="mx-auto max-w-4xl rounded-[2rem] bg-gradient-to-r from-[#FF6B00] to-[#E63939] p-8 text-white shadow-2xl shadow-orange-200 sm:p-12"><h2 className="text-4xl font-black">Ready to gamify your restaurant?</h2><p className="mx-auto mt-3 max-w-xl text-white/85">Create your first menu-powered reward wheel and publish a QR code diners can play instantly.</p><a href="/auth" className="mt-7 inline-block rounded-full bg-white px-8 py-4 font-black text-[#FF6B00]">Sign Up Free</a></div></section>
