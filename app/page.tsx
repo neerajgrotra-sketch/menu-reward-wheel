@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
-import LandingPageClient, { type HomeHeroContent } from './LandingPageClient';
+import LandingPageClient, { type HomeExplainerVideo, type HomeHeroContent } from './LandingPageClient';
 
 const fallbackHero: HomeHeroContent = {
   eyebrow: 'QR games for restaurants',
@@ -14,12 +14,23 @@ const fallbackHero: HomeHeroContent = {
 
 export default async function LandingPage() {
   const supabase = createClient();
+
   const { data } = await supabase
     .from('site_content')
     .select('field_key,value')
     .eq('page_key', 'home')
     .eq('section_key', 'hero')
     .eq('is_active', true);
+
+  const { data: media } = await supabase
+    .from('site_media')
+    .select('title,description,youtube_url')
+    .eq('page_key', 'home')
+    .eq('section_key', 'how_it_works')
+    .eq('is_active', true)
+    .order('display_order', { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
   const values = Object.fromEntries((data || []).map((item: { field_key: string; value: string }) => [item.field_key, item.value]));
 
@@ -34,5 +45,13 @@ export default async function LandingPage() {
     spin_button_label: values.spin_button_label || fallbackHero.spin_button_label,
   };
 
-  return <LandingPageClient hero={hero} />;
+  const explainerVideo: HomeExplainerVideo | null = media
+    ? {
+        title: media.title || 'See SpinBite in Action',
+        description: media.description || 'Watch how restaurants turn menus into interactive games.',
+        youtube_url: media.youtube_url || '',
+      }
+    : null;
+
+  return <LandingPageClient hero={hero} explainerVideo={explainerVideo} />;
 }
