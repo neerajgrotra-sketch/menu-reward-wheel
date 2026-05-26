@@ -4,6 +4,7 @@ import { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { motion } from 'framer-motion';
 import { RewardWheel } from '@/components/RewardWheel';
+import AvailableGamesSection from '@/components/home/AvailableGamesSection';
 import { BarChart3, ChefHat, Flame, QrCode, ShieldCheck, Sparkles, Trophy } from 'lucide-react';
 import type { Reward } from '@/types/reward';
 import ExplainerVideo from '@/components/ExplainerVideo';
