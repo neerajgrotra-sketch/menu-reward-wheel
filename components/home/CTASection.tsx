@@ -18,23 +18,28 @@ function RestaurantIcon(): JSX.Element {
               <stop stopColor="#FFF4E8" />
               <stop offset="1" stopColor="#FFD0AE" />
             </linearGradient>
+
             <linearGradient id="ctaRed" x1="130" y1="120" x2="390" y2="160" gradientUnits="userSpaceOnUse">
               <stop stopColor="#FF7A1A" />
               <stop offset="1" stopColor="#EF2F2F" />
             </linearGradient>
+
             <linearGradient id="ctaGlass" x1="170" y1="165" x2="350" y2="255" gradientUnits="userSpaceOnUse">
-              <stop stopColor="#211F2A" />
-              <stop offset="1" stopColor="#0F1018" />
+              <stop stopColor="#26283A" />
+              <stop offset="1" stopColor="#11121A" />
             </linearGradient>
+
             <linearGradient id="ctaGlow" x1="0" y1="0" x2="1" y2="1">
               <stop stopColor="#FFE76A" />
               <stop offset="1" stopColor="#FF8A00" />
             </linearGradient>
+
             <filter id="softShadow" x="70" y="55" width="380" height="260" filterUnits="userSpaceOnUse">
               <feDropShadow dx="0" dy="18" stdDeviation="18" floodColor="#5A1A00" floodOpacity="0.28" />
             </filter>
+
             <clipPath id="slotClip">
-              <rect x="206" y="174" width="108" height="70" rx="12" />
+              <rect x="208" y="176" width="104" height="66" rx="12" />
             </clipPath>
           </defs>
 
@@ -43,10 +48,11 @@ function RestaurantIcon(): JSX.Element {
 
           <g filter="url(#softShadow)">
             <path d="M118 130H402V273C402 284.046 393.046 293 382 293H138C126.954 293 118 284.046 118 273V130Z" fill="url(#ctaWall)" />
-            <path d="M118 130H402V273C402 284.046 393.046 293 382 293H138C126.954 183 118 284.046 118 273V130Z" stroke="white" strokeOpacity="0.65" strokeWidth="3" />
+            <path d="M118 130H402V273C402 284.046 393.046 293 382 293H138C126.954 293 118 284.046 118 273V130Z" stroke="white" strokeOpacity="0.65" strokeWidth="3" />
 
             <path d="M138 101H382L410 142H110L138 101Z" fill="#FFF8EF" />
             <path d="M138 101H382L410 142H110L138 101Z" stroke="white" strokeWidth="3" />
+
             <rect x="103" y="137" width="314" height="36" rx="12" fill="url(#ctaRed)" />
 
             <g>
@@ -58,37 +64,40 @@ function RestaurantIcon(): JSX.Element {
               <path d="M336 137H409V161C409 173.15 399.15 183 387 183H358C345.85 183 336 173.15 336 161V137Z" fill="#FF5E28" />
             </g>
 
-            <rect x="201" y="168" width="118" height="83" rx="16" fill="url(#ctaGlass)" stroke="#2B2B37" strokeWidth="4" />
-            <line x1="240" y1="170" x2="240" y2="251" stroke="white" strokeOpacity="0.09" />
-            <line x1="280" y1="170" x2="280" y2="251" stroke="white" strokeOpacity="0.09" />
+            <rect x="201" y="168" width="118" height="83" rx="16" fill="url(#ctaGlass)" stroke="#35374A" strokeWidth="4" />
 
             <g clipPath="url(#slotClip)">
-              <g style={{ animation: 'slotSpin 2.2s linear infinite' }}>
-                <g transform="translate(0 0)">
-                  <text x="222" y="220" fontSize="28">★</text>
-                  <text x="255" y="220" fontSize="28">%</text>
-                  <text x="290" y="220" fontSize="28">$</text>
-                </g>
-                <g transform="translate(0 72)">
-                  <text x="222" y="220" fontSize="28">🍕</text>
-                  <text x="255" y="220" fontSize="28">🎁</text>
-                  <text x="290" y="220" fontSize="28">☕</text>
-                </g>
-                <g transform="translate(0 144)">
-                  <text x="220" y="220" fontSize="22" fill="white">WIN</text>
-                  <text x="272" y="220" fontSize="22" fill="white">QR</text>
-                </g>
-                <g transform="translate(0 216)">
-                  <text x="222" y="220" fontSize="28">★</text>
-                  <text x="255" y="220" fontSize="28">%</text>
-                  <text x="290" y="220" fontSize="28">$</text>
-                </g>
+              <rect x="208" y="176" width="104" height="66" fill="#0D0F18" />
+
+              <line x1="242" y1="176" x2="242" y2="242" stroke="white" strokeOpacity="0.08" strokeWidth="2" />
+              <line x1="277" y1="176" x2="277" y2="242" stroke="white" strokeOpacity="0.08" strokeWidth="2" />
+
+              <g style={{ animation: 'slotSpin 1.4s linear infinite' }}>
+                <text x="220" y="206" fontSize="26" fill="#FFD447">🍔</text>
+                <text x="220" y="246" fontSize="26" fill="#FFD447">🎁</text>
+                <text x="220" y="286" fontSize="26" fill="#FFD447">🍕</text>
+                <text x="220" y="326" fontSize="26" fill="#FFD447">☕</text>
+              </g>
+
+              <g style={{ animation: 'slotSpin 1.8s linear infinite' }}>
+                <text x="255" y="206" fontSize="26">🎯</text>
+                <text x="255" y="246" fontSize="26">🍟</text>
+                <text x="255" y="286" fontSize="26">🏆</text>
+                <text x="255" y="326" fontSize="26">🎉</text>
+              </g>
+
+              <g style={{ animation: 'slotSpin 1.6s linear infinite' }}>
+                <text x="289" y="206" fontSize="26">🥤</text>
+                <text x="289" y="246" fontSize="26">🌮</text>
+                <text x="289" y="286" fontSize="26">💰</text>
+                <text x="289" y="326" fontSize="26">⭐</text>
               </g>
             </g>
 
-            <rect x="206" y="174" width="108" height="70" rx="12" fill="none" stroke="white" strokeOpacity="0.16" />
-            <rect x="206" y="174" width="108" height="18" fill="url(#ctaGlass)" opacity="0.82" />
-            <rect x="206" y="226" width="108" height="18" fill="url(#ctaGlass)" opacity="0.82" />
+            <rect x="206" y="174" width="108" height="70" rx="12" fill="none" stroke="white" strokeOpacity="0.14" />
+
+            <rect x="206" y="174" width="108" height="18" fill="#11121A" opacity="0.85" />
+            <rect x="206" y="226" width="108" height="18" fill="#11121A" opacity="0.85" />
 
             <rect x="145" y="181" width="42" height="70" rx="11" fill="white" stroke="#FFE0C5" strokeWidth="3" />
             <path d="M156 213H176" stroke="#FF6B00" strokeWidth="5" strokeLinecap="round" />
@@ -113,7 +122,7 @@ function RestaurantIcon(): JSX.Element {
               transform: translateY(0px);
             }
             100% {
-              transform: translateY(-216px);
+              transform: translateY(-120px);
             }
           }
         `}</style>
