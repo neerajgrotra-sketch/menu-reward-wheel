@@ -4,46 +4,54 @@ import React from 'react';
 
 function RestaurantIcon(): JSX.Element {
   return (
-    <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-white/18 ring-1 ring-white/30 backdrop-blur-sm sm:h-24 sm:w-24">
-      <svg
-        aria-hidden="true"
-        className="h-11 w-11 text-white sm:h-13 sm:w-13"
-        viewBox="0 0 64 64"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          d="M16 28c0-8.837 7.163-16 16-16s16 7.163 16 16"
-          stroke="currentColor"
-          strokeWidth="4"
-          strokeLinecap="round"
-        />
-        <path
-          d="M11 28h42"
-          stroke="currentColor"
-          strokeWidth="4"
-          strokeLinecap="round"
-        />
-        <path
-          d="M16 52h32"
-          stroke="currentColor"
-          strokeWidth="4"
-          strokeLinecap="round"
-        />
-        <path
-          d="M20 34h24l-3 18H23l-3-18Z"
-          stroke="currentColor"
-          strokeWidth="4"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M26 20h.01M32 17h.01M38 20h.01"
-          stroke="currentColor"
-          strokeWidth="5"
-          strokeLinecap="round"
-        />
-      </svg>
-      <span className="sr-only">Restaurant promotion icon</span>
+    <div className="mx-auto mb-8 flex justify-center">
+      <div className="relative w-[220px] sm:w-[280px] lg:w-[340px]">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 420 240"
+          className="h-auto w-full drop-shadow-2xl"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <rect x="70" y="85" width="280" height="120" rx="18" fill="rgba(255,255,255,0.16)" />
+          <rect x="95" y="120" width="70" height="85" rx="8" fill="rgba(255,255,255,0.92)" />
+          <rect x="185" y="135" width="140" height="70" rx="10" fill="rgba(255,255,255,0.24)" />
+          <rect x="70" y="70" width="280" height="35" rx="10" fill="white" />
+
+          <path
+            d="M90 70H330L315 35H105L90 70Z"
+            fill="rgba(255,255,255,0.9)"
+          />
+
+          <path
+            d="M120 35V70M165 35V70M210 35V70M255 35V70M300 35V70"
+            stroke="#FF6B00"
+            strokeWidth="10"
+            strokeLinecap="round"
+          />
+
+          <circle cx="130" cy="160" r="10" fill="#FF6B00" />
+
+          <path
+            d="M200 95C200 72 218 54 240 54C262 54 280 72 280 95"
+            stroke="white"
+            strokeWidth="12"
+            strokeLinecap="round"
+          />
+
+          <text
+            x="210"
+            y="167"
+            textAnchor="middle"
+            fill="white"
+            fontSize="28"
+            fontWeight="800"
+            fontFamily="Arial, sans-serif"
+          >
+            RESTAURANT
+          </text>
+        </svg>
+      </div>
     </div>
   );
 }
