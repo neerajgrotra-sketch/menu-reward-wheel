@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
-import LandingPageClient, { type HomeHeroContent } from './LandingPageClient';
+import LandingPageClient from './LandingPageClient';
+import type { HomeHeroContent } from '@/components/home/HeroSection';
 
 const fallbackHero: HomeHeroContent = {
   eyebrow: 'QR games for restaurants',
