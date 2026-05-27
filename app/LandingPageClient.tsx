@@ -7,6 +7,7 @@ import ExplainerVideo from '@/components/ExplainerVideo';
 import HeroSection, { type HomeHeroContent } from '@/components/home/HeroSection';
 import PricingSection from '@/components/home/PricingSection';
 import CTASection from '@/components/home/CTASection';
+import FooterSection from '@/components/home/FooterSection';
 
 const steps = [
   { icon: ChefHat, title: 'Build your menu', body: 'Add dishes, drinks, combos, and chef specials in minutes.' },
@@ -111,7 +112,7 @@ export default function LandingPageClient({
       <section id="restaurants" className="px-4 py-12 sm:px-6"><div className="mx-auto max-w-6xl rounded-[2rem] bg-[#1F1F1F] p-6 text-white sm:p-10"><h2 className="text-3xl font-black sm:text-4xl">Built for restaurant economics</h2><div className="mt-8 grid gap-4 md:grid-cols-3">{benefits.map((benefit) => <div key={benefit.title} className="rounded-3xl bg-white/10 p-6 ring-1 ring-white/10"><benefit.icon className="h-8 w-8 text-[#00C853]" /><h3 className="mt-4 text-xl font-black">{benefit.title}</h3><p className="mt-2 text-sm leading-6 text-white/70">{benefit.body}</p></div>)}</div></div></section>
       <PricingSection />
       <CTASection />
-      <footer className="bg-[#111111] px-4 py-12 text-white sm:px-6"><div className="mx-auto grid max-w-6xl gap-10 md:grid-cols-[1.2fr_2fr]"><div><a href="#top" className="flex items-center gap-2 text-3xl font-black text-white" aria-label="SpinBite home"><span className="text-4xl leading-none">🎯</span><span>SpinBite</span></a><p className="mt-4 max-w-sm text-sm font-medium leading-6 text-white/60">QR-powered restaurant games that turn menu attention into orders, coupons, and measurable redemptions.</p><p className="mt-6 text-xs font-bold text-white/40">Copyright © 2026 SpinBite. All rights reserved.</p></div><div className="grid grid-cols-2 gap-8 sm:grid-cols-3"><div><h3 className="text-sm font-black uppercase tracking-[0.16em] text-white">Navigation</h3><div className="mt-4 space-y-3 text-sm font-semibold text-white/60"><a className="block hover:text-white" href="#top">Home</a><a className="block hover:text-white" href="#product">Product</a><a className="block hover:text-white" href="#available-games">Games</a><a className="block hover:text-white" href="#pricing">Pricing</a></div></div><div><h3 className="text-sm font-black uppercase tracking-[0.16em] text-white">Resources</h3><div className="mt-4 space-y-3 text-sm font-semibold text-white/60"><a className="block hover:text-white" href="/faq">FAQ</a><a className="block hover:text-white" href="/auth">Create Account</a><a className="block hover:text-white" href="/auth">Login</a></div></div><div><h3 className="text-sm font-black uppercase tracking-[0.16em] text-white">For Restaurants</h3><div className="mt-4 space-y-3 text-sm font-semibold text-white/60"><a className="block hover:text-white" href="#restaurants">Margin Controls</a><a className="block hover:text-white" href="/faq">Coupon Validation</a><a className="block hover:text-white" href="/faq">Multi-location FAQ</a></div></div></div></div></footer>
+        <FooterSection />
     </main>
   );
 }
