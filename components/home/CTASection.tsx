@@ -43,7 +43,7 @@ function RestaurantIcon(): JSX.Element {
 
           <g filter="url(#softShadow)">
             <path d="M118 130H402V273C402 284.046 393.046 293 382 293H138C126.954 293 118 284.046 118 273V130Z" fill="url(#ctaWall)" />
-            <path d="M118 130H402V273C402 284.046 393.046 293 382 293H138C126.954 293 118 284.046 118 273V130Z" stroke="white" strokeOpacity="0.65" strokeWidth="3" />
+            <path d="M118 130H402V273C402 284.046 393.046 293 382 293H138C126.954 183 118 284.046 118 273V130Z" stroke="white" strokeOpacity="0.65" strokeWidth="3" />
 
             <path d="M138 101H382L410 142H110L138 101Z" fill="#FFF8EF" />
             <path d="M138 101H382L410 142H110L138 101Z" stroke="white" strokeWidth="3" />
@@ -61,32 +61,34 @@ function RestaurantIcon(): JSX.Element {
             <rect x="201" y="168" width="118" height="83" rx="16" fill="url(#ctaGlass)" stroke="#2B2B37" strokeWidth="4" />
             <line x1="240" y1="170" x2="240" y2="251" stroke="white" strokeOpacity="0.09" />
             <line x1="280" y1="170" x2="280" y2="251" stroke="white" strokeOpacity="0.09" />
+
             <g clipPath="url(#slotClip)">
-              <g className="animate-[slotSpin_2.6s_linear_infinite]">
+              <g style={{ animation: 'slotSpin 2.2s linear infinite' }}>
                 <g transform="translate(0 0)">
-                  <text x="222" y="220" fontSize="30">★</text>
-                  <text x="255" y="220" fontSize="30">%</text>
-                  <text x="290" y="220" fontSize="30">$</text>
+                  <text x="222" y="220" fontSize="28">★</text>
+                  <text x="255" y="220" fontSize="28">%</text>
+                  <text x="290" y="220" fontSize="28">$</text>
                 </g>
                 <g transform="translate(0 72)">
-                  <text x="222" y="220" fontSize="30">🍕</text>
-                  <text x="255" y="220" fontSize="30">🎁</text>
-                  <text x="290" y="220" fontSize="30">☕</text>
+                  <text x="222" y="220" fontSize="28">🍕</text>
+                  <text x="255" y="220" fontSize="28">🎁</text>
+                  <text x="290" y="220" fontSize="28">☕</text>
                 </g>
                 <g transform="translate(0 144)">
-                  <text x="222" y="220" fontSize="30">WIN</text>
-                  <text x="270" y="220" fontSize="30">QR</text>
+                  <text x="220" y="220" fontSize="22" fill="white">WIN</text>
+                  <text x="272" y="220" fontSize="22" fill="white">QR</text>
                 </g>
                 <g transform="translate(0 216)">
-                  <text x="222" y="220" fontSize="30">★</text>
-                  <text x="255" y="220" fontSize="30">%</text>
-                  <text x="290" y="220" fontSize="30">$</text>
+                  <text x="222" y="220" fontSize="28">★</text>
+                  <text x="255" y="220" fontSize="28">%</text>
+                  <text x="290" y="220" fontSize="28">$</text>
                 </g>
               </g>
             </g>
+
             <rect x="206" y="174" width="108" height="70" rx="12" fill="none" stroke="white" strokeOpacity="0.16" />
-            <rect x="206" y="174" width="108" height="20" fill="url(#ctaGlass)" opacity="0.75" />
-            <rect x="206" y="224" width="108" height="20" fill="url(#ctaGlass)" opacity="0.75" />
+            <rect x="206" y="174" width="108" height="18" fill="url(#ctaGlass)" opacity="0.82" />
+            <rect x="206" y="226" width="108" height="18" fill="url(#ctaGlass)" opacity="0.82" />
 
             <rect x="145" y="181" width="42" height="70" rx="11" fill="white" stroke="#FFE0C5" strokeWidth="3" />
             <path d="M156 213H176" stroke="#FF6B00" strokeWidth="5" strokeLinecap="round" />
@@ -108,7 +110,7 @@ function RestaurantIcon(): JSX.Element {
         <style jsx>{`
           @keyframes slotSpin {
             0% {
-              transform: translateY(0);
+              transform: translateY(0px);
             }
             100% {
               transform: translateY(-216px);
