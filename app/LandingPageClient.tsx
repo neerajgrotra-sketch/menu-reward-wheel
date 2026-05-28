@@ -85,6 +85,7 @@ export default function LandingPageClient({
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {games.map((game) => {
               const isLive = game.status === 'Live';
+              const demoUrl = 'demoUrl' in game ? game.demoUrl : null;
 
               return (
                 <div key={game.title} className="rounded-3xl border border-orange-100 bg-[#FFF8F0] p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
@@ -98,11 +99,11 @@ export default function LandingPageClient({
                   <h3 className="mt-4 text-2xl font-black">{game.title}</h3>
                   <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">{game.body}</p>
 
-                  {isLive && 'demoUrl' in game ? (
+                  {isLive && demoUrl ? (
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedVideo(game.demoUrl);
+                        setSelectedVideo(demoUrl);
                         setSelectedTitle(game.title);
                       }}
                       className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-[#FF6B00] px-5 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all duration-200 hover:bg-[#e85f00]"
