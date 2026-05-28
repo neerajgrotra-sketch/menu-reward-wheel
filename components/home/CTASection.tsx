@@ -5,8 +5,8 @@ import React from 'react';
 function RestaurantIcon(): JSX.Element {
   return (
     <div className="relative mx-auto mb-8 flex justify-center lg:mb-10">
-      <div className="relative flex h-28 w-28 items-center justify-center rounded-full border border-white/25 bg-white/12 shadow-[0_22px_48px_rgba(0,0,0,0.2)] backdrop-blur-md sm:h-36 sm:w-36">
-        <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.28),transparent_70%)]" />
+      <div className="relative flex h-28 w-28 animate-[iconFloat_4s_ease-in-out_infinite] items-center justify-center rounded-full border border-white/25 bg-white/12 shadow-[0_22px_48px_rgba(0,0,0,0.2)] backdrop-blur-md sm:h-36 sm:w-36">
+        <div className="absolute inset-0 animate-[softPulse_3s_ease-in-out_infinite] rounded-full bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.28),transparent_70%)]" />
 
         <svg
           aria-hidden="true"
@@ -51,6 +51,28 @@ function RestaurantIcon(): JSX.Element {
           />
         </svg>
       </div>
+
+      <style jsx>{`
+        @keyframes iconFloat {
+          0%, 100% {
+            transform: translateY(0) scale(1);
+          }
+          50% {
+            transform: translateY(-8px) scale(1.025);
+          }
+        }
+
+        @keyframes softPulse {
+          0%, 100% {
+            opacity: 0.75;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1.08);
+          }
+        }
+      `}</style>
     </div>
   );
 }
