@@ -22,31 +22,51 @@ const benefits = [
   { icon: ShieldCheck, title: 'Control margins', body: 'Set probability weights, expiry windows, and daily caps.' },
 ];
 
+const placeholderDemo = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
+
 const games = [
   {
     title: 'Spin Wheel',
     icon: '🎯',
     status: 'Live',
     body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.',
-    demoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    demoUrl: placeholderDemo,
   },
   {
     title: 'Mystery Box Reveal',
     icon: '🎁',
     status: 'Live',
     body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.',
-    demoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    demoUrl: placeholderDemo,
   },
   {
     title: 'Scratch Card',
     icon: '🎟️',
     status: 'Live',
     body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.',
-    demoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+    demoUrl: placeholderDemo,
   },
-  { title: 'Slot Machine', icon: '🎰', status: 'Coming Soon', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
-  { title: 'Pick a Door', icon: '🚪', status: 'Coming Soon', body: 'Guests choose a door to uncover a menu reward, discount, or comeback coupon.' },
-  { title: 'Fortune Cookie', icon: '🥠', status: 'Coming Soon', body: 'A restaurant-friendly reveal for rewards, messages, and limited-time offers.' },
+  {
+    title: 'Slot Machine',
+    icon: '🎰',
+    status: 'Live',
+    body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.',
+    demoUrl: placeholderDemo,
+  },
+  {
+    title: 'Pick a Door',
+    icon: '🚪',
+    status: 'Live',
+    body: 'Guests choose a door to uncover a menu reward, discount, or comeback coupon.',
+    demoUrl: placeholderDemo,
+  },
+  {
+    title: 'Fortune Cookie',
+    icon: '🥠',
+    status: 'Live',
+    body: 'A restaurant-friendly reveal for rewards, messages, and limited-time offers.',
+    demoUrl: placeholderDemo,
+  },
 ];
 
 export default function LandingPageClient({
@@ -79,38 +99,33 @@ export default function LandingPageClient({
         <div className="mx-auto max-w-6xl rounded-[2rem] bg-white p-6 shadow-xl ring-1 ring-orange-100 sm:p-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div><p className="text-sm font-black uppercase tracking-[0.16em] text-[#FF6B00]">Available Games</p><h2 className="mt-2 text-3xl font-black sm:text-4xl">More than one way to win</h2><p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-stone-600">SpinBite now supports multiple QR game formats. Start with the live games today, then expand into new campaign types as the library grows.</p></div>
-            <div className="rounded-full bg-orange-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">3 live games • more coming soon</div>
+            <div className="rounded-full bg-orange-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">6 live games • more coming soon</div>
           </div>
 
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {games.map((game) => {
-              const isLive = game.status === 'Live';
-              const demoUrl = 'demoUrl' in game ? game.demoUrl : null;
-
               return (
                 <div key={game.title} className="rounded-3xl border border-orange-100 bg-[#FFF8F0] p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
                   <div className="flex items-start justify-between gap-3">
                     <span className="text-4xl">{game.icon}</span>
-                    <span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isLive ? 'bg-green-50 text-green-700' : 'bg-stone-100 text-stone-500'}`}>
-                      {game.status}
+                    <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black uppercase text-green-700">
+                      LIVE
                     </span>
                   </div>
 
                   <h3 className="mt-4 text-2xl font-black">{game.title}</h3>
                   <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">{game.body}</p>
 
-                  {isLive && demoUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedVideo(demoUrl);
-                        setSelectedTitle(game.title);
-                      }}
-                      className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-[#FF6B00] px-5 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all duration-200 hover:bg-[#e85f00]"
-                    >
-                      Watch Demo
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedVideo(game.demoUrl);
+                      setSelectedTitle(game.title);
+                    }}
+                    className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-[#FF6B00] px-5 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all duration-200 hover:bg-[#e85f00]"
+                  >
+                    Watch Demo
+                  </button>
                 </div>
               );
             })}
@@ -150,7 +165,10 @@ export default function LandingPageClient({
 
       <section id="product" className="px-4 py-12 sm:px-6">
         <div className="mx-auto max-w-6xl">
-          <h2 className="text-center text-3xl font-black sm:text-4xl">How SpinBite Works</h2>
+          <h2 className="flex items-center justify-center gap-3 text-center text-3xl font-black sm:text-4xl">
+            <span className="text-4xl">🎯</span>
+            <span>How SpinBite Works</span>
+          </h2>
 
           <ExplainerVideo
             title={explainerVideo?.title}
