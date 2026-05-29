@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { resolvePromotionGame } from '@/lib/game-pool/resolvePromotionGame';
+import type { GameType } from '@/lib/game-pool/types';
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -28,6 +30,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const restaurantSlug = searchParams.get('restaurantSlug');
     const promotionSlug = searchParams.get('promotionSlug');
+
+    let sessionToken = searchParams.get('sessionToken');
+
+    if (!sessionToken) {
+      sessionToken = crypto.randomUUID();
+    }
 
     if (!restaurantSlug || !promotionSlug) {
       return NextResponse.json({ error: 'Missing restaurantSlug or promotionSlug.' }, { status: 400 });
@@ -65,6 +73,7 @@ export async function GET(request: NextRequest) {
     }
 
     const now = new Date();
+
     if (promotion.starts_at && now < new Date(promotion.starts_at)) {
       return NextResponse.json({ error: 'This promotion has not started yet.', restaurant, promotion }, { status: 409 });
     }
@@ -72,6 +81,17 @@ export async function GET(request: NextRequest) {
     if (promotion.ends_at && now > new Date(promotion.ends_at)) {
       return NextResponse.json({ error: 'This promotion has ended.', restaurant, promotion }, { status: 409 });
     }
+
+    const selectedGameType = await resolvePromotionGame({
+      promotionId: promotion.id,
+      sessionToken,
+      fallbackGameType: (promotion.game_type || 'wheel') as GameType,
+      ipAddress:
+        request.headers.get('x-forwarded-for') ||
+        request.headers.get('x-real-ip') ||
+        undefined,
+      userAgent: request.headers.get('user-agent') || undefined,
+    });
 
     const rewardsResult = await supabase
       .from('promotion_rewards')
@@ -85,6 +105,7 @@ export async function GET(request: NextRequest) {
 
     const rawRewards = rewardsResult.data || [];
     const menuItemIds = rawRewards.map((item: any) => item.menu_item_id).filter(Boolean);
+
     let menuNamesById: Record<string, string> = {};
 
     if (menuItemIds.length > 0) {
@@ -97,23 +118,43 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: `Menu item lookup failed: ${menuItemsResult.error.message}`, restaurant, promotion }, { status: 500 });
       }
 
-      menuNamesById = Object.fromEntries((menuItemsResult.data || []).map((item: any) => [item.id, item.name]));
+      menuNamesById = Object.fromEntries(
+        (menuItemsResult.data || []).map((item: any) => [item.id, item.name]),
+      );
     }
 
     const rewards = rawRewards.map((item: any) => {
-      const label = rewardLabel(item, item.menu_item_id ? menuNamesById[item.menu_item_id] : undefined);
+      const label = rewardLabel(
+        item,
+        item.menu_item_id ? menuNamesById[item.menu_item_id] : undefined,
+      );
+
       return {
         id: item.id,
         label,
         description: label,
-        terms: 'Show this code to staff before ordering. One reward per customer/session. Standard restaurant terms apply.',
+        terms:
+          'Show this code to staff before ordering. One reward per customer/session. Standard restaurant terms apply.',
         weight: item.weight || 30,
         active: true,
       };
     });
 
-    return NextResponse.json({ restaurant, promotion: { ...promotion, game_type: promotion.game_type || 'wheel' }, rewards });
+    return NextResponse.json({
+      restaurant,
+      sessionToken,
+      promotion: {
+        ...promotion,
+        game_type: selectedGameType,
+      },
+      rewards,
+    });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || 'Could not load promotion.' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: error?.message || 'Could not load promotion.',
+      },
+      { status: 500 },
+    );
   }
 }

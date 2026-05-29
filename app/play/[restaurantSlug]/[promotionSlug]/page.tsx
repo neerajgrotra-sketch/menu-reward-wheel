@@ -33,6 +33,24 @@ function getCustomerSessionId() {
   return next;
 }
 
+function getPlaySessionToken(restaurantSlug: string, promotionSlug: string) {
+  const key = `spinbite_play_session_${restaurantSlug}_${promotionSlug}`;
+
+  const existing = window.localStorage.getItem(key);
+
+  if (existing) {
+    return existing;
+  }
+
+  const next = crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+
+  window.localStorage.setItem(key, next);
+
+  return next;
+}
+
 async function issueCoupon(params: {
   promotion_id: string;
   promotion_reward_id: string;
@@ -88,7 +106,12 @@ export default function PromotionPlayPage() {
       setLoading(true);
       setError('');
 
-      const response = await fetch(`/api/public/promotion-play?restaurantSlug=${encodeURIComponent(restaurantSlug)}&promotionSlug=${encodeURIComponent(promotionSlug)}`, {
+      const sessionToken = getPlaySessionToken(
+        restaurantSlug,
+        promotionSlug,
+      );
+
+      const response = await fetch(`/api/public/promotion-play?restaurantSlug=${encodeURIComponent(restaurantSlug)}&promotionSlug=${encodeURIComponent(promotionSlug)}&sessionToken=${encodeURIComponent(sessionToken)}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
