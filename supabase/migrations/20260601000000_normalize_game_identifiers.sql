@@ -13,6 +13,7 @@ update public.games set game_type = 'mystery_box' where slug = 'mystery-box' and
 update public.games set game_type = 'scratch_card' where slug = 'scratch-win' and game_type is null;
 update public.games set game_type = 'reward_reels' where slug = 'lucky-slot' and game_type is null;
 update public.games set game_type = 'pick_a_card' where slug = 'pick-a-card' and game_type is null;
+update public.games set game_type = 'open_the_door' where slug = 'open-the-door' and game_type is null;
 
 -- Standardize icons to match registry contracts
 -- scratch-win used ✨, but scratch_card contract uses 🪙

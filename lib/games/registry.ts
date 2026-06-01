@@ -1,4 +1,5 @@
 import { mysteryBoxContract } from '@/lib/games/mystery-box/contract';
+import { openTheDoorContract } from '@/lib/games/open-the-door/contract';
 import { rewardReelsContract } from '@/lib/games/reward-reels/contract';
 import { scratchCardContract } from '@/lib/games/scratch-card/contract';
 import { spinWheelContract } from '@/lib/games/spin-wheel/contract';
@@ -29,6 +30,7 @@ export const gameRegistry: Record<string, GameContract> = {
   mystery_box: mysteryBoxContract,
   scratch_card: scratchCardContract,
   reward_reels: rewardReelsContract,
+  open_the_door: openTheDoorContract,
 };
 
 export const availableGames = Object.values(gameRegistry).filter(
@@ -41,6 +43,7 @@ export function getGameDefinition(gameType?: string | null): GameDefinition {
   if (gameType === 'mystery_box') return gameRegistry.mystery_box;
   if (gameType === 'scratch_card') return gameRegistry.scratch_card;
   if (gameType === 'reward_reels') return gameRegistry.reward_reels;
+  if (gameType === 'open_the_door') return gameRegistry.open_the_door;
   if (gameType === 'spin_wheel') return gameRegistry.spin_wheel;
   return gameRegistry.wheel;
 }

@@ -5,7 +5,7 @@ import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
 
-export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card';
+export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
 
 export type Restaurant = {
   id: string;
@@ -31,7 +31,7 @@ export type Promotion = {
 export type CountsByPromotion = Record<string, { issued: number; redeemed: number }>;
 export type Filter = 'active' | 'pending' | 'draft' | 'ended' | 'all';
 export type PromotionsAdminMode = 'create' | 'drafts' | 'manage';
-export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card';
+export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
 
 export type PerformanceCoupon = {
   id: string;
@@ -120,6 +120,7 @@ export function getPromotionStatus(promotion: Promotion): Filter {
 export function normalizeBuilderGameType(value?: string | null): BuilderGameType {
   if (value === 'mystery_box') return 'mystery_box';
   if (value === 'scratch_card') return 'scratch_card';
+  if (value === 'open_the_door') return 'open_the_door';
   return 'wheel';
 }
 

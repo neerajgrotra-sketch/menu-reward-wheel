@@ -2,7 +2,7 @@
 
 import { getAvailableGameContracts } from '@/lib/games/registry';
 
-export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card';
+export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
 
 export type GameSelectionSectionProps = {
   label: string;
@@ -42,6 +42,14 @@ function MiniScratchCard() {
   return (
     <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 text-4xl shadow-inner">
       🪙
+    </div>
+  );
+}
+
+function MiniOpenDoor() {
+  return (
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-slate-100 via-stone-100 to-slate-200 text-4xl shadow-inner">
+      🚪
     </div>
   );
 }
@@ -89,7 +97,7 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
       {gameContracts.map((game) => {
         const isSelectable =
           game.availability === 'active' &&
-          (game.type === 'wheel' || game.type === 'mystery_box' || game.type === 'scratch_card');
+          (game.type === 'wheel' || game.type === 'mystery_box' || game.type === 'scratch_card' || game.type === 'open_the_door');
         const selected = game.type === gameType;
         const title = game.type === 'reward_reels' ? 'Slot Machine' : game.createCard.title;
 
@@ -107,6 +115,8 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
             ? <MiniMysteryBox />
             : game.type === 'scratch_card'
             ? <MiniScratchCard />
+            : game.type === 'open_the_door'
+            ? <MiniOpenDoor />
             : <MiniRewardReels />;
 
         return (

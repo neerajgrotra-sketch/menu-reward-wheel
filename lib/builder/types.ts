@@ -1,4 +1,4 @@
-export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card';
+export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
 
 export type BuilderRewardType = 'free' | 'discount' | 'custom';
 export type BuilderWeightLabel = 'Common' | 'Normal' | 'Rare';

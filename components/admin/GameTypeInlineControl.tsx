@@ -14,6 +14,7 @@ const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
 function normalizeGameType(value?: string | null): BuilderGameType {
   if (value === 'mystery_box') return 'mystery_box';
   if (value === 'scratch_card') return 'scratch_card';
+  if (value === 'open_the_door') return 'open_the_door';
   return 'wheel';
 }
 
@@ -40,7 +41,7 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
     async function load() {
       const result = await supabase.from('promotions').select('game_type').eq('id', promotionId).single();
       const pending = window.localStorage.getItem(STORAGE_KEY);
-      const pendingGameType = pending === 'mystery_box' || pending === 'scratch_card' || pending === 'wheel' || pending === 'spin_wheel'
+      const pendingGameType = pending === 'mystery_box' || pending === 'scratch_card' || pending === 'open_the_door' || pending === 'wheel' || pending === 'spin_wheel'
         ? normalizeGameType(pending)
         : null;
       const value = normalizeGameType(result.data?.game_type);

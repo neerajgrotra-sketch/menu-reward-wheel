@@ -7,6 +7,7 @@ export const GAME_REGISTRY: Record<GameType, ComponentType<any>> = {
   wheel: PlaceholderGame,
   mystery_box: PlaceholderGame,
   scratch_card: PlaceholderGame,
+  open_the_door: PlaceholderGame,
   slot_machine: PlaceholderGame,
   pick_a_door: PlaceholderGame,
   fortune_cookie: PlaceholderGame,
