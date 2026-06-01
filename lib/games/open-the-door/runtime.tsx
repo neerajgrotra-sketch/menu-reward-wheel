@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GamePlayProps } from '@/lib/games/types';
 
+type DoorPhase = 'idle' | 'selected' | 'revealing' | 'completed';
+
 type DoorState = {
-  phase: 'idle' | 'selected' | 'revealing' | 'completed';
+  phase: DoorPhase;
   selectedDoor: number | null;
 };
 
@@ -15,12 +17,14 @@ const defaultDoorState: DoorState = {
 
 export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, onPlay }: GamePlayProps) {
   const revealTimerRef = useRef<number | null>(null);
+  const completeTimerRef = useRef<number | null>(null);
   const resetTimerRef = useRef<number | null>(null);
   const [state, setState] = useState<DoorState>(defaultDoorState);
 
   useEffect(() => {
     return () => {
       if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
+      if (completeTimerRef.current) window.clearTimeout(completeTimerRef.current);
       if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
     };
   }, []);
@@ -28,12 +32,15 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
   useEffect(() => {
     if (state.phase !== 'selected') return;
 
-    setState((current) => ({ ...current, phase: 'revealing' }));
     onPlay();
 
     revealTimerRef.current = window.setTimeout(() => {
+      setState((current) => ({ ...current, phase: 'revealing' }));
+    }, 650);
+
+    completeTimerRef.current = window.setTimeout(() => {
       setState((current) => ({ ...current, phase: 'completed' }));
-    }, 1100);
+    }, 1600);
 
     resetTimerRef.current = window.setTimeout(() => {
       setState(defaultDoorState);
@@ -55,15 +62,24 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
         @keyframes pulseGlow {
           0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
-          50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.1); }
+          50% { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0.12); }
+        }
+
+        @keyframes anticipationShake {
+          0%, 100% { transform: translateY(0) rotate(0deg) scale(1.08); }
+          10% { transform: translateX(-2px) rotate(-0.6deg) scale(1.08); }
+          25% { transform: translateX(2px) rotate(0.6deg) scale(1.1); }
+          45% { transform: translateX(-1px) rotate(-0.3deg) scale(1.12); }
+          65% { transform: translateX(1px) rotate(0.3deg) scale(1.1); }
+          85% { transform: translateX(0) rotate(0deg) scale(1.1); }
         }
 
         @keyframes doorSwingOpen {
-          0% { 
+          0% {
             transform: perspective(1200px) rotateY(0deg);
           }
-          80% {
-            transform: perspective(1200px) rotateY(-100deg);
+          70% {
+            transform: perspective(1200px) rotateY(-98deg);
           }
           100% {
             transform: perspective(1200px) rotateY(-95deg);
@@ -71,25 +87,25 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
         }
 
         @keyframes lightBurst {
-          0% { 
+          0% {
             opacity: 0;
-            transform: scale(0.3) translateY(20px);
+            transform: scale(0.3) translateY(18px);
           }
-          40% {
+          45% {
             opacity: 1;
           }
           100% {
             opacity: 0;
-            transform: scale(2.5) translateY(-60px);
+            transform: scale(2.2) translateY(-52px);
           }
         }
 
         @keyframes rewardPop {
           0% {
             opacity: 0;
-            transform: scale(0) rotateZ(-180deg);
+            transform: scale(0) rotateZ(-160deg);
           }
-          50% {
+          45% {
             opacity: 1;
           }
           100% {
@@ -99,8 +115,9 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
         }
 
         .door-container {
+          position: relative;
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap: 0.75rem;
           width: 100%;
           perspective: 1000px;
@@ -108,13 +125,16 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
         .door-button {
           position: relative;
-          aspect-ratio: 3/4;
+          aspect-ratio: 3 / 4;
+          width: 100%;
+          min-width: 0;
           border: none;
           background: none;
           padding: 0;
           cursor: pointer;
           outline: none;
           transform-style: preserve-3d;
+          transition: transform 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
         }
 
         .door-button:disabled {
@@ -128,18 +148,32 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
         .door-button.idle::before {
           content: '';
           position: absolute;
-          inset: -8px;
+          inset: -10px;
           border-radius: 1.5rem;
-          background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, 0.25), transparent 60%);
+          background: radial-gradient(circle at 30% 30%, rgba(245, 158, 11, 0.24), transparent 60%);
           opacity: 0;
-          animation: pulseGlow 2.5s ease-in-out infinite;
+          animation: pulseGlow 2.6s ease-in-out infinite;
           pointer-events: none;
           z-index: -1;
         }
 
         .door-button.hidden {
-          opacity: 0;
           pointer-events: none;
+          opacity: 0;
+          transform: scale(0.8) translateY(12px);
+        }
+
+        .door-button.selected,
+        .door-button.revealing,
+        .door-button.completed {
+          grid-column: 1 / -1;
+          justify-self: center;
+          width: min(72vw, 18rem);
+          z-index: 20;
+        }
+
+        .door-button.selected {
+          cursor: default;
         }
 
         .door {
@@ -148,16 +182,37 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           height: 100%;
           border-radius: 1rem;
           overflow: hidden;
-          box-shadow: 
+          box-shadow:
             0 20px 40px rgba(0, 0, 0, 0.4),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
-          background: linear-gradient(135deg, #8B6F47 0%, #6B5333 25%, #5A4229 50%, #6B5333 75%, #8B6F47 100%);
+            inset 0 1px 0 rgba(255, 255, 255, 0.12);
+          background: linear-gradient(135deg, #8B6F47 0%, #6B5333 24%, #5A4229 50%, #6B5333 76%, #8B6F47 100%);
           transform-style: preserve-3d;
-          transition: transform 0.2s ease;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .door-button.selected .door {
+          animation: anticipationShake 0.65s ease-in-out both;
+        }
+
+        .door-button.selected .door::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(circle at 50% 20%, rgba(255, 205, 80, 0.28), transparent 42%);
+          pointer-events: none;
+          opacity: 0.9;
+        }
+
+        .door-button.selected .door-light-leak,
+        .door-button.revealing .door-light-leak,
+        .door-button.completed .door-light-leak {
+          opacity: 0.85;
+          height: 28%;
+          filter: blur(6px);
         }
 
         .door.revealing {
-          animation: doorSwingOpen 1.1s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
+          animation: doorSwingOpen 1s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
           transform-origin: left center;
         }
 
@@ -165,7 +220,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           content: '';
           position: absolute;
           inset: 0;
-          background: 
+          background:
             repeating-linear-gradient(
               90deg,
               rgba(0, 0, 0, 0.1) 0px,
@@ -179,7 +234,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
               rgba(107, 83, 51, 0.1) 4px,
               rgba(139, 111, 71, 0.2) 8px
             ),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 30%, rgba(0, 0, 0, 0.2) 100%);
+            linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 28%, rgba(0, 0, 0, 0.2) 100%);
           pointer-events: none;
         }
 
@@ -201,7 +256,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           height: 0.8rem;
           border-radius: 50%;
           background: radial-gradient(circle at 35% 35%, #fef3c7, #d4af37);
-          box-shadow: 
+          box-shadow:
             0 2px 4px rgba(0, 0, 0, 0.4),
             inset -1px -1px 2px rgba(0, 0, 0, 0.2),
             inset 1px 1px 2px rgba(255, 255, 255, 0.3);
@@ -224,10 +279,11 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           filter: blur(4px);
           pointer-events: none;
           opacity: 0.6;
+          transition: opacity 0.25s ease, height 0.25s ease, filter 0.25s ease;
         }
 
         .door.completed .door-light-leak {
-          animation: lightBurst 0.8s ease-out forwards;
+          animation: lightBurst 0.9s ease-out forwards;
         }
 
         .door-label {
@@ -238,7 +294,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           text-align: center;
           font-size: 0.65rem;
           font-weight: 900;
-          color: #d4af37;
+          color: #f8e08d;
           text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
           letter-spacing: 0.08em;
           pointer-events: none;
@@ -248,12 +304,39 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           position: absolute;
           top: 50%;
           left: 50%;
-          transform: translate(-50%, -50%);
+          transform: translate(-50%, -50%) scale(0.85);
           font-size: 3rem;
           z-index: 100;
-          animation: rewardPop 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-          filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.8));
+          opacity: 0;
+          animation: rewardPop 0.6s ease-out forwards;
+          filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.8));
           pointer-events: none;
+        }
+
+        .reward-sparkle {
+          position: absolute;
+          font-size: 1.4rem;
+          opacity: 0;
+          animation: rewardPop 0.8s ease-out forwards;
+          pointer-events: none;
+        }
+
+        .reward-sparkle:nth-child(1) {
+          top: 18%;
+          left: 22%;
+          animation-delay: 0.1s;
+        }
+
+        .reward-sparkle:nth-child(2) {
+          top: 18%;
+          right: 22%;
+          animation-delay: 0.18s;
+        }
+
+        .reward-sparkle:nth-child(3) {
+          bottom: 18%;
+          left: 22%;
+          animation-delay: 0.25s;
         }
 
         .instruction {
@@ -264,8 +347,12 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           margin-bottom: 1rem;
         }
 
-        .instruction.faded {
-          opacity: 0.5;
+        @media (max-width: 640px) {
+          .door-button.selected,
+          .door-button.revealing,
+          .door-button.completed {
+            width: min(80vw, 16rem);
+          }
         }
       `}</style>
 
@@ -285,7 +372,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
               key={index}
               onClick={() => pickDoor(index)}
               disabled={!canPlay || playing || state.selectedDoor !== null}
-              className={`door-button ${state.phase === 'idle' && !isHidden ? 'idle' : ''} ${isHidden ? 'hidden' : ''}`}
+              className={`door-button ${state.phase === 'idle' && !isHidden ? 'idle' : ''} ${isHidden ? 'hidden' : ''} ${isSelected ? state.phase : ''}`}
               aria-label={`Door ${index + 1}`}
             >
               <div className={`door ${isRevealing ? 'revealing' : ''} ${isCompleted ? 'completed' : ''}`}>
@@ -294,7 +381,14 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
                 <div className="door-light-leak" />
                 <div className="door-label">DOOR {index + 1}</div>
 
-                {isCompleted && <div className="reward-burst">✨</div>}
+                {isCompleted && (
+                  <>
+                    <div className="reward-burst">✨</div>
+                    <div className="reward-sparkle">⭐</div>
+                    <div className="reward-sparkle">💫</div>
+                    <div className="reward-sparkle">🌟</div>
+                  </>
+                )}
               </div>
             </button>
           );
