@@ -33,9 +33,9 @@ export const rewardReelsContract: GameContract = {
     playAgainText: 'Play Again',
   },
   createCard: {
-    title: 'Reward Reels',
-    description: 'A coming-soon reel-style game where customers reveal an instant reward using the shared coupon engine.',
-    statusLabel: 'Coming soon',
+    title: 'Slot Machine',
+    description: 'Pull the lever, match the reels, and unlock a surprise reward.',
+    statusLabel: 'COMING SOON',
   },
   preview: {
     supportsBuilderPreview: false,
