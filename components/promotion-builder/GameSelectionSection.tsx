@@ -103,9 +103,7 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
 
         const handleClick = () => {
           if (!isSelectable) return;
-          if (game.type === 'wheel' || game.type === 'mystery_box' || game.type === 'scratch_card') {
-            onChange(game.type);
-          }
+          onChange(game.type as BuilderGameType);
         };
 
         const icon =
