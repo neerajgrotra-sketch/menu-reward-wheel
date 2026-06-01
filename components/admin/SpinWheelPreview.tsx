@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { getGameDefinition } from '@/lib/games/registry';
+import OpenTheDoorBuilderPreview from '@/lib/games/open-the-door/builderPreview';
 import { useOptionalPromotionBuilder } from '@/lib/builder/context';
 import type { Reward, RewardType } from '@/types/reward';
 
@@ -130,6 +131,7 @@ function RewardLegend({ rewards }: { rewards: WheelReward[] }) {
 }
 
 function MysteryBoxBuilderPreview({ selectedBox, result }: { selectedBox: number | null; result: string }) {
+  console.log('MysteryBoxPreview Rendered');
   const revealMode = selectedBox !== null;
   return (
     <div className="mx-auto mt-5 w-full max-w-sm">
@@ -292,7 +294,7 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
   );
 }
 
-function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
+function NonWheelPreview({ rewards, rotation }: Pick<SpinWheelPreviewProps, 'rewards' | 'rotation'>) {
   const builder = useOptionalPromotionBuilder();
   const [localResult, setLocalResult] = useState('');
   const [playing, setPlaying] = useState(false);
@@ -301,8 +303,19 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
   const gameType = builder?.state.gameType || 'wheel';
   const game = getGameDefinition(gameType);
+  const BuilderPreview = game.components?.BuilderPreview ||
+    (game.type === 'open_the_door' ? OpenTheDoorBuilderPreview : undefined);
   const canPlay = runtimeRewards.length > 0 && !playing;
   const result = builder?.state.preview.result || localResult;
+
+  useEffect(() => {
+    console.log('SpinWheelPreview NonWheelPreview', {
+      builderPresent: !!builder,
+      builderGameType: builder?.state.gameType,
+      resolvedGameType: game.type,
+      hasBuilderPreview: !!BuilderPreview,
+    });
+  }, [builder, game.type, BuilderPreview]);
 
   useHideLegacyWheelHeader(true);
 
@@ -386,7 +399,9 @@ function NonWheelPreview({ rewards }: { rewards: WheelReward[] }) {
 
       {gameType === 'scratch_card'
         ? <ScratchCardBuilderPreview result={result} resetKey={scratchResetKey} onReveal={revealScratchPrize} />
-        : <MysteryBoxBuilderPreview selectedBox={selectedBox} result={result} />}
+        : BuilderPreview
+          ? <BuilderPreview rewards={runtimeRewards} rotation={rotation} />
+          : <MysteryBoxBuilderPreview selectedBox={selectedBox} result={result} />}
       <RewardLegend rewards={rewards} />
     </div>
   );
@@ -444,7 +459,8 @@ export default function SpinWheelPreview(props: SpinWheelPreviewProps) {
   const builder = useOptionalPromotionBuilder();
 
   if (builder && builder.state.gameType !== 'wheel') {
-    return <NonWheelPreview rewards={props.rewards} />;
+    console.log('SpinWheelPreview rendered for non-wheel game', { gameType: builder.state.gameType });
+    return <NonWheelPreview rewards={props.rewards} rotation={props.rotation} />;
   }
 
   return <WheelOnlyPreview {...props} />;

@@ -105,6 +105,14 @@ export default function BuilderGamePreviewCard() {
         </button>
       </div>
 
+      <div className="mt-3 rounded-2xl bg-yellow-50 p-3 text-xs font-mono text-stone-800">
+        <div><strong>Debug:</strong></div>
+        <div>state.gameType: {state.gameType}</div>
+        <div>resolved game.type: {game.type}</div>
+        <div>resolved game.name: {game.name}</div>
+        <div>PlayComponent: {PlayComponent && (PlayComponent.displayName || PlayComponent.name) ? (PlayComponent.displayName || PlayComponent.name) : 'unknown'}</div>
+      </div>
+
       <PlayComponent
         rewards={rewards}
         canPlay={canPlay}
