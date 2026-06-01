@@ -3,9 +3,11 @@ import { openTheDoorContract } from '@/lib/games/open-the-door/contract';
 import { rewardReelsContract } from '@/lib/games/reward-reels/contract';
 import { scratchCardContract } from '@/lib/games/scratch-card/contract';
 import { spinWheelContract } from '@/lib/games/spin-wheel/contract';
+import type { ComponentType } from 'react';
 import type {
   GameContract,
   GameDefinition,
+  GameType,
 } from '@/lib/games/types';
 
 /**
@@ -38,6 +40,24 @@ export const availableGames = Object.values(gameRegistry).filter(
     game.availability !== 'hidden' &&
     games.findIndex((candidate) => candidate.type === game.type) === index,
 );
+
+const validGameTypes: GameType[] = [
+  'wheel',
+  'spin_wheel',
+  'mystery_box',
+  'scratch_card',
+  'reward_reels',
+  'open_the_door',
+];
+
+export function isValidGameType(gameType?: string | null): gameType is GameType {
+  return validGameTypes.includes(gameType as GameType);
+}
+
+export function getRuntimeGameComponent(gameType?: string | null): ComponentType<any> | null {
+  if (!isValidGameType(gameType)) return null;
+  return getGameDefinition(gameType).PlayComponent;
+}
 
 export function getGameDefinition(gameType?: string | null): GameDefinition {
   if (gameType === 'mystery_box') return gameRegistry.mystery_box;

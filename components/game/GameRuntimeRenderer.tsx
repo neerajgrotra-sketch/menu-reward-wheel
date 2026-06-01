@@ -1,7 +1,7 @@
 "use client";
 
-import { GAME_REGISTRY } from '@/lib/game-pool/gameRegistry';
-import type { GameType } from '@/lib/game-pool/types';
+import { getRuntimeGameComponent } from '@/lib/games/registry';
+import type { GameType } from '@/lib/games/types';
 
 interface GameRuntimeRendererProps {
   gameType: GameType;
@@ -12,7 +12,7 @@ export default function GameRuntimeRenderer({
   gameType,
   gameProps,
 }: GameRuntimeRendererProps) {
-  const GameComponent = GAME_REGISTRY[gameType];
+  const GameComponent = getRuntimeGameComponent(gameType);
 
   if (!GameComponent) {
     return (
