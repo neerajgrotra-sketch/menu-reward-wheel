@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
-
-export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
+import type { GameType } from '@/lib/games/types';
 
 export type Restaurant = {
   id: string;

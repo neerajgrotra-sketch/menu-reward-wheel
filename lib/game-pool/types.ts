@@ -1,11 +1,6 @@
-export type GameType =
-  | 'wheel'
-  | 'mystery_box'
-  | 'scratch_card'
-  | 'open_the_door'
-  | 'slot_machine'
-  | 'pick_a_door'
-  | 'fortune_cookie';
+import type { GameType as CanonicalGameType } from '@/lib/games/types';
+
+export type GameType = CanonicalGameType;
 
 export interface GamePoolEntry {
   gameType: GameType;

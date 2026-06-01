@@ -1,4 +1,6 @@
-export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
+import type { GameType } from '@/lib/games/types';
+
+export type BuilderGameType = Extract<GameType, 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door'>;
 
 export type BuilderRewardType = 'free' | 'discount' | 'custom';
 export type BuilderWeightLabel = 'Common' | 'Normal' | 'Rare';

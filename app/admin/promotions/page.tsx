@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
+import type { BuilderGameType } from '@/lib/builder/types';
 
 type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; phone?: string | null };
 type Promotion = { id: string; name: string; slug: string; status: string; created_at: string; restaurant_id: string; starts_at?: string | null; ends_at?: string | null };
 type CountsByPromotion = Record<string, { issued: number; redeemed: number }>;
 type Filter = 'active' | 'pending' | 'draft' | 'ended' | 'all';
-type GameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
+type GameType = BuilderGameType;
 type PerformanceCoupon = { id: string; coupon_code: string; issued_at: string | null; redeemed_at: string | null; expires_at: string | null; raw_status: string; display_status: 'active' | 'expired' | 'redeemed'; item_won: string; discount_type: string };
 type PromotionPerformance = { promotion: { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null; coupon_expiry_minutes: number }; restaurant: { id: string; name: string; slug: string; address: string }; summary: { issued: number; redeemed: number; active: number; expired: number; redemptionRate: number }; rewardsBreakdown: Record<string, number>; coupons: PerformanceCoupon[]; limit: number };
 
