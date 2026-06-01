@@ -53,6 +53,8 @@ export async function updateGame(formData: FormData) {
   const defaultCouponExpiryMinutes = Math.max(1, toInt(formData.get('default_coupon_expiry_minutes'), 20));
   const supportsTryAgain = formData.get('supports_try_again') === 'on';
 
+  const gameType = requiredString(formData.get('game_type'));
+
   const updatePayload: Record<string, unknown> = {
     name: requiredString(formData.get('name'), 'Untitled Game'),
     slug,
@@ -72,7 +74,11 @@ export async function updateGame(formData: FormData) {
     sort_order: toInt(formData.get('sort_order'), 0),
   };
 
-  if (slug === 'spin-wheel') {
+  if (gameType) {
+    updatePayload.game_type = gameType;
+  }
+
+  if (gameType === 'spin_wheel' || slug === 'spin-wheel') {
     const wheelSpeed = Math.max(0.2, Math.min(3, toFloat(formData.get('wheel_speed'), 1.2)));
     const spinRotations = Math.max(2, Math.min(16, toInt(formData.get('spin_rotations'), 6)));
     const slowdownSeconds = Math.max(1, Math.min(10, toFloat(formData.get('slowdown_seconds'), 3.5)));
