@@ -293,7 +293,7 @@ function PlaceholderPreview({ game, saveState }: { game: GameForLab; saveState: 
 }
 
 export default function GameLabCard({ game }: { game: GameForLab }) {
-  const isSpinWheel = game.game_type === 'spin_wheel' || game.slug === 'spin-wheel';
+  const isSpinWheel = game.game_type === 'spin_wheel';
   const wheel = readWheelConfig(game);
   const [saveState, setSaveState] = useState<SaveState>('idle');
 
