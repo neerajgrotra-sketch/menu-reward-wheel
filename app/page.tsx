@@ -2,6 +2,13 @@ import { createClient } from '@/lib/supabase/server';
 import LandingPageClient from './LandingPageClient';
 import type { HomeHeroContent } from '@/components/home/HeroSection';
 
+// Fallback URLs are the same values that were hardcoded before CMS support was added.
+// They are used whenever the CMS row is missing or its value is empty, so the
+// homepage is always fully functional regardless of whether the Supabase migration
+// has been applied yet.
+const FALLBACK_EXPLAINER_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const FALLBACK_GAME_DEMO_URL = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
+
 const fallbackHero: HomeHeroContent = {
   eyebrow: 'QR games for restaurants',
   headline: 'Turn Every Meal Into a Game',
@@ -61,16 +68,18 @@ export default async function LandingPage() {
   const explainerVideo = {
     title: videoValues.title || 'See SpinBite in Action',
     description: videoValues.description || 'Watch how restaurants turn menus into interactive games.',
-    youtube_url: videoValues.youtube_url || null,
+    // CMS value wins when present; otherwise the original hardcoded URL is used
+    youtube_url: videoValues.youtube_url || FALLBACK_EXPLAINER_URL,
   };
 
   const gameDemoUrls = {
-    spin_wheel: demoValues.spin_wheel_demo_url || null,
-    mystery_box: demoValues.mystery_box_demo_url || null,
-    scratch_card: demoValues.scratch_card_demo_url || null,
-    slot_machine: demoValues.slot_machine_demo_url || null,
-    pick_a_door: demoValues.pick_a_door_demo_url || null,
-    fortune_cookie: demoValues.fortune_cookie_demo_url || null,
+    // CMS value wins when present; otherwise the original placeholder URL is used
+    spin_wheel:     demoValues.spin_wheel_demo_url     || FALLBACK_GAME_DEMO_URL,
+    mystery_box:    demoValues.mystery_box_demo_url     || FALLBACK_GAME_DEMO_URL,
+    scratch_card:   demoValues.scratch_card_demo_url    || FALLBACK_GAME_DEMO_URL,
+    slot_machine:   demoValues.slot_machine_demo_url    || FALLBACK_GAME_DEMO_URL,
+    pick_a_door:    demoValues.pick_a_door_demo_url     || FALLBACK_GAME_DEMO_URL,
+    fortune_cookie: demoValues.fortune_cookie_demo_url  || FALLBACK_GAME_DEMO_URL,
   };
 
   return (
