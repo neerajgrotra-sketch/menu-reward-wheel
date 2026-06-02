@@ -34,13 +34,12 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
     onPlay();
 
-    // 1700ms: door swings open, prize revealed behind it
+    // 2000ms: matches 1s centering + 1s anticipation shake before door opens
     revealTimerRef.current = window.setTimeout(() => {
       setState((current) => ({ ...current, phase: 'revealing' }));
-    }, 1700);
+    }, 2000);
 
-    // 5000ms: coupon phase begins; matches resultDelayMs so play-page overlay
-    // fires at the same moment, giving ~2.3s of prize visibility after door opens
+    // 5000ms: matches resultDelayMs in contract; ~3s of prize visibility
     couponTimerRef.current = window.setTimeout(() => {
       setState((current) => ({ ...current, phase: 'coupon' }));
     }, 5000);
@@ -58,56 +57,42 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
   return (
     <section className="mt-4 w-full">
       <style jsx>{`
+
+        /* ── Keyframes ─────────────────────────────────────────────── */
+
         @keyframes doorSway {
           0%, 100% { transform: perspective(1000px) rotateZ(-0.8deg) translateY(0px); }
-          50% { transform: perspective(1000px) rotateZ(0.8deg) translateY(-4px); }
+          50%       { transform: perspective(1000px) rotateZ(0.8deg)  translateY(-4px); }
         }
 
         @keyframes pulseGlow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
-          50% { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0.12); }
+          0%, 100% { box-shadow: 0 0 0 0   rgba(245, 158, 11, 0.30); }
+          50%       { box-shadow: 0 0 0 14px rgba(245, 158, 11, 0.12); }
         }
 
+        /* Rattles the door panel only; 1s delay so centering finishes first */
         @keyframes anticipationShake {
-          0%, 100% { transform: translateY(0) rotate(0deg) scale(1.08); }
-          10% { transform: translateX(-2px) rotate(-0.6deg) scale(1.08); }
-          25% { transform: translateX(2px) rotate(0.6deg) scale(1.1); }
-          45% { transform: translateX(-1px) rotate(-0.3deg) scale(1.12); }
-          65% { transform: translateX(1px) rotate(0.3deg) scale(1.1); }
-          85% { transform: translateX(0) rotate(0deg) scale(1.1); }
+          0%, 100% { transform: translateX(0)   rotateZ(0deg); }
+          15%       { transform: translateX(-4px) rotateZ(-0.6deg); }
+          35%       { transform: translateX(4px)  rotateZ(0.6deg); }
+          55%       { transform: translateX(-3px) rotateZ(-0.4deg); }
+          75%       { transform: translateX(3px)  rotateZ(0.4deg); }
+          90%       { transform: translateX(0)   rotateZ(0deg); }
         }
 
+        /* Swings to -72deg — front face stays visible; slight overshoot for weight */
         @keyframes doorSwingOpen {
-          0% {
-            transform: perspective(1200px) rotateY(0deg);
-          }
-          70% {
-            transform: perspective(1200px) rotateY(-98deg);
-          }
-          100% {
-            transform: perspective(1200px) rotateY(-95deg);
-          }
-        }
-
-        @keyframes lightBurst {
-          0% {
-            opacity: 0;
-            transform: scale(0.3) translateY(18px);
-          }
-          45% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: scale(2.2) translateY(-52px);
-          }
+          0%   { transform: perspective(1200px) rotateY(0deg); }
+          75%  { transform: perspective(1200px) rotateY(-78deg); }
+          100% { transform: perspective(1200px) rotateY(-72deg); }
         }
 
         @keyframes prizeReveal {
-          0% { opacity: 0; transform: scale(0.75); }
-          60% { opacity: 1; }
-          100% { opacity: 1; transform: scale(1); }
+          0%   { opacity: 0; transform: translateY(8px) scale(0.88); }
+          100% { opacity: 1; transform: translateY(0)   scale(1); }
         }
+
+        /* ── Container ─────────────────────────────────────────────── */
 
         .door-container {
           position: relative;
@@ -117,6 +102,8 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           width: 100%;
           perspective: 1000px;
         }
+
+        /* ── Door button (outer wrapper) ───────────────────────────── */
 
         .door-button {
           position: relative;
@@ -128,7 +115,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           padding: 0;
           cursor: pointer;
           outline: none;
-          transform-style: preserve-3d;
+          /* No transform-style: preserve-3d — three layers stack by z-index */
           transition: transform 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
         }
 
@@ -169,159 +156,228 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
         .door-button.selected {
           cursor: default;
+          /* amber halo builds during anticipation */
+          filter: drop-shadow(0 0 14px rgba(245, 158, 11, 0.30));
         }
 
-        /* Prize space sits behind the door panel in DOM order.
-           Becomes visible as the door swings open past ~90deg. */
-        .prize-space {
+        /* ── Layer 1: Room interior (back — z-index 1) ─────────────── */
+
+        .door-interior {
           position: absolute;
           inset: 0;
-          border-radius: 1rem;
+          z-index: 1;
+          /* border-radius matches frame inner edge (0.875rem outer - 11px border) */
+          border-radius: 3px;
+          overflow: hidden;
+          background: #1a0a02;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
           gap: 0.5rem;
-          padding: 1rem;
-          background: linear-gradient(160deg, #fffbeb 0%, #fef3c7 55%, #fde68a 100%);
-          animation: prizeReveal 0.7s ease-out both;
+          padding: 1.25rem;
+        }
+
+        .interior-light {
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(
+            ellipse at 50% 100%,
+            rgba(255, 195, 70, 0.55) 0%,
+            rgba(255, 140, 30, 0.22) 40%,
+            transparent 65%
+          );
+          opacity: 0.2;
+          transition: opacity 0.8s ease;
+          pointer-events: none;
+        }
+
+        .door-button.selected .interior-light {
+          opacity: 0.45;
+        }
+
+        .door-button.revealing .interior-light,
+        .door-button.coupon   .interior-light {
+          opacity: 1;
+        }
+
+        .prize-content {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.4rem;
+          animation: prizeReveal 0.65s ease-out both;
         }
 
         .prize-emoji {
-          font-size: 2.6rem;
+          font-size: 2.4rem;
           line-height: 1;
-          filter: drop-shadow(0 2px 8px rgba(180, 83, 9, 0.35));
+          filter: drop-shadow(0 2px 10px rgba(255, 175, 35, 0.65));
         }
 
         .prize-name {
-          font-size: 1rem;
+          font-size: 0.9rem;
           font-weight: 900;
-          color: #78350f;
+          color: #fef3c7;
           text-align: center;
           line-height: 1.2;
+          text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
           padding: 0 0.25rem;
         }
 
         .prize-detail {
-          font-size: 0.7rem;
+          font-size: 0.62rem;
           font-weight: 700;
-          color: #b45309;
+          color: #fde68a;
           text-align: center;
           line-height: 1.3;
+          text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
           padding: 0 0.25rem;
         }
 
-        .door {
-          position: relative;
-          width: 100%;
-          height: 100%;
-          border-radius: 1rem;
-          overflow: hidden;
-          box-shadow:
-            0 20px 40px rgba(0, 0, 0, 0.4),
-            inset 0 1px 0 rgba(255, 255, 255, 0.12);
-          background: linear-gradient(135deg, #8B6F47 0%, #6B5333 24%, #5A4229 50%, #6B5333 76%, #8B6F47 100%);
-          transform-style: preserve-3d;
-          backface-visibility: hidden;
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
+        /* ── Layer 2: Door panel (middle — z-index 2, rotates and stays visible) */
 
-        .door-button.selected .door {
-          animation: anticipationShake 0.65s ease-in-out both;
-        }
-
-        .door-button.selected .door::before {
-          content: '';
+        .door-panel {
           position: absolute;
           inset: 0;
-          background: radial-gradient(circle at 50% 20%, rgba(255, 205, 80, 0.28), transparent 42%);
-          pointer-events: none;
-          opacity: 0.9;
+          z-index: 2;
+          /* Rectangular — the frame provides the visual rounding */
+          border-radius: 0;
+          overflow: hidden;
+          transform-origin: left center;
+
+          /* Layered wood: highlight → vignette → horizontal grain →
+             vertical plank variation → base colour               */
+          background:
+            radial-gradient(ellipse at 22% 17%,
+              rgba(255, 255, 255, 0.10) 0%, transparent 44%),
+            radial-gradient(ellipse at 50% 50%,
+              transparent 28%, rgba(0, 0, 0, 0.44) 100%),
+            repeating-linear-gradient(
+              180deg,
+              transparent              0px,
+              transparent              5px,
+              rgba(0, 0, 0, 0.055)     5px,
+              rgba(0, 0, 0, 0.055)     6px
+            ),
+            repeating-linear-gradient(
+              91deg,
+              transparent              0px,
+              transparent              36px,
+              rgba(0, 0, 0, 0.028)     36px,
+              rgba(0, 0, 0, 0.028)     37px
+            ),
+            linear-gradient(168deg,
+              #8a5c2e 0%,
+              #6b4220 24%,
+              #4a2c10 50%,
+              #6a4120 76%,
+              #7a5228 100%);
+
+          box-shadow:
+            0 20px 40px rgba(0, 0, 0, 0.5),
+            inset 1px 0 0 rgba(255, 255, 255, 0.07);
+
+          transition: box-shadow 0.4s ease;
         }
 
-        .door-button.selected .door-light-leak,
-        .door-button.revealing .door-light-leak,
-        .door-button.coupon .door-light-leak {
-          opacity: 0.85;
-          height: 28%;
-          filter: blur(6px);
+        /* Anticipation: amber glow + rattle; 1s delay lets door centre first */
+        .door-button.selected .door-panel {
+          animation: anticipationShake 1s ease-in-out 1s both;
+          box-shadow:
+            0 24px 50px rgba(0, 0, 0, 0.6),
+            0 0 0 2px rgba(245, 158, 11, 0.32),
+            0 0 28px rgba(245, 158, 11, 0.20),
+            inset 1px 0 0 rgba(255, 255, 255, 0.07);
         }
 
-        /* Class applied for both revealing and coupon phases so the door
-           stays open rather than snapping back when phase changes. */
-        .door.open {
-          animation: doorSwingOpen 1s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
+        /* Open: rotates to -72deg; front face visible throughout.
+           Class stays applied during 'coupon' phase so door does not snap shut. */
+        .door-panel.open {
+          animation: doorSwingOpen 1.1s ease-in-out forwards;
           transform-origin: left center;
         }
 
-        .door.open .door-light-leak {
-          animation: lightBurst 0.9s ease-out forwards;
-        }
-
-        .door::before {
-          content: '';
+        /* Recessed inset panels — classic 2-panel door construction */
+        .panel-inset {
           position: absolute;
-          inset: 0;
-          background:
-            repeating-linear-gradient(
-              90deg,
-              rgba(0, 0, 0, 0.1) 0px,
-              rgba(0, 0, 0, 0.05) 2px,
-              transparent 4px,
-              transparent 6px
-            ),
-            repeating-linear-gradient(
-              0deg,
-              rgba(139, 111, 71, 0.3) 0px,
-              rgba(107, 83, 51, 0.1) 4px,
-              rgba(139, 111, 71, 0.2) 8px
-            ),
-            linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 28%, rgba(0, 0, 0, 0.2) 100%);
-          pointer-events: none;
+          left: 11%;
+          right: 11%;
+          border: 1.5px solid rgba(0, 0, 0, 0.36);
+          border-radius: 3px;
+          background: linear-gradient(
+            176deg,
+            rgba(0, 0, 0, 0.10) 0%,
+            transparent 50%,
+            rgba(255, 255, 255, 0.04) 100%
+          );
+          box-shadow:
+            inset  1px  1px 3px rgba(255, 255, 255, 0.06),
+            inset -1px -1px 3px rgba(0, 0, 0, 0.22);
         }
 
-        .door-frame {
-          position: absolute;
-          inset: 3px;
-          border: 2px solid rgba(0, 0, 0, 0.4);
-          border-radius: 0.75rem;
-          pointer-events: none;
-          box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.3);
+        .panel-inset.upper {
+          top: 9%;
+          height: 35%;
         }
 
+        .panel-inset.lower {
+          top: 52%;
+          height: 36%;
+        }
+
+        /* Brass knob — sphere illusion via three radial gradient layers */
         .door-knob {
           position: absolute;
-          right: 12%;
+          right: 13%;
           top: 50%;
           transform: translateY(-50%);
-          width: 0.8rem;
-          height: 0.8rem;
+          width: 1rem;
+          height: 1rem;
           border-radius: 50%;
-          background: radial-gradient(circle at 35% 35%, #fef3c7, #d4af37);
+          background:
+            radial-gradient(circle at 33% 28%,
+              rgba(255, 255, 255, 0.55) 0%, transparent 42%),
+            radial-gradient(circle at 67% 72%,
+              rgba(0, 0, 0, 0.30) 0%, transparent 40%),
+            radial-gradient(circle at 50% 50%,
+              #ecc84a 0%, #b8820a 55%, #7a5200 100%);
           box-shadow:
-            0 2px 4px rgba(0, 0, 0, 0.4),
-            inset -1px -1px 2px rgba(0, 0, 0, 0.2),
-            inset 1px 1px 2px rgba(255, 255, 255, 0.3);
+            0 3px 8px rgba(0, 0, 0, 0.55),
+            0 1px 2px rgba(0, 0, 0, 0.40),
+            inset -1px -1px 3px rgba(0, 0, 0, 0.28),
+            inset  1px  1px 3px rgba(255, 210, 70, 0.40);
           pointer-events: none;
-          z-index: 10;
+          z-index: 5;
         }
 
-        .door-light-leak {
+        /* Warm light leaking under the closed door */
+        .light-leak {
           position: absolute;
-          bottom: 0;
-          left: 0;
-          right: 0;
-          height: 20%;
-          background: linear-gradient(
-            to top,
-            rgba(255, 200, 87, 0.4),
-            rgba(255, 200, 87, 0.2),
-            transparent
-          );
-          filter: blur(4px);
+          bottom: -1px;
+          left: 8%;
+          right: 8%;
+          height: 5px;
+          border-radius: 50%;
+          background: rgba(255, 190, 50, 0.75);
+          filter: blur(5px);
+          box-shadow: 0 0 12px 5px rgba(255, 165, 25, 0.38);
           pointer-events: none;
-          opacity: 0.6;
-          transition: opacity 0.25s ease, height 0.25s ease, filter 0.25s ease;
+          opacity: 0.42;
+          transition: opacity 0.4s ease, filter 0.4s ease;
+        }
+
+        .door-button.selected .light-leak {
+          opacity: 0.88;
+          filter: blur(7px);
+        }
+
+        /* Light source moves inside once door opens */
+        .door-button.revealing .light-leak,
+        .door-button.coupon   .light-leak {
+          opacity: 0;
         }
 
         .door-label {
@@ -337,6 +393,27 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           letter-spacing: 0.08em;
           pointer-events: none;
         }
+
+        /* ── Layer 3: Architectural frame (front — z-index 3, never moves) */
+
+        .door-surround {
+          position: absolute;
+          inset: 0;
+          z-index: 3;
+          pointer-events: none;
+          border-radius: 0.875rem;
+          background: transparent;
+          border: 11px solid #2a1506;
+          box-shadow:
+            /* depth on inner face — shadow from the room */
+            inset 0 0 10px rgba(0, 0, 0, 0.55),
+            /* warm bleed on inner edge when door is open */
+            inset 0 0  0 1px rgba(160, 80, 10, 0.28),
+            /* outer drop shadow */
+            0 8px 24px rgba(0, 0, 0, 0.38);
+        }
+
+        /* ── Instruction ────────────────────────────────────────────── */
 
         .instruction {
           text-align: center;
@@ -362,9 +439,10 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
       <div className="door-container">
         {[0, 1, 2].map((index) => {
           const isSelected = state.selectedDoor === index;
-          const isHidden = state.selectedDoor !== null && !isSelected;
-          // True for both 'revealing' and 'coupon' phases so the door stays open.
-          const isDoorOpen = (state.phase === 'revealing' || state.phase === 'coupon') && isSelected;
+          const isHidden   = state.selectedDoor !== null && !isSelected;
+          // True for both 'revealing' and 'coupon' so the panel class stays
+          // constant across the phase boundary — door remains at -72deg.
+          const isDoorOpen    = (state.phase === 'revealing' || state.phase === 'coupon') && isSelected;
           const isPrizeVisible = isDoorOpen && !!winningReward;
 
           return (
@@ -375,20 +453,29 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
               className={`door-button ${state.phase === 'idle' && !isHidden ? 'idle' : ''} ${isHidden ? 'hidden' : ''} ${isSelected ? state.phase : ''}`}
               aria-label={`Door ${index + 1}`}
             >
-              {isPrizeVisible && (
-                <div className="prize-space">
-                  <div className="prize-emoji">🎁</div>
-                  <div className="prize-name">{winningReward.label}</div>
-                  <div className="prize-detail">{winningReward.description}</div>
-                </div>
-              )}
+              {/* ── Layer 1: Room interior ───────────────────────── */}
+              <div className="door-interior">
+                <div className="interior-light" />
+                {isPrizeVisible && (
+                  <div className="prize-content">
+                    <div className="prize-emoji">🎁</div>
+                    <div className="prize-name">{winningReward.label}</div>
+                    <div className="prize-detail">{winningReward.description}</div>
+                  </div>
+                )}
+              </div>
 
-              <div className={`door ${isDoorOpen ? 'open' : ''}`}>
-                <div className="door-frame" />
+              {/* ── Layer 2: Door panel ──────────────────────────── */}
+              <div className={`door-panel ${isDoorOpen ? 'open' : ''}`}>
+                <div className="panel-inset upper" />
+                <div className="panel-inset lower" />
                 <div className="door-knob" />
-                <div className="door-light-leak" />
+                <div className="light-leak" />
                 <div className="door-label">DOOR {index + 1}</div>
               </div>
+
+              {/* ── Layer 3: Permanent architectural frame ────────── */}
+              <div className="door-surround" />
             </button>
           );
         })}
