@@ -22,56 +22,20 @@ const benefits = [
   { icon: ShieldCheck, title: 'Control margins', body: 'Set probability weights, expiry windows, and daily caps.' },
 ];
 
-const placeholderDemo = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
+const GAME_DEFINITIONS = [
+  { key: 'spin_wheel',    title: 'Spin Wheel',       icon: '🎯', body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.' },
+  { key: 'mystery_box',  title: 'Mystery Box Reveal', icon: '🎁', body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.' },
+  { key: 'scratch_card', title: 'Scratch Card',       icon: '🎟️', body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.' },
+  { key: 'reward_reels', title: 'Reward Reels',       icon: '🎰', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
+  { key: 'open_the_door', title: 'Open The Door',     icon: '🚪', body: 'Guests choose one of three doors to uncover a menu reward, discount, or comeback coupon.' },
+] as const;
 
-const games = [
-  {
-    title: 'Spin Wheel',
-    icon: '🎯',
-    status: 'Live',
-    body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.',
-    demoUrl: placeholderDemo,
-  },
-  {
-    title: 'Mystery Box Reveal',
-    icon: '🎁',
-    status: 'Live',
-    body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.',
-    demoUrl: placeholderDemo,
-  },
-  {
-    title: 'Scratch Card',
-    icon: '🎟️',
-    status: 'Live',
-    body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.',
-    demoUrl: placeholderDemo,
-  },
-  {
-    title: 'Slot Machine',
-    icon: '🎰',
-    status: 'Live',
-    body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.',
-    demoUrl: placeholderDemo,
-  },
-  {
-    title: 'Pick a Door',
-    icon: '🚪',
-    status: 'Live',
-    body: 'Guests choose a door to uncover a menu reward, discount, or comeback coupon.',
-    demoUrl: placeholderDemo,
-  },
-  {
-    title: 'Fortune Cookie',
-    icon: '🥠',
-    status: 'Live',
-    body: 'A restaurant-friendly reveal for rewards, messages, and limited-time offers.',
-    demoUrl: placeholderDemo,
-  },
-];
+type GameKey = (typeof GAME_DEFINITIONS)[number]['key'];
 
 export default function LandingPageClient({
   hero,
   explainerVideo,
+  gameDemoUrls,
 }: {
   hero: HomeHeroContent;
   explainerVideo?: {
@@ -79,7 +43,13 @@ export default function LandingPageClient({
     description?: string | null;
     youtube_url?: string | null;
   } | null;
+  gameDemoUrls?: Partial<Record<GameKey, string | null>> | null;
 }) {
+  const games = GAME_DEFINITIONS.map((g) => ({
+    ...g,
+    demoUrl: gameDemoUrls?.[g.key] ?? null,
+  }));
+
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
   const [selectedTitle, setSelectedTitle] = useState<string>('');
 
@@ -99,7 +69,7 @@ export default function LandingPageClient({
         <div className="mx-auto max-w-6xl rounded-[2rem] bg-white p-6 shadow-xl ring-1 ring-orange-100 sm:p-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div><p className="text-sm font-black uppercase tracking-[0.16em] text-[#FF6B00]">Available Games</p><h2 className="mt-2 text-3xl font-black sm:text-4xl">More than one way to win</h2><p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-stone-600">SpinBite now supports multiple QR game formats. Start with the live games today, then expand into new campaign types as the library grows.</p></div>
-            <div className="rounded-full bg-orange-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">6 live games • more coming soon</div>
+            <div className="rounded-full bg-orange-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">5 live games • more coming soon</div>
           </div>
 
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -116,16 +86,18 @@ export default function LandingPageClient({
                   <h3 className="mt-4 text-2xl font-black">{game.title}</h3>
                   <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">{game.body}</p>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedVideo(game.demoUrl);
-                      setSelectedTitle(game.title);
-                    }}
-                    className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-[#FF6B00] px-5 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all duration-200 hover:bg-[#e85f00]"
-                  >
-                    Watch Demo
-                  </button>
+                  {game.demoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedVideo(game.demoUrl);
+                        setSelectedTitle(game.title);
+                      }}
+                      className="mt-5 inline-flex w-full items-center justify-center rounded-full bg-[#FF6B00] px-5 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all duration-200 hover:bg-[#e85f00]"
+                    >
+                      Watch Demo
+                    </button>
+                  )}
                 </div>
               );
             })}
