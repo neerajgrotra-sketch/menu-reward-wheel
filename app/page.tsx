@@ -73,13 +73,13 @@ export default async function LandingPage() {
   };
 
   const gameDemoUrls = {
-    // CMS value wins when present; otherwise the original placeholder URL is used
-    spin_wheel:     demoValues.spin_wheel_demo_url     || FALLBACK_GAME_DEMO_URL,
-    mystery_box:    demoValues.mystery_box_demo_url     || FALLBACK_GAME_DEMO_URL,
-    scratch_card:   demoValues.scratch_card_demo_url    || FALLBACK_GAME_DEMO_URL,
-    slot_machine:   demoValues.slot_machine_demo_url    || FALLBACK_GAME_DEMO_URL,
-    pick_a_door:    demoValues.pick_a_door_demo_url     || FALLBACK_GAME_DEMO_URL,
-    fortune_cookie: demoValues.fortune_cookie_demo_url  || FALLBACK_GAME_DEMO_URL,
+    // CMS field_key is the canonical game_type; CMS value wins when present,
+    // otherwise the original placeholder URL is used as fallback.
+    spin_wheel:    demoValues.spin_wheel    || FALLBACK_GAME_DEMO_URL,
+    mystery_box:   demoValues.mystery_box   || FALLBACK_GAME_DEMO_URL,
+    scratch_card:  demoValues.scratch_card  || FALLBACK_GAME_DEMO_URL,
+    reward_reels:  demoValues.reward_reels  || FALLBACK_GAME_DEMO_URL,
+    open_the_door: demoValues.open_the_door || FALLBACK_GAME_DEMO_URL,
   };
 
   return (

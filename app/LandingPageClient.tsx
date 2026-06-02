@@ -26,9 +26,8 @@ const GAME_DEFINITIONS = [
   { key: 'spin_wheel',    title: 'Spin Wheel',       icon: '🎯', body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.' },
   { key: 'mystery_box',  title: 'Mystery Box Reveal', icon: '🎁', body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.' },
   { key: 'scratch_card', title: 'Scratch Card',       icon: '🎟️', body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.' },
-  { key: 'slot_machine', title: 'Slot Machine',       icon: '🎰', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
-  { key: 'pick_a_door',  title: 'Pick a Door',        icon: '🚪', body: 'Guests choose a door to uncover a menu reward, discount, or comeback coupon.' },
-  { key: 'fortune_cookie', title: 'Fortune Cookie',   icon: '🥠', body: 'A restaurant-friendly reveal for rewards, messages, and limited-time offers.' },
+  { key: 'reward_reels', title: 'Reward Reels',       icon: '🎰', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
+  { key: 'open_the_door', title: 'Open The Door',     icon: '🚪', body: 'Guests choose one of three doors to uncover a menu reward, discount, or comeback coupon.' },
 ] as const;
 
 type GameKey = (typeof GAME_DEFINITIONS)[number]['key'];
@@ -70,7 +69,7 @@ export default function LandingPageClient({
         <div className="mx-auto max-w-6xl rounded-[2rem] bg-white p-6 shadow-xl ring-1 ring-orange-100 sm:p-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div><p className="text-sm font-black uppercase tracking-[0.16em] text-[#FF6B00]">Available Games</p><h2 className="mt-2 text-3xl font-black sm:text-4xl">More than one way to win</h2><p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-stone-600">SpinBite now supports multiple QR game formats. Start with the live games today, then expand into new campaign types as the library grows.</p></div>
-            <div className="rounded-full bg-orange-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">6 live games • more coming soon</div>
+            <div className="rounded-full bg-orange-50 px-4 py-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">5 live games • more coming soon</div>
           </div>
 
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
