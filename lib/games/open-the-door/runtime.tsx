@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { GamePlayProps } from '@/lib/games/types';
 
-type DoorPhase = 'idle' | 'selected' | 'revealing' | 'completed';
+type DoorPhase = 'idle' | 'selected' | 'revealing' | 'coupon';
 
 type DoorState = {
   phase: DoorPhase;
@@ -15,16 +15,16 @@ const defaultDoorState: DoorState = {
   selectedDoor: null,
 };
 
-export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, onPlay }: GamePlayProps) {
+export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, onPlay, winningReward }: GamePlayProps) {
   const revealTimerRef = useRef<number | null>(null);
-  const completeTimerRef = useRef<number | null>(null);
+  const couponTimerRef = useRef<number | null>(null);
   const resetTimerRef = useRef<number | null>(null);
   const [state, setState] = useState<DoorState>(defaultDoorState);
 
   useEffect(() => {
     return () => {
       if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
-      if (completeTimerRef.current) window.clearTimeout(completeTimerRef.current);
+      if (couponTimerRef.current) window.clearTimeout(couponTimerRef.current);
       if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
     };
   }, []);
@@ -34,17 +34,20 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
     onPlay();
 
+    // 1700ms: door swings open, prize revealed behind it
     revealTimerRef.current = window.setTimeout(() => {
       setState((current) => ({ ...current, phase: 'revealing' }));
-    }, 650);
+    }, 1700);
 
-    completeTimerRef.current = window.setTimeout(() => {
-      setState((current) => ({ ...current, phase: 'completed' }));
-    }, 1600);
+    // 5000ms: coupon phase begins; matches resultDelayMs so play-page overlay
+    // fires at the same moment, giving ~2.3s of prize visibility after door opens
+    couponTimerRef.current = window.setTimeout(() => {
+      setState((current) => ({ ...current, phase: 'coupon' }));
+    }, 5000);
 
     resetTimerRef.current = window.setTimeout(() => {
       setState(defaultDoorState);
-    }, 4200);
+    }, 8000);
   }, [state.phase, onPlay]);
 
   function pickDoor(index: number) {
@@ -100,18 +103,10 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           }
         }
 
-        @keyframes rewardPop {
-          0% {
-            opacity: 0;
-            transform: scale(0) rotateZ(-160deg);
-          }
-          45% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1) rotateZ(0deg);
-          }
+        @keyframes prizeReveal {
+          0% { opacity: 0; transform: scale(0.75); }
+          60% { opacity: 1; }
+          100% { opacity: 1; transform: scale(1); }
         }
 
         .door-container {
@@ -165,7 +160,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
         .door-button.selected,
         .door-button.revealing,
-        .door-button.completed {
+        .door-button.coupon {
           grid-column: 1 / -1;
           justify-self: center;
           width: min(72vw, 18rem);
@@ -174,6 +169,46 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
         .door-button.selected {
           cursor: default;
+        }
+
+        /* Prize space sits behind the door panel in DOM order.
+           Becomes visible as the door swings open past ~90deg. */
+        .prize-space {
+          position: absolute;
+          inset: 0;
+          border-radius: 1rem;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 1rem;
+          background: linear-gradient(160deg, #fffbeb 0%, #fef3c7 55%, #fde68a 100%);
+          animation: prizeReveal 0.7s ease-out both;
+        }
+
+        .prize-emoji {
+          font-size: 2.6rem;
+          line-height: 1;
+          filter: drop-shadow(0 2px 8px rgba(180, 83, 9, 0.35));
+        }
+
+        .prize-name {
+          font-size: 1rem;
+          font-weight: 900;
+          color: #78350f;
+          text-align: center;
+          line-height: 1.2;
+          padding: 0 0.25rem;
+        }
+
+        .prize-detail {
+          font-size: 0.7rem;
+          font-weight: 700;
+          color: #b45309;
+          text-align: center;
+          line-height: 1.3;
+          padding: 0 0.25rem;
         }
 
         .door {
@@ -187,6 +222,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
             inset 0 1px 0 rgba(255, 255, 255, 0.12);
           background: linear-gradient(135deg, #8B6F47 0%, #6B5333 24%, #5A4229 50%, #6B5333 76%, #8B6F47 100%);
           transform-style: preserve-3d;
+          backface-visibility: hidden;
           transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
@@ -205,15 +241,21 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
 
         .door-button.selected .door-light-leak,
         .door-button.revealing .door-light-leak,
-        .door-button.completed .door-light-leak {
+        .door-button.coupon .door-light-leak {
           opacity: 0.85;
           height: 28%;
           filter: blur(6px);
         }
 
-        .door.revealing {
+        /* Class applied for both revealing and coupon phases so the door
+           stays open rather than snapping back when phase changes. */
+        .door.open {
           animation: doorSwingOpen 1s cubic-bezier(0.68, -0.55, 0.27, 1.55) forwards;
           transform-origin: left center;
+        }
+
+        .door.open .door-light-leak {
+          animation: lightBurst 0.9s ease-out forwards;
         }
 
         .door::before {
@@ -282,10 +324,6 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           transition: opacity 0.25s ease, height 0.25s ease, filter 0.25s ease;
         }
 
-        .door.completed .door-light-leak {
-          animation: lightBurst 0.9s ease-out forwards;
-        }
-
         .door-label {
           position: absolute;
           bottom: 8px;
@@ -300,45 +338,6 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           pointer-events: none;
         }
 
-        .reward-burst {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%) scale(0.85);
-          font-size: 3rem;
-          z-index: 100;
-          opacity: 0;
-          animation: rewardPop 0.6s ease-out forwards;
-          filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.8));
-          pointer-events: none;
-        }
-
-        .reward-sparkle {
-          position: absolute;
-          font-size: 1.4rem;
-          opacity: 0;
-          animation: rewardPop 0.8s ease-out forwards;
-          pointer-events: none;
-        }
-
-        .reward-sparkle:nth-child(1) {
-          top: 18%;
-          left: 22%;
-          animation-delay: 0.1s;
-        }
-
-        .reward-sparkle:nth-child(2) {
-          top: 18%;
-          right: 22%;
-          animation-delay: 0.18s;
-        }
-
-        .reward-sparkle:nth-child(3) {
-          bottom: 18%;
-          left: 22%;
-          animation-delay: 0.25s;
-        }
-
         .instruction {
           text-align: center;
           font-size: 0.95rem;
@@ -350,7 +349,7 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
         @media (max-width: 640px) {
           .door-button.selected,
           .door-button.revealing,
-          .door-button.completed {
+          .door-button.coupon {
             width: min(80vw, 16rem);
           }
         }
@@ -364,8 +363,9 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
         {[0, 1, 2].map((index) => {
           const isSelected = state.selectedDoor === index;
           const isHidden = state.selectedDoor !== null && !isSelected;
-          const isRevealing = state.phase === 'revealing' && isSelected;
-          const isCompleted = state.phase === 'completed' && isSelected;
+          // True for both 'revealing' and 'coupon' phases so the door stays open.
+          const isDoorOpen = (state.phase === 'revealing' || state.phase === 'coupon') && isSelected;
+          const isPrizeVisible = isDoorOpen && !!winningReward;
 
           return (
             <button
@@ -375,20 +375,19 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
               className={`door-button ${state.phase === 'idle' && !isHidden ? 'idle' : ''} ${isHidden ? 'hidden' : ''} ${isSelected ? state.phase : ''}`}
               aria-label={`Door ${index + 1}`}
             >
-              <div className={`door ${isRevealing ? 'revealing' : ''} ${isCompleted ? 'completed' : ''}`}>
+              {isPrizeVisible && (
+                <div className="prize-space">
+                  <div className="prize-emoji">🎁</div>
+                  <div className="prize-name">{winningReward.label}</div>
+                  <div className="prize-detail">{winningReward.description}</div>
+                </div>
+              )}
+
+              <div className={`door ${isDoorOpen ? 'open' : ''}`}>
                 <div className="door-frame" />
                 <div className="door-knob" />
                 <div className="door-light-leak" />
                 <div className="door-label">DOOR {index + 1}</div>
-
-                {isCompleted && (
-                  <>
-                    <div className="reward-burst">✨</div>
-                    <div className="reward-sparkle">⭐</div>
-                    <div className="reward-sparkle">💫</div>
-                    <div className="reward-sparkle">🌟</div>
-                  </>
-                )}
               </div>
             </button>
           );

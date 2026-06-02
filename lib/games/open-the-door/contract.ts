@@ -1,4 +1,5 @@
 import OpenTheDoorRuntime from '@/lib/games/open-the-door/runtime';
+import OpenTheDoorBuilderPreview from '@/lib/games/open-the-door/builderPreview';
 import type { GameContract, GamePhase, ValidationResult } from '@/lib/games/types';
 
 const supportedPhases: GamePhase[] = [
@@ -50,7 +51,7 @@ export const openTheDoorContract: GameContract = {
     category: 'reveal',
     eventPrefix: 'open_the_door',
   },
-  resultDelayMs: 1250,
+  resultDelayMs: 5000,
   supportedPhases,
   validateConfig: () => createDefaultValidationResult(),
   formatReward: defaultRewardFormatter,
@@ -61,6 +62,7 @@ export const openTheDoorContract: GameContract = {
     shapes: ['square', 'circle', 'star'],
   },
   components: {
+    BuilderPreview: OpenTheDoorBuilderPreview,
     Runtime: OpenTheDoorRuntime,
   },
   PlayComponent: OpenTheDoorRuntime,

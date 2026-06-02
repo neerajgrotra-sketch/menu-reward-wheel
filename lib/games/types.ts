@@ -49,6 +49,7 @@ export type GameAnalytics = {
 
 export type GamePlayProps = {
   rewards?: Reward[];
+  winningReward?: Reward;
   canPlay: boolean;
   playing: boolean;
   playsRemaining: number;
