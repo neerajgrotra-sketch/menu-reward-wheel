@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 import type { Options as ConfettiOptions } from 'canvas-confetti';
 import type { Reward } from '@/types/reward';
 
-export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card' | 'reward_reels';
+export type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card' | 'reward_reels' | 'open_the_door';
 
 export type GamePhase =
   | 'idle'
@@ -49,6 +49,7 @@ export type GameAnalytics = {
 
 export type GamePlayProps = {
   rewards?: Reward[];
+  winningReward?: Reward;
   canPlay: boolean;
   playing: boolean;
   playsRemaining: number;

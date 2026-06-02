@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type { GameType as CanonicalGameType } from '@/lib/games/types';
 
 const STORAGE_KEY = 'spinbite_pending_promotion_game_type';
 
-type GameType = 'wheel' | 'mystery_box';
+type GameType = Extract<CanonicalGameType, 'wheel' | 'mystery_box'>;
 
 function toSlug(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');

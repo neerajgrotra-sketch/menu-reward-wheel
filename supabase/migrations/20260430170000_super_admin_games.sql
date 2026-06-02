@@ -140,6 +140,7 @@ values
   ('Scratch & Win', 'scratch-win', 'Customers scratch a digital card to reveal an instant reward.', 'coming_soon', '✨', 6, 10, 3, 20, true, true, true, false, 20),
   ('Mystery Box', 'mystery-box', 'Customers pick a mystery box and reveal a surprise coupon.', 'coming_soon', '🎁', 6, 10, 3, 20, true, true, true, false, 30),
   ('Pick a Card', 'pick-a-card', 'Customers choose a card from a playful deck to reveal their prize.', 'coming_soon', '🃏', 6, 10, 3, 20, true, true, true, false, 40),
+  ('Open The Door', 'open-the-door', 'Customers choose one of three doors and reveal a surprise coupon behind it.', 'coming_soon', '🚪', 6, 10, 3, 20, true, true, true, false, 45),
   ('Lucky Slot', 'lucky-slot', 'Customers play a quick slot-style game to unlock a coupon.', 'coming_soon', '🎰', 6, 10, 3, 20, true, true, true, false, 50)
 on conflict (slug) do update set
   name = excluded.name,

@@ -39,6 +39,7 @@ export type GameForLab = {
   id: string;
   name: string;
   slug: string;
+  game_type?: string | null;
   description: string | null;
   status: GameStatus;
   icon: string | null;
@@ -292,7 +293,7 @@ function PlaceholderPreview({ game, saveState }: { game: GameForLab; saveState: 
 }
 
 export default function GameLabCard({ game }: { game: GameForLab }) {
-  const isSpinWheel = game.slug === 'spin-wheel';
+  const isSpinWheel = game.game_type === 'spin_wheel';
   const wheel = readWheelConfig(game);
   const [saveState, setSaveState] = useState<SaveState>('idle');
 
@@ -307,6 +308,7 @@ export default function GameLabCard({ game }: { game: GameForLab }) {
   return (
     <form action={updateGame} onSubmit={handleSubmit} className="rounded-[2rem] bg-white p-5 shadow-xl">
       <input type="hidden" name="id" value={game.id} />
+      <input type="hidden" name="game_type" value={game.game_type ?? ''} />
 
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="flex gap-4">

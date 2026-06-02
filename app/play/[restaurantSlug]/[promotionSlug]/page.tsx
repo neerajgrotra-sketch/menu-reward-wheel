@@ -74,6 +74,7 @@ export default function PromotionPlayPage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [promotion, setPromotion] = useState<Promotion | null>(null);
   const [rewards, setRewards] = useState<Reward[]>([]);
+  const [winningReward, setWinningReward] = useState<Reward | null>(null);
   const [rotation, setRotation] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [wonCoupons, setWonCoupons] = useState<WonCoupon[]>([]);
@@ -139,6 +140,7 @@ export default function PromotionPlayPage() {
   function playGame() {
     if (!canPlay || !promotion || !restaurant) return;
     const selected = pickWeightedReward(rewards);
+    setWinningReward(selected);
     const selectedIndex = rewards.findIndex((item) => item.id === selected.id);
     const finalRotation = game.getTargetRotation?.({ currentRotation: rotation, selectedIndex, segmentAngle });
 
@@ -203,6 +205,7 @@ export default function PromotionPlayPage() {
 
         <PlayComponent
           rewards={rewards}
+          winningReward={winningReward ?? undefined}
           canPlay={canPlay}
           playing={playing}
           playsRemaining={playsRemaining}
