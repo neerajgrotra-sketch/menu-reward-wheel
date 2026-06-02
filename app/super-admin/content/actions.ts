@@ -1,5 +1,6 @@
 'use server';
 
+import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/lib/super-admin';
 import { createClient } from '@/lib/supabase/server';
@@ -28,6 +29,11 @@ function revalidateContent() {
   revalidatePath('/super-admin');
 }
 
+function contentRedirect(params: Record<string, string>): never {
+  const qs = new URLSearchParams(params).toString();
+  redirect(`/super-admin/content?${qs}`);
+}
+
 export async function createContentField(formData: FormData) {
   await requireSuperAdmin();
 
@@ -38,7 +44,7 @@ export async function createContentField(formData: FormData) {
   const value = requiredString(formData.get('value'));
 
   if (!page_key || !section_key || !field_key || !label) {
-    throw new Error('Page key, section key, field key, and label are required.');
+    contentRedirect({ error: 'page_key, section_key, field_key, and label are all required.' });
   }
 
   const supabase = createClient();
@@ -53,8 +59,16 @@ export async function createContentField(formData: FormData) {
     is_active: formData.get('is_active') === 'on',
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    const msg =
+      error.code === '23505'
+        ? 'A field with this page / section / field key combination already exists.'
+        : error.message;
+    contentRedirect({ error: msg });
+  }
+
   revalidateContent();
+  contentRedirect({ success: '1' });
 }
 
 export async function updateContentField(formData: FormData) {

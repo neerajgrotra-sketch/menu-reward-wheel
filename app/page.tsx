@@ -14,50 +14,70 @@ const fallbackHero: HomeHeroContent = {
   spin_button_label: 'Spin the Wheel',
 };
 
+function toMap(data: { field_key: string; value: string }[] | null) {
+  return Object.fromEntries((data || []).map((r) => [r.field_key, r.value]));
+}
+
 export default async function LandingPage() {
   const supabase = createClient();
 
-  const { data } = await supabase
-    .from('site_content')
-    .select('field_key,value')
-    .eq('page_key', 'home')
-    .eq('section_key', 'hero')
-    .eq('is_active', true);
+  const [{ data: heroData }, { data: videoData }, { data: demosData }] =
+    await Promise.all([
+      supabase
+        .from('site_content')
+        .select('field_key,value')
+        .eq('page_key', 'home')
+        .eq('section_key', 'hero')
+        .eq('is_active', true),
+      supabase
+        .from('site_content')
+        .select('field_key,value')
+        .eq('page_key', 'home')
+        .eq('section_key', 'explainer_video')
+        .eq('is_active', true),
+      supabase
+        .from('site_content')
+        .select('field_key,value')
+        .eq('page_key', 'home')
+        .eq('section_key', 'game_demos')
+        .eq('is_active', true),
+    ]);
 
-  const values = Object.fromEntries(
-    (data || []).map(
-      (item: { field_key: string; value: string }) => [
-        item.field_key,
-        item.value,
-      ],
-    ),
-  );
+  const heroValues = toMap(heroData);
+  const videoValues = toMap(videoData);
+  const demoValues = toMap(demosData);
 
   const hero: HomeHeroContent = {
-    eyebrow: values.eyebrow || fallbackHero.eyebrow,
-    headline: values.headline || fallbackHero.headline,
-    subheadline: values.subheadline || fallbackHero.subheadline,
-    badge_1: values.badge_1 || fallbackHero.badge_1,
-    badge_2: values.badge_2 || fallbackHero.badge_2,
-    badge_3: values.badge_3 || fallbackHero.badge_3,
-    primary_cta_label:
-      values.primary_cta_label || fallbackHero.primary_cta_label,
-    spin_button_label:
-      values.spin_button_label || fallbackHero.spin_button_label,
+    eyebrow: heroValues.eyebrow || fallbackHero.eyebrow,
+    headline: heroValues.headline || fallbackHero.headline,
+    subheadline: heroValues.subheadline || fallbackHero.subheadline,
+    badge_1: heroValues.badge_1 || fallbackHero.badge_1,
+    badge_2: heroValues.badge_2 || fallbackHero.badge_2,
+    badge_3: heroValues.badge_3 || fallbackHero.badge_3,
+    primary_cta_label: heroValues.primary_cta_label || fallbackHero.primary_cta_label,
+    spin_button_label: heroValues.spin_button_label || fallbackHero.spin_button_label,
   };
 
   const explainerVideo = {
-    title: 'See SpinBite in Action',
-    description:
-      'Watch how restaurants turn menus into interactive games.',
-    youtube_url:
-      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    title: videoValues.title || 'See SpinBite in Action',
+    description: videoValues.description || 'Watch how restaurants turn menus into interactive games.',
+    youtube_url: videoValues.youtube_url || null,
+  };
+
+  const gameDemoUrls = {
+    spin_wheel: demoValues.spin_wheel_demo_url || null,
+    mystery_box: demoValues.mystery_box_demo_url || null,
+    scratch_card: demoValues.scratch_card_demo_url || null,
+    slot_machine: demoValues.slot_machine_demo_url || null,
+    pick_a_door: demoValues.pick_a_door_demo_url || null,
+    fortune_cookie: demoValues.fortune_cookie_demo_url || null,
   };
 
   return (
     <LandingPageClient
       hero={hero}
       explainerVideo={explainerVideo}
+      gameDemoUrls={gameDemoUrls}
     />
   );
 }

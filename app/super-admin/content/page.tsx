@@ -31,8 +31,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function TextInput({ name, defaultValue, placeholder }: { name: string; defaultValue?: string | number | null; placeholder?: string }) {
-  return <input name={name} defaultValue={defaultValue ?? ''} placeholder={placeholder} className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF6B00]" />;
+function TextInput({ name, defaultValue, placeholder, required }: { name: string; defaultValue?: string | number | null; placeholder?: string; required?: boolean }) {
+  return <input name={name} defaultValue={defaultValue ?? ''} placeholder={placeholder} required={required} className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-bold outline-none focus:border-[#FF6B00]" />;
 }
 
 function NumberInput({ name, defaultValue }: { name: string; defaultValue: number }) {
@@ -57,7 +57,11 @@ function groupContent(fields: ContentField[]) {
   }, {});
 }
 
-export default async function SuperAdminContentPage() {
+export default async function SuperAdminContentPage({
+  searchParams,
+}: {
+  searchParams?: { error?: string; success?: string };
+}) {
   await requireSuperAdmin();
 
   const supabase = createClient();
@@ -109,12 +113,23 @@ export default async function SuperAdminContentPage() {
 
         {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error.message}</p>}
 
+        {searchParams?.error && (
+          <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
+            {decodeURIComponent(searchParams.error)}
+          </p>
+        )}
+        {searchParams?.success && (
+          <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">
+            Content field created successfully.
+          </p>
+        )}
+
         <form action={createContentField} className="mt-5 rounded-[2rem] bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Add content field</p>
           <div className="mt-4 grid gap-4 md:grid-cols-4">
-            <Field label="Page Key"><TextInput name="page_key" placeholder="home" /></Field>
-            <Field label="Section Key"><TextInput name="section_key" placeholder="hero" /></Field>
-            <Field label="Field Key"><TextInput name="field_key" placeholder="headline" /></Field>
+            <Field label="Page Key"><TextInput name="page_key" placeholder="home" required /></Field>
+            <Field label="Section Key"><TextInput name="section_key" placeholder="hero" required /></Field>
+            <Field label="Field Key"><TextInput name="field_key" placeholder="headline" required /></Field>
             <Field label="Field Type">
               <select name="field_type" defaultValue="text" className="w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm font-black outline-none focus:border-[#FF6B00]">
                 <option value="text">Text</option>
@@ -125,7 +140,7 @@ export default async function SuperAdminContentPage() {
             </Field>
           </div>
           <div className="mt-4 grid gap-4 md:grid-cols-[1fr_120px]">
-            <Field label="Label"><TextInput name="label" placeholder="Hero Headline" /></Field>
+            <Field label="Label"><TextInput name="label" placeholder="Hero Headline" required /></Field>
             <Field label="Sort Order"><NumberInput name="sort_order" defaultValue={(fields.length + 1) * 10} /></Field>
           </div>
           <div className="mt-4">
