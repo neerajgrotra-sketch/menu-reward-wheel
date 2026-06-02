@@ -80,11 +80,12 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
           90%       { transform: translateX(0)   rotateZ(0deg); }
         }
 
-        /* Swings to -72deg — front face stays visible; slight overshoot for weight */
+        /* Swings to -80deg — front face stays visible; slight overshoot for weight.
+           At -80deg the panel projects only ~40px wide, clearing the prize area. */
         @keyframes doorSwingOpen {
           0%   { transform: perspective(1200px) rotateY(0deg); }
-          75%  { transform: perspective(1200px) rotateY(-78deg); }
-          100% { transform: perspective(1200px) rotateY(-72deg); }
+          75%  { transform: perspective(1200px) rotateY(-84deg); }
+          100% { transform: perspective(1200px) rotateY(-80deg); }
         }
 
         @keyframes prizeReveal {
@@ -199,6 +200,14 @@ export default function OpenTheDoorRuntime({ canPlay, playing, playsRemaining, o
         .door-button.revealing .interior-light,
         .door-button.coupon   .interior-light {
           opacity: 1;
+        }
+
+        /* Shift prize into the open half of the doorway.
+           The door panel (hinged left) projects ~40px at -80deg;
+           30% padding-left (~86px) keeps the prize fully clear of it. */
+        .door-button.revealing .door-interior,
+        .door-button.coupon   .door-interior {
+          padding-left: 30%;
         }
 
         .prize-content {
