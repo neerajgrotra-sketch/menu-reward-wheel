@@ -81,14 +81,6 @@ export async function GET(request: NextRequest) {
       userAgent: request.headers.get('user-agent') || undefined,
     });
 
-    console.log('[promotion-play] resolvePromotionGame result', {
-      promotionId: promotion.id,
-      sessionToken,
-      playSessionId,
-      playSessionId_empty: !playSessionId,
-      isNewSession,
-    });
-
     // -------------------------------------------------------------------------
     // Session recovery path: session already existed before this request.
     // Find all coupons issued during this session so the customer can see what
