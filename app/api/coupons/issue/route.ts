@@ -74,6 +74,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Reward could not be validated.' }, { status: 404 });
     }
 
+    console.log('[coupon-issue] inserting coupon', {
+      promotion_id,
+      coupon_code,
+      play_session_id,
+      play_session_id_null: play_session_id === null,
+      customer_session_id,
+    });
+
     const { data, error } = await supabase
       .from('coupon_redemptions')
       .insert({
@@ -86,13 +94,18 @@ export async function POST(request: Request) {
         play_session_id,
         issued_at: new Date().toISOString(),
       })
-      .select('id,coupon_code,status,issued_at')
+      .select('id,coupon_code,status,issued_at,play_session_id')
       .single();
 
     if (error) {
-      console.error('Coupon issuance insert failed', error.message);
+      console.error('[coupon-issue] insert failed', error.message, { play_session_id });
       return NextResponse.json({ error: 'Coupon could not be saved. Please ask staff for help.' }, { status: 500 });
     }
+
+    console.log('[coupon-issue] inserted coupon row', {
+      coupon_id: data.id,
+      play_session_id_written: (data as any).play_session_id,
+    });
 
     return NextResponse.json({ coupon: data });
   } catch (error: any) {

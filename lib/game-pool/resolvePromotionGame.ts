@@ -101,10 +101,18 @@ export async function resolvePromotionGame({
         .eq('session_token', sessionToken)
         .maybeSingle();
 
+      if (!racedSession?.id) {
+        // The session exists (23505 confirms it) but the SELECT returned nothing —
+        // typically a transient connection-pooler issue. Throw so the outer catch
+        // returns a 500 the client can retry rather than silently returning an
+        // empty playSessionId that breaks downstream coupon lookup.
+        throw new Error(`Race-condition recovery failed: session ${sessionToken} exists but could not be read back.`);
+      }
+
       return {
-        gameType: (racedSession?.selected_game_type as GameType) || selectedGame,
+        gameType: (racedSession.selected_game_type as GameType) || selectedGame,
         isNewSession: false,
-        playSessionId: (racedSession?.id as string) ?? '',
+        playSessionId: racedSession.id as string,
       };
     }
 

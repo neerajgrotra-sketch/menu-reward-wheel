@@ -276,6 +276,13 @@ export default function PromotionPlayPage() {
       const issuedAt = Date.now();
       let redemptionId: string | null = null;
 
+      console.log('[play-page] issueCoupon called', {
+        play_session_id: playSessionId,
+        play_session_id_empty: !playSessionId,
+        promotion_id: promotion.id,
+        coupon_code: code,
+      });
+
       try {
         const issued = await issueCoupon({
           promotion_id: promotion.id,

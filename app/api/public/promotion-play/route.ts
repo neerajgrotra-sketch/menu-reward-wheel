@@ -81,23 +81,47 @@ export async function GET(request: NextRequest) {
       userAgent: request.headers.get('user-agent') || undefined,
     });
 
+    console.log('[promotion-play] resolvePromotionGame result', {
+      promotionId: promotion.id,
+      sessionToken,
+      playSessionId,
+      playSessionId_empty: !playSessionId,
+      isNewSession,
+    });
+
     // -------------------------------------------------------------------------
     // Session recovery path: session already existed before this request.
     // Find all coupons issued during this session so the customer can see what
     // they won. One session may have multiple coupons (max_spins > 1).
     // -------------------------------------------------------------------------
     if (!isNewSession) {
-      const existingCoupons = await findSessionCoupons(
-        supabase,
-        playSessionId,
-        promotion.coupon_expiry_minutes,
-      );
+      // resolvePromotionGame may return an empty playSessionId if a transient
+      // DB issue prevented the race-condition read-back. Fall back to a direct
+      // lookup using this route's own service client before giving up.
+      let resolvedPlaySessionId = playSessionId;
+      if (!resolvedPlaySessionId) {
+        const { data: fallbackSession } = await supabase
+          .from('play_sessions')
+          .select('id')
+          .eq('session_token', sessionToken)
+          .eq('promotion_id', promotion.id)
+          .maybeSingle();
+        resolvedPlaySessionId = fallbackSession?.id ?? '';
+        console.warn('[promotion-play] used fallback session lookup', {
+          sessionToken,
+          resolvedPlaySessionId,
+        });
+      }
+
+      const existingCoupons = resolvedPlaySessionId
+        ? await findSessionCoupons(supabase, resolvedPlaySessionId, promotion.coupon_expiry_minutes)
+        : [];
 
       return NextResponse.json({
         restaurant,
         promotion: { ...promotion, game_type: selectedGameType },
         sessionToken,
-        playSessionId,
+        playSessionId: resolvedPlaySessionId,
         alreadyPlayed: true,
         existingCoupons,
       });
