@@ -2,9 +2,21 @@ import { createClient } from '@supabase/supabase-js';
 import { selectWeightedGame } from './selectWeightedGame';
 import type { GamePoolEntry, GameType } from './types';
 
+// The module-level client must opt out of Next.js 14's Data Cache. Without
+// `cache: 'no-store'`, Next.js caches the initial empty GET response for a
+// new session token and serves it on the very next request (the recovery
+// reload), causing the fast-path SELECT to return null even though the row
+// was just inserted — and turning every recovery call into a 409 conflict
+// that falls through to playSessionId: "".
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    global: {
+      fetch: (url: RequestInfo | URL, options: RequestInit = {}) =>
+        fetch(url, { ...options, cache: 'no-store' }),
+    },
+  },
 );
 
 interface ResolvePromotionGameParams {
@@ -101,10 +113,18 @@ export async function resolvePromotionGame({
         .eq('session_token', sessionToken)
         .maybeSingle();
 
+      if (!racedSession?.id) {
+        // The session exists (23505 confirms it) but the SELECT returned nothing —
+        // typically a transient connection-pooler issue. Throw so the outer catch
+        // returns a 500 the client can retry rather than silently returning an
+        // empty playSessionId that breaks downstream coupon lookup.
+        throw new Error(`Race-condition recovery failed: session ${sessionToken} exists but could not be read back.`);
+      }
+
       return {
-        gameType: (racedSession?.selected_game_type as GameType) || selectedGame,
+        gameType: (racedSession.selected_game_type as GameType) || selectedGame,
         isNewSession: false,
-        playSessionId: (racedSession?.id as string) ?? '',
+        playSessionId: racedSession.id as string,
       };
     }
 

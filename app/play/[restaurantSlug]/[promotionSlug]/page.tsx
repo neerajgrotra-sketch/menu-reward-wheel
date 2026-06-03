@@ -8,7 +8,7 @@ import { getGameDefinition } from '@/lib/games/registry';
 import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
 import type { Reward } from '@/types/reward';
 
-type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null };
+type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; logo_url?: string | null };
 type Promotion = { id: string; name: string; slug: string; game_type?: string | null; status: string; coupon_expiry_minutes?: number | null; starts_at?: string | null; ends_at?: string | null; max_spins?: number | null };
 type WonCoupon = { id: string; redemptionId?: string | null; reward: Reward; code: string; issuedAt: number };
 type SessionCoupon = { id: string; code: string; status: string; issuedAt: string; expiresAt: string; rewardLabel: string };
@@ -96,9 +96,15 @@ function AlreadyPlayedView({
     <main className="min-h-screen bg-gradient-to-b from-orange-50 to-amber-100 px-4 py-6 text-stone-950">
       <section className="mx-auto max-w-md pb-12">
         <div className="rounded-3xl bg-white/85 p-5 text-center shadow-xl">
+          {restaurant.logo_url ? (
+            <img src={restaurant.logo_url} alt={restaurant.name} className="mx-auto mb-3 h-16 w-16 rounded-full object-cover shadow" />
+          ) : (
+            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[#FF6B00] text-2xl font-black text-white shadow">
+              {restaurant.name.charAt(0).toUpperCase()}
+            </div>
+          )}
           <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{restaurant.name}</p>
           {address && <p className="mt-1 text-xs font-black uppercase tracking-wide text-stone-500">{address}</p>}
-          <h1 className="mt-2 text-3xl font-black">{promotion.name}</h1>
         </div>
 
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl text-center">
@@ -306,6 +312,13 @@ export default function PromotionPlayPage() {
     <main className="min-h-screen bg-gradient-to-b from-orange-50 to-amber-100 px-4 py-6 text-stone-950">
       <section className="mx-auto max-w-md pb-12">
         <div className="rounded-3xl bg-white/85 p-5 text-center shadow-xl">
+          {restaurant.logo_url ? (
+            <img src={restaurant.logo_url} alt={restaurant.name} className="mx-auto mb-3 h-16 w-16 rounded-full object-cover shadow" />
+          ) : (
+            <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[#FF6B00] text-2xl font-black text-white shadow">
+              {restaurant.name.charAt(0).toUpperCase()}
+            </div>
+          )}
           <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{restaurant.name}</p>
           {address && <p className="mt-1 text-xs font-black uppercase tracking-wide text-stone-500">{address}</p>}
           <h1 className="mt-2 text-3xl font-black">{game.labels.title}</h1>

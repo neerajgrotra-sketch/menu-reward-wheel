@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     const restaurantResult = await supabase
       .from('restaurants')
-      .select('id,name,slug,address_line1,city')
+      .select('id,name,slug,address_line1,city,logo_url')
       .eq('slug', restaurantSlug)
       .single();
 
@@ -87,17 +87,33 @@ export async function GET(request: NextRequest) {
     // they won. One session may have multiple coupons (max_spins > 1).
     // -------------------------------------------------------------------------
     if (!isNewSession) {
-      const existingCoupons = await findSessionCoupons(
-        supabase,
-        playSessionId,
-        promotion.coupon_expiry_minutes,
-      );
+      // resolvePromotionGame may return an empty playSessionId if a transient
+      // DB issue prevented the race-condition read-back. Fall back to a direct
+      // lookup using this route's own service client before giving up.
+      let resolvedPlaySessionId = playSessionId;
+      if (!resolvedPlaySessionId) {
+        const { data: fallbackSession } = await supabase
+          .from('play_sessions')
+          .select('id')
+          .eq('session_token', sessionToken)
+          .eq('promotion_id', promotion.id)
+          .maybeSingle();
+        resolvedPlaySessionId = fallbackSession?.id ?? '';
+        console.warn('[promotion-play] used fallback session lookup', {
+          sessionToken,
+          resolvedPlaySessionId,
+        });
+      }
+
+      const existingCoupons = resolvedPlaySessionId
+        ? await findSessionCoupons(supabase, resolvedPlaySessionId, promotion.coupon_expiry_minutes)
+        : [];
 
       return NextResponse.json({
         restaurant,
         promotion: { ...promotion, game_type: selectedGameType },
         sessionToken,
-        playSessionId,
+        playSessionId: resolvedPlaySessionId,
         alreadyPlayed: true,
         existingCoupons,
       });
@@ -205,11 +221,20 @@ async function findSessionCoupons(
   playSessionId: string,
   couponExpiryMinutes: number | null | undefined,
 ): Promise<SessionCoupon[]> {
+  console.log('[session-recovery] findSessionCoupons called', { playSessionId, couponExpiryMinutes });
+
   const couponResult = await supabase
     .from('coupon_redemptions')
     .select('id, coupon_code, status, issued_at, promotion_reward_id')
     .eq('play_session_id', playSessionId)
     .order('issued_at', { ascending: true });
+
+  console.log('[session-recovery] coupon query result', {
+    playSessionId,
+    count: couponResult.data?.length ?? 0,
+    ids: couponResult.data?.map((c: any) => c.id) ?? [],
+    error: couponResult.error?.message ?? null,
+  });
 
   if (couponResult.error) {
     console.error('[session-recovery] coupon lookup error', couponResult.error.message, { playSessionId });

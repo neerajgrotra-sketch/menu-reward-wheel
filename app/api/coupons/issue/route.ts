@@ -86,11 +86,11 @@ export async function POST(request: Request) {
         play_session_id,
         issued_at: new Date().toISOString(),
       })
-      .select('id,coupon_code,status,issued_at')
+      .select('id,coupon_code,status,issued_at,play_session_id')
       .single();
 
     if (error) {
-      console.error('Coupon issuance insert failed', error.message);
+      console.error('[coupon-issue] insert failed', error.message, { play_session_id });
       return NextResponse.json({ error: 'Coupon could not be saved. Please ask staff for help.' }, { status: 500 });
     }
 
