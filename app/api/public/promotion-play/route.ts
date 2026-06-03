@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
     const restaurantResult = await supabase
       .from('restaurants')
-      .select('id,name,slug,address_line1,city')
+      .select('id,name,slug,address_line1,city,logo_url')
       .eq('slug', restaurantSlug)
       .single();
 
@@ -205,11 +205,20 @@ async function findSessionCoupons(
   playSessionId: string,
   couponExpiryMinutes: number | null | undefined,
 ): Promise<SessionCoupon[]> {
+  console.log('[session-recovery] findSessionCoupons called', { playSessionId, couponExpiryMinutes });
+
   const couponResult = await supabase
     .from('coupon_redemptions')
     .select('id, coupon_code, status, issued_at, promotion_reward_id')
     .eq('play_session_id', playSessionId)
     .order('issued_at', { ascending: true });
+
+  console.log('[session-recovery] coupon query result', {
+    playSessionId,
+    count: couponResult.data?.length ?? 0,
+    ids: couponResult.data?.map((c: any) => c.id) ?? [],
+    error: couponResult.error?.message ?? null,
+  });
 
   if (couponResult.error) {
     console.error('[session-recovery] coupon lookup error', couponResult.error.message, { playSessionId });
