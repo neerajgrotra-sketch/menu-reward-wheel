@@ -68,6 +68,44 @@ export async function GET(request: NextRequest) {
 
     const promotion = promotionResult.data;
 
+    // Resolve game type (idempotent — handles duplicate session gracefully).
+    // Returns the play_sessions.id so downstream routes can store a proper FK.
+    const { gameType: selectedGameType, isNewSession, playSessionId } = await resolvePromotionGame({
+      promotionId: promotion.id,
+      sessionToken,
+      fallbackGameType: (promotion.game_type || 'wheel') as GameType,
+      ipAddress:
+        request.headers.get('x-forwarded-for') ||
+        request.headers.get('x-real-ip') ||
+        undefined,
+      userAgent: request.headers.get('user-agent') || undefined,
+    });
+
+    // -------------------------------------------------------------------------
+    // Session recovery path: session already existed before this request.
+    // Find all coupons issued during this session so the customer can see what
+    // they won. One session may have multiple coupons (max_spins > 1).
+    // -------------------------------------------------------------------------
+    if (!isNewSession) {
+      const existingCoupons = await findSessionCoupons(
+        supabase,
+        playSessionId,
+        promotion.coupon_expiry_minutes,
+      );
+
+      return NextResponse.json({
+        restaurant,
+        promotion: { ...promotion, game_type: selectedGameType },
+        sessionToken,
+        playSessionId,
+        alreadyPlayed: true,
+        existingCoupons,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // New session: enforce promotion rules then return game config + rewards.
+    // -------------------------------------------------------------------------
     if (promotion.status !== 'active') {
       return NextResponse.json({ error: 'This promotion is not live yet.', restaurant, promotion }, { status: 409 });
     }
@@ -81,17 +119,6 @@ export async function GET(request: NextRequest) {
     if (promotion.ends_at && now > new Date(promotion.ends_at)) {
       return NextResponse.json({ error: 'This promotion has ended.', restaurant, promotion }, { status: 409 });
     }
-
-    const selectedGameType = await resolvePromotionGame({
-      promotionId: promotion.id,
-      sessionToken,
-      fallbackGameType: (promotion.game_type || 'wheel') as GameType,
-      ipAddress:
-        request.headers.get('x-forwarded-for') ||
-        request.headers.get('x-real-ip') ||
-        undefined,
-      userAgent: request.headers.get('user-agent') || undefined,
-    });
 
     const rewardsResult = await supabase
       .from('promotion_rewards')
@@ -143,6 +170,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       restaurant,
       sessionToken,
+      playSessionId,
       promotion: {
         ...promotion,
         game_type: selectedGameType,
@@ -157,4 +185,91 @@ export async function GET(request: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type SessionCoupon = {
+  id: string;
+  code: string;
+  status: string;
+  issuedAt: string;
+  expiresAt: string;
+  rewardLabel: string;
+};
+
+async function findSessionCoupons(
+  supabase: ReturnType<typeof makeServiceClient>,
+  playSessionId: string,
+  couponExpiryMinutes: number | null | undefined,
+): Promise<SessionCoupon[]> {
+  const couponResult = await supabase
+    .from('coupon_redemptions')
+    .select('id, coupon_code, status, issued_at, promotion_reward_id')
+    .eq('play_session_id', playSessionId)
+    .order('issued_at', { ascending: true });
+
+  if (couponResult.error) {
+    console.error('[session-recovery] coupon lookup error', couponResult.error.message, { playSessionId });
+    return [];
+  }
+
+  if (!couponResult.data?.length) {
+    console.warn('[session-recovery] no coupons found for play_session_id', playSessionId);
+    return [];
+  }
+
+  const expiryMinutes = couponExpiryMinutes || 20;
+
+  // Fetch all referenced rewards in one query.
+  const rewardIds = Array.from(new Set(couponResult.data.map((c: any) => c.promotion_reward_id).filter(Boolean)));
+  let rewardsById: Record<string, any> = {};
+
+  if (rewardIds.length > 0) {
+    const rewardsResult = await supabase
+      .from('promotion_rewards')
+      .select('id, custom_name, reward_type, reward_value, menu_item_id')
+      .in('id', rewardIds);
+
+    if (!rewardsResult.error && rewardsResult.data) {
+      const menuItemIds = Array.from(new Set(rewardsResult.data.map((r: any) => r.menu_item_id).filter(Boolean)));
+      let menuNamesById: Record<string, string> = {};
+
+      if (menuItemIds.length > 0) {
+        const menuResult = await supabase
+          .from('menu_items')
+          .select('id, name')
+          .in('id', menuItemIds);
+
+        if (!menuResult.error && menuResult.data) {
+          menuNamesById = Object.fromEntries(menuResult.data.map((m: any) => [m.id, m.name]));
+        }
+      }
+
+      rewardsById = Object.fromEntries(
+        rewardsResult.data.map((r: any) => [
+          r.id,
+          { ...r, menuItemName: r.menu_item_id ? menuNamesById[r.menu_item_id] : undefined },
+        ]),
+      );
+    }
+  }
+
+  return couponResult.data.map((coupon: any) => {
+    const issuedAt = coupon.issued_at as string;
+    const expiresAt = new Date(new Date(issuedAt).getTime() + expiryMinutes * 60 * 1000).toISOString();
+    const reward = rewardsById[coupon.promotion_reward_id];
+    const label = reward ? rewardLabel(reward, reward.menuItemName) : 'Reward';
+
+    return {
+      id: coupon.id as string,
+      code: coupon.coupon_code as string,
+      status: coupon.status as string,
+      issuedAt,
+      expiresAt,
+      rewardLabel: label,
+    };
+  });
 }
