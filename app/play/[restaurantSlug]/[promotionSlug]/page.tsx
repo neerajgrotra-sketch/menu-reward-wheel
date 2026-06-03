@@ -11,6 +11,7 @@ import type { Reward } from '@/types/reward';
 type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null };
 type Promotion = { id: string; name: string; slug: string; game_type?: string | null; status: string; coupon_expiry_minutes?: number | null; starts_at?: string | null; ends_at?: string | null; max_spins?: number | null };
 type WonCoupon = { id: string; redemptionId?: string | null; reward: Reward; code: string; issuedAt: number };
+type SessionCoupon = { id: string; code: string; status: string; issuedAt: string; expiresAt: string; rewardLabel: string };
 
 function formatRemaining(ms: number) {
   if (ms <= 0) return 'Expired';
@@ -57,6 +58,7 @@ async function issueCoupon(params: {
   restaurant_id: string;
   coupon_code: string;
   customer_session_id: string;
+  play_session_id: string;
 }) {
   const response = await fetch('/api/coupons/issue', {
     method: 'POST',
@@ -68,6 +70,106 @@ async function issueCoupon(params: {
   if (!response.ok) throw new Error(payload?.error || 'Could not issue coupon.');
   return payload?.coupon || null;
 }
+
+// ---------------------------------------------------------------------------
+// Already-played recovery view
+// ---------------------------------------------------------------------------
+
+function AlreadyPlayedView({
+  restaurant,
+  promotion,
+  coupons,
+  now,
+}: {
+  restaurant: Restaurant | null;
+  promotion: Promotion | null;
+  coupons: SessionCoupon[];
+  now: number;
+}) {
+  if (!restaurant || !promotion) {
+    return <BrandedUnavailablePage message="Promotion unavailable." />;
+  }
+
+  const address = [restaurant.address_line1, restaurant.city].filter(Boolean).join(', ');
+
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-orange-50 to-amber-100 px-4 py-6 text-stone-950">
+      <section className="mx-auto max-w-md pb-12">
+        <div className="rounded-3xl bg-white/85 p-5 text-center shadow-xl">
+          <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">{restaurant.name}</p>
+          {address && <p className="mt-1 text-xs font-black uppercase tracking-wide text-stone-500">{address}</p>}
+          <h1 className="mt-2 text-3xl font-black">{promotion.name}</h1>
+        </div>
+
+        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl text-center">
+          <p className="text-4xl">🎮</p>
+          <h2 className="mt-2 text-2xl font-black text-[#FF6B00]">You already played this promotion.</h2>
+          {coupons.length > 0 ? (
+            <p className="mt-2 text-sm font-bold text-stone-600">
+              Here {coupons.length === 1 ? 'is your reward' : `are your ${coupons.length} rewards`} from this session. Show the code to staff when ordering.
+            </p>
+          ) : (
+            <p className="mt-2 text-sm font-bold text-stone-600">
+              You have already participated in this promotion. If you believe this is an error, please ask a staff member for help.
+            </p>
+          )}
+        </div>
+
+        {coupons.map((coupon) => {
+          const isRedeemed = coupon.status === 'redeemed';
+          const isExpired = now >= new Date(coupon.expiresAt).getTime();
+          const msRemaining = !isExpired ? new Date(coupon.expiresAt).getTime() - now : 0;
+
+          return (
+            <div key={coupon.id} className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+              <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Reward</p>
+              <p className="mt-1 text-2xl font-black">{coupon.rewardLabel}</p>
+
+              {isRedeemed ? (
+                <div className="mt-4 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4 text-center">
+                  <p className="text-lg font-black text-blue-700">✅ Coupon already redeemed.</p>
+                  <p className="mt-1 text-sm font-bold text-stone-600">This coupon has already been used. Thank you for visiting!</p>
+                  <p className="mt-2 text-sm font-bold text-stone-500">Code: {coupon.code}</p>
+                </div>
+              ) : isExpired ? (
+                <div className="mt-4 rounded-2xl border-2 border-red-200 bg-red-50 p-4 text-center">
+                  <p className="text-lg font-black text-red-600">⏰ Coupon has expired.</p>
+                  <p className="mt-1 text-sm font-bold text-stone-600">This coupon expired. Please ask a staff member if you need assistance.</p>
+                  <p className="mt-2 text-sm font-bold text-stone-500">Code: {coupon.code}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-4 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">
+                    <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
+                    <p className="mt-1 break-all text-3xl font-black tracking-wider">{coupon.code}</p>
+                  </div>
+                  <p className="mt-3 text-sm font-bold text-green-700">
+                    Expires in {formatRemaining(msRemaining)}
+                  </p>
+                  <div className="mt-4 rounded-3xl bg-stone-50 p-4 text-center">
+                    <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan to Redeem</p>
+                    <img
+                      src={couponQrUrl(coupon.code)}
+                      alt="Coupon QR code"
+                      className="mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow"
+                    />
+                  </div>
+                  <p className="mt-3 text-xs text-stone-500">
+                    Show this code to staff before ordering. One reward per customer/session. Standard restaurant terms apply.
+                  </p>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </section>
+    </main>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main play page
+// ---------------------------------------------------------------------------
 
 export default function PromotionPlayPage() {
   const { restaurantSlug, promotionSlug } = useParams() as { restaurantSlug: string; promotionSlug: string };
@@ -85,6 +187,11 @@ export default function PromotionPlayPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [couponIssueError, setCouponIssueError] = useState('');
+  const [alreadyPlayed, setAlreadyPlayed] = useState(false);
+  const [existingCoupons, setExistingCoupons] = useState<SessionCoupon[]>([]);
+  // UUID of the play_sessions row — forwarded to the coupon issue route so it
+  // can store the proper play_session_id FK on coupon_redemptions.
+  const [playSessionId, setPlaySessionId] = useState<string>('');
 
   const game = useMemo(() => getGameDefinition(promotion?.game_type), [promotion?.game_type]);
   const PlayComponent = game.PlayComponent;
@@ -130,6 +237,15 @@ export default function PromotionPlayPage() {
 
       setRestaurant(payload.restaurant || null);
       setPromotion(payload.promotion || null);
+      setPlaySessionId(payload.playSessionId || '');
+
+      if (payload.alreadyPlayed) {
+        setAlreadyPlayed(true);
+        setExistingCoupons(payload.existingCoupons || []);
+        setLoading(false);
+        return;
+      }
+
       setRewards(payload.rewards || []);
       setLoading(false);
     }
@@ -161,10 +277,11 @@ export default function PromotionPlayPage() {
           restaurant_id: restaurant.id,
           coupon_code: code,
           customer_session_id: getCustomerSessionId(),
+          play_session_id: playSessionId,
         });
         redemptionId = issued?.id || null;
-      } catch (error: any) {
-        setCouponIssueError(error?.message || 'Coupon was shown, but audit record could not be saved.');
+      } catch (err: any) {
+        setCouponIssueError(err?.message || 'Coupon was shown, but audit record could not be saved.');
       }
 
       const nextCoupon: WonCoupon = { id: `${issuedAt}-${Math.random()}`, redemptionId, reward: selected, code, issuedAt };
@@ -179,6 +296,7 @@ export default function PromotionPlayPage() {
 
   if (loading) return <div className="min-h-screen bg-[#FFF8F0] p-6 text-lg font-bold">Loading promotion...</div>;
   if (error) return <BrandedUnavailablePage message={error} restaurant={restaurant} />;
+  if (alreadyPlayed) return <AlreadyPlayedView restaurant={restaurant} promotion={promotion} coupons={existingCoupons} now={now} />;
   if (!restaurant || !promotion) return <BrandedUnavailablePage message="Promotion unavailable." />;
   if (rewards.length < 2) return <BrandedUnavailablePage message="This promotion needs at least 2 active rewards before customers can play." restaurant={restaurant} />;
 

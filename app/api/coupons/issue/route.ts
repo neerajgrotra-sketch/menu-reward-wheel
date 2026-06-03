@@ -26,6 +26,9 @@ export async function POST(request: Request) {
     const restaurant_id = body?.restaurant_id;
     const coupon_code = body?.coupon_code;
     const customer_session_id = body?.customer_session_id || null;
+    // UUID of the play_sessions row — links this coupon to the session that produced it.
+    // Nullable: coupons issued before the play_session FK migration will have null here.
+    const play_session_id = body?.play_session_id || null;
 
     if (!promotion_id || !promotion_reward_id || !restaurant_id || !coupon_code) {
       return NextResponse.json({ error: 'Missing required coupon fields.' }, { status: 400 });
@@ -80,6 +83,7 @@ export async function POST(request: Request) {
         coupon_code,
         status: 'issued',
         customer_session_id,
+        play_session_id,
         issued_at: new Date().toISOString(),
       })
       .select('id,coupon_code,status,issued_at')
