@@ -1,51 +1,51 @@
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const ONE_MINUTE_MS = 60_000;
-const ONE_HOUR_MS = 60 * ONE_MINUTE_MS;
-const ONE_DAY_MS = 24 * ONE_HOUR_MS;
-const TWO_DAYS_MS = 2 * ONE_DAY_MS;
-const SEVEN_DAYS_MS = 7 * ONE_DAY_MS;
+const ONE_HOUR_MS = 60 * 60_000;
+const TWO_DAYS_MS = 48 * ONE_HOUR_MS;
+const SEVEN_DAYS_MS = 7 * 24 * ONE_HOUR_MS;
 
 /**
- * Human-readable countdown string.
- * < 1 hour    → "18m"
- * 1h – 23h59m → "3h 42m"       (minutes always shown)
- * 24h – 47h59m → "24h" / "36h" (whole hours, no minutes — avoids "1d 0h" for 24h)
- * ≥ 48 hours  → "2d 0h" / "6d 14h"
+ * Urgency-aware countdown string, updated every second by the caller.
+ *
+ * < 1 hour   → "19:42"         live MM:SS — maximum urgency
+ * 1h – 47h   → "7h 59m 42s"   live H M S — still urgent, no raw minutes
+ * ≥ 48 hours → "6d 14h"       day/hour only — second-level updates unnecessary
  */
 export function formatCouponTimeRemaining(msRemaining: number): string {
   if (msRemaining <= 0) return 'Expired';
 
-  const totalMinutes = Math.floor(msRemaining / ONE_MINUTE_MS);
+  const totalSeconds = Math.floor(msRemaining / 1000);
+  const totalMinutes = Math.floor(totalSeconds / 60);
   const totalHours = Math.floor(totalMinutes / 60);
   const totalDays = Math.floor(totalHours / 24);
 
+  // ≥ 48 hours: days + hours, no seconds needed
   if (msRemaining >= TWO_DAYS_MS) {
     const hours = totalHours % 24;
     return `${totalDays}d ${hours}h`;
   }
 
-  if (totalHours >= 24) {
-    // 24 h ≤ remaining < 48 h — display as whole hours, no minutes
-    return `${totalHours}h`;
-  }
-
+  // 1 hour to < 48 hours: H mm ss
   if (totalHours >= 1) {
     const minutes = totalMinutes % 60;
-    return `${totalHours}h ${minutes.toString().padStart(2, '0')}m`;
+    const seconds = totalSeconds % 60;
+    return `${totalHours}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
   }
 
-  return `${totalMinutes}m`;
+  // < 1 hour: MM:SS — classic urgent countdown
+  const mins = totalMinutes.toString().padStart(2, '0');
+  const secs = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${mins}:${secs}`;
 }
 
 /**
- * Returns a "Valid until" date string with local timezone abbreviation when
- * msRemaining ≥ 24 h, null otherwise.
+ * Returns a "Valid until" date string with local TZ abbreviation for ≥ 48 h rewards.
  * ≥ 7 days → "Jun 15, 2026 at 8:00 PM EDT"
- * 1–6 days → "Jun 15, 2026 8:00 PM EDT"
+ * 2–6 days → "Jun 15, 2026 8:00 PM EDT"
+ * < 48 h   → null (urgency countdown is sufficient)
  */
 export function formatCouponValidUntil(expiresAtMs: number, msRemaining: number): string | null {
-  if (msRemaining < ONE_DAY_MS) return null;
+  if (msRemaining < TWO_DAYS_MS) return null;
 
   const d = new Date(expiresAtMs);
   const month = MONTHS[d.getMonth()];
