@@ -35,7 +35,11 @@ export default function SpinWheelRuntime({
   useEffect(() => {
     if (!playing && state.phase === 'spinning') {
       setState((current) => reduceSpinWheelState(current, { type: 'START_SETTLING' }));
+    }
+  }, [playing, state.phase]);
 
+  useEffect(() => {
+    if (!playing && state.phase === 'settling') {
       const timer = window.setTimeout(() => {
         setState((current) => reduceSpinWheelState(current, { type: 'COMPLETE' }));
       }, 450);
