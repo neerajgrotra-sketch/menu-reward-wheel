@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { resolvePromotionGame } from '@/lib/game-pool/resolvePromotionGame';
+import { resolveSessionPlayState } from '@/lib/session-play-state';
 import type { GameType } from '@/lib/game-pool/types';
 
 function makeServiceClient() {
@@ -82,45 +83,65 @@ export async function GET(request: NextRequest) {
     });
 
     // -------------------------------------------------------------------------
-    // Session recovery path: session already existed before this request.
-    // Find all coupons issued during this session so the customer can see what
-    // they won. One session may have multiple coupons (max_spins > 1).
+    // Resolve the definitive play session ID for this request.
+    // For a new session this is the freshly-inserted row's ID.
+    // For an existing session it comes from resolvePromotionGame; a fallback
+    // lookup handles the rare case where a transient DB issue prevented
+    // the race-condition read-back from returning it.
     // -------------------------------------------------------------------------
-    if (!isNewSession) {
-      // resolvePromotionGame may return an empty playSessionId if a transient
-      // DB issue prevented the race-condition read-back. Fall back to a direct
-      // lookup using this route's own service client before giving up.
-      let resolvedPlaySessionId = playSessionId;
-      if (!resolvedPlaySessionId) {
-        const { data: fallbackSession } = await supabase
-          .from('play_sessions')
-          .select('id')
-          .eq('session_token', sessionToken)
-          .eq('promotion_id', promotion.id)
-          .maybeSingle();
-        resolvedPlaySessionId = fallbackSession?.id ?? '';
-        console.warn('[promotion-play] used fallback session lookup', {
-          sessionToken,
-          resolvedPlaySessionId,
-        });
-      }
+    let resolvedPlaySessionId = playSessionId;
 
-      const existingCoupons = resolvedPlaySessionId
-        ? await findSessionCoupons(supabase, resolvedPlaySessionId, promotion.coupon_expiry_minutes)
-        : [];
-
-      return NextResponse.json({
-        restaurant,
-        promotion: { ...promotion, game_type: selectedGameType },
+    if (!isNewSession && !resolvedPlaySessionId) {
+      const { data: fallbackSession } = await supabase
+        .from('play_sessions')
+        .select('id')
+        .eq('session_token', sessionToken)
+        .eq('promotion_id', promotion.id)
+        .maybeSingle();
+      resolvedPlaySessionId = fallbackSession?.id ?? '';
+      console.warn('[promotion-play] used fallback session lookup', {
         sessionToken,
-        playSessionId: resolvedPlaySessionId,
-        alreadyPlayed: true,
-        existingCoupons,
+        resolvedPlaySessionId,
       });
     }
 
     // -------------------------------------------------------------------------
-    // New session: enforce promotion rules then return game config + rewards.
+    // Session recovery: determine how many plays have actually been used.
+    // Source of truth is coupon issuance, not session creation.
+    // -------------------------------------------------------------------------
+    let resumedPlaysUsed = 0;
+    let resumedExistingCoupons: SessionCoupon[] = [];
+
+    if (!isNewSession) {
+      const existingCoupons = resolvedPlaySessionId
+        ? await findSessionCoupons(supabase, resolvedPlaySessionId, promotion.coupon_expiry_minutes)
+        : [];
+
+      const maxSpins = Math.max(1, promotion.max_spins ?? 1);
+      const playState = resolveSessionPlayState(existingCoupons, maxSpins);
+
+      if (playState.alreadyPlayed) {
+        // All plays consumed — customer cannot play again.
+        return NextResponse.json({
+          restaurant,
+          promotion: { ...promotion, game_type: selectedGameType },
+          sessionToken,
+          playSessionId: resolvedPlaySessionId,
+          alreadyPlayed: true,
+          playsUsed: playState.playsUsed,
+          playsRemaining: 0,
+          existingCoupons,
+        });
+      }
+
+      // Session exists but plays remain (unplayed or partial) — resume.
+      resumedPlaysUsed = playState.playsUsed;
+      resumedExistingCoupons = existingCoupons;
+    }
+
+    // -------------------------------------------------------------------------
+    // Shared path: new sessions + resumed (unplayed / partial) sessions.
+    // Validate promotion state then return game config and rewards.
     // -------------------------------------------------------------------------
     if (promotion.status !== 'active') {
       return NextResponse.json({ error: 'This promotion is not live yet.', restaurant, promotion }, { status: 409 });
@@ -183,15 +204,21 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    const maxSpins = Math.max(1, promotion.max_spins ?? 1);
+
     return NextResponse.json({
       restaurant,
       sessionToken,
-      playSessionId,
+      playSessionId: resolvedPlaySessionId,
       promotion: {
         ...promotion,
         game_type: selectedGameType,
       },
       rewards,
+      alreadyPlayed: false,
+      playsUsed: resumedPlaysUsed,
+      playsRemaining: maxSpins - resumedPlaysUsed,
+      existingCoupons: resumedExistingCoupons,
     });
   } catch (error: any) {
     return NextResponse.json(

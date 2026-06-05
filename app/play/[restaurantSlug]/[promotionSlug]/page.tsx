@@ -302,6 +302,32 @@ export default function PromotionPlayPage() {
         return;
       }
 
+      // Seed plays already consumed this session (unplayed = 0, partial = N).
+      // Source of truth is coupon issuance from the server, not local state.
+      if (typeof payload.playsUsed === 'number' && payload.playsUsed > 0) {
+        setPlaysUsed(payload.playsUsed);
+
+        // Restore previously-won coupons into the play view so the customer can
+        // see their existing rewards alongside their remaining plays.
+        const prior = (payload.existingCoupons || []) as SessionCoupon[];
+        if (prior.length > 0) {
+          const restored: WonCoupon[] = prior.map((c) => ({
+            id: c.id,
+            redemptionId: c.id,
+            reward: {
+              id: c.id,
+              label: c.rewardLabel,
+              description: c.rewardLabel,
+              weight: 1,
+              terms: 'Show this code to staff before ordering.',
+            },
+            code: c.code,
+            issuedAt: new Date(c.issuedAt).getTime(),
+          }));
+          setWonCoupons(restored);
+        }
+      }
+
       setRewards(payload.rewards || []);
 
       // Determine whether the Save Reward panel should appear after the first win.
