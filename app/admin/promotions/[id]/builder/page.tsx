@@ -281,7 +281,10 @@ export default function PromotionBuilderPage() {
         .select('game_type')
         .eq('promotion_id', id)
         .eq('enabled', true);
-      setGamePool(assignmentData?.length ? assignmentData.map((a: any) => a.game_type) : [loadedPromotion.game_type || 'spin_wheel']);
+      // Additional experiences only — primary is never stored in the checklist.
+      // Filter defensively to remove any legacy rows where the primary was saved into assignments.
+      const primaryType = loadedPromotion.game_type || 'spin_wheel';
+      setGamePool((assignmentData ?? []).map((a: any) => a.game_type).filter((gt: string) => gt !== primaryType));
 
       setLoading(false);
     }
@@ -395,7 +398,6 @@ export default function PromotionBuilderPage() {
     if (!dailyLimit || dailyLimit < 1) messages.push('Daily promotion limit is required.');
     if (!maxSpins || maxSpins < 1) messages.push('Max spins per customer is required.');
     if (!couponExpiryMinutes || couponExpiryMinutes < 1) messages.push('Coupon expiry time is required.');
-    if (gamePool.length === 0) messages.push('Select at least one game in the Game Pool.');
     if (!startsAt) messages.push('Start date/time is required.');
     if (!endsAt) messages.push('End date/time is required.');
     if (startsAt && endsAt && new Date(startsAt) >= new Date(endsAt)) messages.push('End date/time must be after start date/time.');
@@ -407,7 +409,7 @@ export default function PromotionBuilderPage() {
     });
 
     return messages;
-  }, [rewards, dailyLimit, maxSpins, couponExpiryMinutes, startsAt, endsAt, gamePool]);
+  }, [rewards, dailyLimit, maxSpins, couponExpiryMinutes, startsAt, endsAt]);
 
   function markDirty() {
     setSaved(false);
@@ -493,11 +495,13 @@ export default function PromotionBuilderPage() {
       }
     }
 
-    // Sync game pool: delete-then-insert so removed games are cleaned up.
+    // Sync additional experiences — primary (promotion.game_type) is always implicit,
+    // never stored in promotion_game_assignments, resolved by resolvePromotionGame at runtime.
+    const additionalGames = gamePool.filter((gt) => gt !== (promotion.game_type || 'spin_wheel'));
     await supabase.from('promotion_game_assignments').delete().eq('promotion_id', promotion.id);
-    if (gamePool.length > 0) {
+    if (additionalGames.length > 0) {
       await supabase.from('promotion_game_assignments').insert(
-        gamePool.map((gt) => ({ promotion_id: promotion.id, game_type: gt, weight: 1, enabled: true }))
+        additionalGames.map((gt) => ({ promotion_id: promotion.id, game_type: gt, weight: 1, enabled: true }))
       );
     }
 
@@ -615,23 +619,57 @@ export default function PromotionBuilderPage() {
         <div className="rounded-[2rem] bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 4: Promotion Rules</p><div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="text-sm font-black text-stone-700">Daily Promotion Limit<input type="number" min={1} value={dailyLimit} onChange={(event) => { markDirty(); setDailyLimit(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label><label className="text-sm font-black text-stone-700">Max Spins Per Customer<input type="number" min={1} value={maxSpins} onChange={(event) => { markDirty(); setMaxSpins(Number(event.target.value)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label><div className="text-sm font-black text-stone-700 sm:col-span-2"><p>Coupon Validity</p><p className="mt-0.5 text-xs font-bold text-stone-400">Choose how long the won coupon remains valid after the customer plays.</p><select value={expiryPreset} onChange={(event) => { markDirty(); const val = event.target.value; setExpiryPreset(val); if (val !== 'custom') setCouponExpiryMinutes(Number(val)); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold">{EXPIRY_PRESETS.map((p) => (<option key={p.minutes} value={String(p.minutes)}>{p.label}</option>))}<option value="custom">Custom</option></select>{expiryPreset === 'custom' && (<div className="mt-2 flex gap-2"><input type="number" min={1} value={customExpiryValue} onChange={(event) => { markDirty(); const v = Number(event.target.value) || 1; setCustomExpiryValue(v); const mult = customExpiryUnit === 'days' ? 1440 : customExpiryUnit === 'hours' ? 60 : 1; setCouponExpiryMinutes(v * mult); }} className="w-24 rounded-2xl border border-stone-200 px-3 py-3 font-bold" /><select value={customExpiryUnit} onChange={(event) => { markDirty(); const unit = event.target.value as 'minutes' | 'hours' | 'days'; setCustomExpiryUnit(unit); const mult = unit === 'days' ? 1440 : unit === 'hours' ? 60 : 1; setCouponExpiryMinutes(customExpiryValue * mult); }} className="flex-1 rounded-2xl border border-stone-200 px-3 py-3 font-bold"><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option></select></div>)}<p className="mt-2 text-xs font-bold text-stone-400">{couponExpiryMinutes < 60 ? `Valid for ${couponExpiryMinutes} minute${couponExpiryMinutes !== 1 ? 's' : ''} after win` : couponExpiryMinutes < 1440 ? `Valid for ${Math.round(couponExpiryMinutes / 60)} hour${Math.round(couponExpiryMinutes / 60) !== 1 ? 's' : ''} after win` : `Valid for ${Math.round(couponExpiryMinutes / 1440)} day${Math.round(couponExpiryMinutes / 1440) !== 1 ? 's' : ''} after win`}</p></div><label className="text-sm font-black text-stone-700">Start Date/Time<input type="datetime-local" value={startsAt} onChange={(event) => { markDirty(); setStartsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label><label className="text-sm font-black text-stone-700">End Date/Time<input type="datetime-local" value={endsAt} onChange={(event) => { markDirty(); setEndsAt(event.target.value); }} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label></div><label className="mt-4 flex items-center gap-3 rounded-2xl bg-stone-50 p-4 text-sm font-black"><input type="checkbox" checked={stopOnWin} onChange={(event) => { markDirty(); setStopOnWin(event.target.checked); }} className="h-5 w-5" />Stop on win</label></div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl">
-          <p className="text-sm font-black uppercase text-[#FF6B00]">Game Pool</p>
-          <p className="mt-1 text-sm font-bold text-stone-600">Select which games customers can play. When multiple games are selected, the game is randomized per customer scan.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {POOL_GAMES.map((game) => {
-              const selected = gamePool.includes(game.type);
-              return (
-                <label key={game.type} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 p-4 transition-colors ${selected ? 'border-[#FF6B00] bg-orange-50' : 'border-stone-100 bg-stone-50'}`}>
-                  <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.type] : current.filter((t) => t !== game.type)); }} className="h-5 w-5 accent-[#FF6B00]" />
-                  <span className="text-xl">{game.icon}</span>
-                  <span className="text-sm font-black">{game.name}</span>
-                </label>
-              );
-            })}
-          </div>
-          {gamePool.length > 1 && <p className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">🎲 {gamePool.length} games selected — randomized per scan with equal probability.</p>}
-          {gamePool.length === 1 && <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-sm font-bold text-stone-500">{POOL_GAMES.find((g) => g.type === gamePool[0])?.icon} Single game — all customers see the same experience.</p>}
-          {gamePool.length === 0 && <p className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-black text-red-700">Select at least one game.</p>}
+          <p className="text-sm font-black uppercase text-[#FF6B00]">Customer Experiences</p>
+          <p className="mt-1 text-sm font-bold text-stone-600">Choose additional experiences customers may receive. Your Primary Experience is automatically included.</p>
+
+          {/* Primary Experience — always active, derived from promotions.game_type */}
+          {(() => {
+            const primary = POOL_GAMES.find((g) => g.type === (promotion?.game_type || 'spin_wheel'));
+            return (
+              <div className="mt-4 flex items-center gap-3 rounded-2xl bg-stone-50 p-4 ring-2 ring-stone-200">
+                <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-xs font-black uppercase tracking-wide text-stone-400 shadow-sm">Primary</span>
+                <span className="text-xl">{primary?.icon ?? '🎯'}</span>
+                <span className="text-sm font-black">{primary?.name ?? 'Spin Wheel'}</span>
+                <span className="ml-auto text-xs font-bold text-stone-400">Always included</span>
+              </div>
+            );
+          })()}
+
+          {/* Additional experiences checklist — primary excluded */}
+          {(() => {
+            const primaryType = promotion?.game_type || 'spin_wheel';
+            const additionalGames = POOL_GAMES.filter((g) => g.type !== primaryType);
+            return (
+              <>
+                <div className="mt-4 flex items-center justify-between">
+                  <p className="text-xs font-black uppercase tracking-wide text-stone-400">Additional Experiences</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalGames.map((g) => g.type as string)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
+                    <button type="button" onClick={() => { markDirty(); setGamePool([]); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Clear All</button>
+                  </div>
+                </div>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  {additionalGames.map((game) => {
+                    const selected = gamePool.includes(game.type);
+                    return (
+                      <label key={game.type} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 p-4 transition-colors ${selected ? 'border-[#FF6B00] bg-orange-50' : 'border-stone-100 bg-stone-50'}`}>
+                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.type] : current.filter((t) => t !== game.type)); }} className="h-5 w-5 accent-[#FF6B00]" />
+                        <span className="text-xl">{game.icon}</span>
+                        <span className="text-sm font-black">{game.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Status */}
+          {gamePool.length === 0 && (() => {
+            const primary = POOL_GAMES.find((g) => g.type === (promotion?.game_type || 'spin_wheel'));
+            return <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-sm font-bold text-stone-500">Single Experience Mode — All customers receive: {primary?.icon} {primary?.name}.</p>;
+          })()}
+          {gamePool.length > 0 && <p className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">🎲 Randomized Experience Mode — Customers may receive one of {gamePool.length + 1} experiences.</p>}
         </div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 5: Launch</p>{errors.length ? <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700"><p className="font-black">Fix before launch:</p><ul className="mt-2 list-disc space-y-1 pl-5">{errors.map((message) => <li key={message}>{message}</li>)}</ul></div> : isLive ? <div className="mt-4 rounded-2xl bg-green-50 p-4 text-sm font-black text-green-700">Live now. Customers can play from the link or reusable QR code.</div> : isPending ? <div className="mt-4 rounded-2xl bg-yellow-50 p-4 text-sm font-black text-yellow-800">Scheduled / Pending. This promotion is published but will not be playable until {formatDisplayDate(fromLocalDateTimeInput(startsAt))}.</div> : isEnded ? <div className="mt-4 rounded-2xl bg-stone-100 p-4 text-sm font-black text-stone-700">This promotion has ended. Update the dates and publish again if you want to reactivate it.</div> : <div className="mt-4 rounded-2xl bg-green-50 p-4 text-sm font-black text-green-700">Ready to publish.</div>}<div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={() => savePromotion()} disabled={saving || launching} className="rounded-3xl bg-white px-5 py-5 text-lg font-black text-[#FF6B00] shadow ring-1 ring-orange-100 disabled:bg-stone-200">{saving ? 'Saving...' : 'Save Changes'}</button><button onClick={launch} disabled={!!errors.length || saving || launching} className="rounded-3xl bg-green-600 px-5 py-5 text-lg font-black text-white shadow-xl disabled:bg-stone-300">{launching ? 'Publishing...' : isPending ? 'Update Schedule' : isLive ? 'Update Live Promotion' : 'Publish Promotion'}</button></div>{(isLive || isPending) && <div className="mt-6 rounded-3xl border border-green-100 bg-green-50 p-5 text-center"><p className="text-2xl font-black text-green-800">{isLive ? 'Promotion is live' : 'Promotion is scheduled'}</p><p className="mt-2 break-all text-sm font-bold text-green-700">{full}</p>{isLive ? <><div className="mt-4 inline-block rounded-3xl bg-white p-4 shadow"><img alt="Promotion QR code" src={qrUrl} className="h-48 w-48" /></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><a href={play} target="_blank" rel="noreferrer" className="rounded-2xl bg-[#FF6B00] px-5 py-4 text-center text-sm font-black text-white">Open Promotion</a><a href={`/admin/promotions/${promotion.id}/print`} target="_blank" rel="noreferrer" className="rounded-2xl bg-green-600 px-5 py-4 text-center text-sm font-black text-white">Print Kit</a></div></> : <p className="mt-3 rounded-2xl bg-yellow-50 p-3 text-sm font-black text-yellow-800">QR and direct play link will become playable at the scheduled start time.</p>}</div>}</div>
