@@ -69,23 +69,31 @@ export async function resolvePromotionGame({
     throw new Error(`Failed to fetch game assignments: ${error.message}`);
   }
 
-  const gamePool: GamePoolEntry[] =
-    assignments?.map((assignment) => ({
-      gameType: assignment.game_type as GameType,
-      weight: assignment.weight,
-      enabled: assignment.enabled,
-    })) ?? [];
+  // Build the effective pool: primary experience always leads, followed by
+  // additional experiences from promotion_game_assignments.
+  // De-duplicate by normalised game_type: 'wheel' and 'spin_wheel' are the same
+  // game stored under two historical identifiers and must count as one slot.
+  const normType = (gt: string) => (gt === 'wheel' ? 'spin_wheel' : gt);
+  const seen = new Set<string>();
+  const effectivePool: GamePoolEntry[] = [];
 
-  let selectedGame: GameType;
-
-  if (gamePool.length > 0) {
-    selectedGame = selectWeightedGame(gamePool).gameType;
-  } else {
-    if (!fallbackGameType) {
-      throw new Error('No game pool assignments or fallback game type available');
-    }
-    selectedGame = fallbackGameType;
+  if (fallbackGameType) {
+    seen.add(normType(fallbackGameType));
+    effectivePool.push({ gameType: fallbackGameType, weight: 1, enabled: true });
   }
+
+  for (const a of (assignments ?? [])) {
+    if (!seen.has(normType(a.game_type))) {
+      seen.add(normType(a.game_type));
+      effectivePool.push({ gameType: a.game_type as GameType, weight: a.weight, enabled: a.enabled });
+    }
+  }
+
+  if (effectivePool.length === 0) {
+    throw new Error('No game pool assignments or fallback game type available');
+  }
+
+  const selectedGame = selectWeightedGame(effectivePool).gameType;
 
   // Insert new session and return the generated id.
   // If a concurrent request already inserted the same token (race condition),
