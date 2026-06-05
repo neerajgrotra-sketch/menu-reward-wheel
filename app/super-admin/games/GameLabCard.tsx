@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { RewardWheel, getRewardWheelTargetRotation } from '@/components/RewardWheel';
 import { createCouponCode } from '@/lib/rewards';
+import { formatCouponTimeRemaining, formatCouponValidUntil } from '@/lib/coupon-expiry';
 import type { Reward } from '@/types/reward';
 import { updateGame } from './actions';
 
@@ -93,13 +94,6 @@ function readWheelConfig(game: GameForLab) {
   } satisfies Required<WheelConfig>;
 }
 
-function formatRemaining(ms: number) {
-  if (ms <= 0) return 'Expired';
-  const totalSeconds = Math.ceil(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
 
 function couponQrUrl(code: string) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(code)}`;
@@ -152,6 +146,12 @@ function SpinWheelPreview({ game, saveState }: { game: GameForLab; saveState: Sa
   const [spinning, setSpinning] = useState(false);
   const [lastResult, setLastResult] = useState('Not tested yet');
   const [labCoupon, setLabCoupon] = useState<LabCoupon | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const minSegments = game.min_rewards;
   const maxSegments = game.max_rewards;
   const segmentCount = Math.max(2, Math.min(10, maxSegments));
@@ -227,7 +227,9 @@ function SpinWheelPreview({ game, saveState }: { game: GameForLab; saveState: Sa
     }, transitionDurationMs);
   }
 
-  const remaining = labCoupon ? formatRemaining(labCoupon.expiresAt - Date.now()) : null;
+  const labMs = labCoupon ? labCoupon.expiresAt - now : 0;
+  const labTimeStr = labCoupon ? formatCouponTimeRemaining(labMs) : null;
+  const labValidUntil = labCoupon ? formatCouponValidUntil(labCoupon.expiresAt, labMs) : null;
 
   return (
     <div className="rounded-[2rem] bg-gradient-to-b from-orange-50 to-amber-100 p-5 text-stone-950 shadow-xl">
@@ -263,7 +265,8 @@ function SpinWheelPreview({ game, saveState }: { game: GameForLab; saveState: Sa
             <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
             <p className="mt-1 break-all text-3xl font-black tracking-wider">{labCoupon.code}</p>
           </div>
-          <p className="mt-3 text-sm font-black text-red-600">Expires in {remaining}</p>
+          <p className="mt-3 text-sm font-bold text-green-700">⏰ Expires in {labTimeStr}</p>
+          {labValidUntil && <p className="mt-1 text-xs font-bold text-stone-500">📅 Valid until {labValidUntil}</p>}
           <div className="relative mt-4 rounded-3xl bg-stone-50 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p>
             <img src={couponQrUrl(labCoupon.code)} alt="Lab coupon QR code" className="mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow" />

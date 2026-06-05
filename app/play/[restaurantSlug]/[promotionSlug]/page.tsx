@@ -6,6 +6,7 @@ import confetti from 'canvas-confetti';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
 import { getGameDefinition } from '@/lib/games/registry';
 import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
+import { formatCouponTimeRemaining, formatCouponValidUntil } from '@/lib/coupon-expiry';
 import type { Reward } from '@/types/reward';
 
 type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; logo_url?: string | null };
@@ -13,12 +14,17 @@ type Promotion = { id: string; name: string; slug: string; game_type?: string | 
 type WonCoupon = { id: string; redemptionId?: string | null; reward: Reward; code: string; issuedAt: number };
 type SessionCoupon = { id: string; code: string; status: string; issuedAt: string; expiresAt: string; rewardLabel: string };
 
-function formatRemaining(ms: number) {
-  if (ms <= 0) return 'Expired';
-  const totalSeconds = Math.ceil(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+function CouponExpiryBlock({ expiresAtMs, now }: { expiresAtMs: number; now: number }) {
+  const ms = expiresAtMs - now;
+  if (ms <= 0) return null;
+  const timeStr = formatCouponTimeRemaining(ms);
+  const validUntil = formatCouponValidUntil(expiresAtMs, ms);
+  return (
+    <>
+      <p className="mt-3 text-sm font-bold text-green-700">⏰ Expires in {timeStr}</p>
+      {validUntil && <p className="mt-1 text-xs font-bold text-stone-500">📅 Valid until {validUntil}</p>}
+    </>
+  );
 }
 
 function couponQrUrl(code: string) {
@@ -124,7 +130,6 @@ function AlreadyPlayedView({
         {coupons.map((coupon) => {
           const isRedeemed = coupon.status === 'redeemed';
           const isExpired = now >= new Date(coupon.expiresAt).getTime();
-          const msRemaining = !isExpired ? new Date(coupon.expiresAt).getTime() - now : 0;
 
           return (
             <div key={coupon.id} className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
@@ -149,9 +154,7 @@ function AlreadyPlayedView({
                     <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
                     <p className="mt-1 break-all text-3xl font-black tracking-wider">{coupon.code}</p>
                   </div>
-                  <p className="mt-3 text-sm font-bold text-green-700">
-                    Expires in {formatRemaining(msRemaining)}
-                  </p>
+                  <CouponExpiryBlock expiresAtMs={new Date(coupon.expiresAt).getTime()} now={now} />
                   <div className="mt-4 rounded-3xl bg-stone-50 p-4 text-center">
                     <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan to Redeem</p>
                     <img
@@ -348,10 +351,10 @@ export default function PromotionPlayPage() {
 
         {couponIssueError && <div className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-black text-red-700">{couponIssueError}</div>}
 
-        {wonCoupons.length > 0 && <section className="mt-6 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Rewards</p><div className="mt-4 space-y-4">{wonCoupons.map((item, index) => { const expiresAt = item.issuedAt + expiryMinutes * 60 * 1000; const expired = now >= expiresAt; return <button key={item.id} onClick={() => { setActiveCouponId(item.id); setShowReveal(true); }} className="relative w-full rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left shadow-sm">{expired && <span className="absolute right-3 top-3 rotate-[-8deg] rounded-lg border-2 border-red-600 px-2 py-1 text-xs font-black uppercase text-red-600">Expired</span>}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Reward {wonCoupons.length - index}</p><p className="mt-1 pr-20 text-xl font-black">{item.reward.description}</p><p className="mt-2 text-sm font-bold text-stone-500">Code: {item.code}</p><p className={expired ? 'mt-1 text-sm font-black text-red-600' : 'mt-1 text-sm font-bold text-green-700'}>{expired ? 'Expired' : `Expires in ${formatRemaining(expiresAt - now)}`}</p></button>; })}</div></section>}
+        {wonCoupons.length > 0 && <section className="mt-6 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Your Rewards</p><div className="mt-4 space-y-4">{wonCoupons.map((item, index) => { const expiresAt = item.issuedAt + expiryMinutes * 60 * 1000; const expired = now >= expiresAt; return <button key={item.id} onClick={() => { setActiveCouponId(item.id); setShowReveal(true); }} className="relative w-full rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left shadow-sm">{expired && <span className="absolute right-3 top-3 rotate-[-8deg] rounded-lg border-2 border-red-600 px-2 py-1 text-xs font-black uppercase text-red-600">Expired</span>}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Reward {wonCoupons.length - index}</p><p className="mt-1 pr-20 text-xl font-black">{item.reward.description}</p><p className="mt-2 text-sm font-bold text-stone-500">Code: {item.code}</p>{expired ? <p className="mt-1 text-sm font-black text-red-600">Expired</p> : <CouponExpiryBlock expiresAtMs={expiresAt} now={now} />}</button>; })}</div></section>}
       </section>
 
-      {showReveal && activeCoupon && <div className="fixed inset-0 z-50 flex items-end bg-black/40 px-3 pb-3 backdrop-blur-sm"><section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 text-center shadow-2xl"><div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" /><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">🎉 You won</p><h2 className="mt-2 text-4xl font-black leading-tight">{activeCoupon.reward.description}</h2><div className="relative mt-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">{activeExpired && <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">Expired</div>}<p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p><p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p></div><p className={activeExpired ? 'mt-4 text-lg font-black text-red-600' : 'mt-4 text-lg font-bold text-red-600'}>{activeExpired ? 'Coupon expired' : `Expires in ${formatRemaining((activeExpiresAt || 0) - now)}`}</p><div className="relative mt-4 rounded-3xl bg-stone-50 p-4">{activeExpired && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded-xl border-4 border-red-600 bg-white/85 px-5 py-2 text-2xl font-black uppercase text-red-600 shadow-lg">Expired</div>}{activeExpired && <div className="absolute inset-4 z-10 rounded-3xl bg-white/65" />}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p><img src={couponQrUrl(activeCoupon.code)} alt="Coupon QR code" className={activeExpired ? 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 opacity-35 shadow' : 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow'} /></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button><button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button></div><p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p></section></div>}
+      {showReveal && activeCoupon && <div className="fixed inset-0 z-50 flex items-end bg-black/40 px-3 pb-3 backdrop-blur-sm"><section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 text-center shadow-2xl"><div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" /><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">🎉 You won</p><h2 className="mt-2 text-4xl font-black leading-tight">{activeCoupon.reward.description}</h2><div className="relative mt-5 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">{activeExpired && <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">Expired</div>}<p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p><p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p></div>{activeExpired ? <p className="mt-4 text-lg font-black text-red-600">Coupon expired</p> : <CouponExpiryBlock expiresAtMs={activeExpiresAt || 0} now={now} />}<div className="relative mt-4 rounded-3xl bg-stone-50 p-4">{activeExpired && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded-xl border-4 border-red-600 bg-white/85 px-5 py-2 text-2xl font-black uppercase text-red-600 shadow-lg">Expired</div>}{activeExpired && <div className="absolute inset-4 z-10 rounded-3xl bg-white/65" />}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p><img src={couponQrUrl(activeCoupon.code)} alt="Coupon QR code" className={activeExpired ? 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 opacity-35 shadow' : 'mx-auto mt-3 h-44 w-44 rounded-2xl bg-white p-2 shadow'} /></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button><button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button></div><p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p></section></div>}
     </main>
   );
 }
