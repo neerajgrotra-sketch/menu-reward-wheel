@@ -72,6 +72,12 @@ const POOL_GAMES = [
   { type: 'open_the_door',name: 'Open The Door', icon: '🚪' },
 ] as const;
 
+// promotions.game_type stores 'wheel' for Spin Wheel (DB default + GameTypeInlineControl).
+// POOL_GAMES uses the canonical 'spin_wheel' identifier. Normalise before any comparison.
+function normalizePrimary(gt: string | null | undefined): string {
+  return !gt || gt === 'wheel' ? 'spin_wheel' : gt;
+}
+
 const tempId = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
@@ -282,9 +288,9 @@ export default function PromotionBuilderPage() {
         .eq('promotion_id', id)
         .eq('enabled', true);
       // Additional experiences only — primary is never stored in the checklist.
-      // Filter defensively to remove any legacy rows where the primary was saved into assignments.
-      const primaryType = loadedPromotion.game_type || 'spin_wheel';
-      setGamePool((assignmentData ?? []).map((a: any) => a.game_type).filter((gt: string) => gt !== primaryType));
+      // Use normalizePrimary so 'wheel' and 'spin_wheel' are treated as the same game.
+      const primaryNorm = normalizePrimary(loadedPromotion.game_type);
+      setGamePool((assignmentData ?? []).map((a: any) => a.game_type).filter((gt: string) => normalizePrimary(gt) !== primaryNorm));
 
       setLoading(false);
     }
@@ -495,9 +501,10 @@ export default function PromotionBuilderPage() {
       }
     }
 
-    // Sync additional experiences — primary (promotion.game_type) is always implicit,
-    // never stored in promotion_game_assignments, resolved by resolvePromotionGame at runtime.
-    const additionalGames = gamePool.filter((gt) => gt !== (promotion.game_type || 'spin_wheel'));
+    // Sync additional experiences — primary is always implicit, never stored in assignments.
+    // Normalise so 'wheel'/'spin_wheel' are treated as the same game on both sides.
+    const primaryNorm = normalizePrimary(promotion.game_type);
+    const additionalGames = gamePool.filter((gt) => normalizePrimary(gt) !== primaryNorm);
     await supabase.from('promotion_game_assignments').delete().eq('promotion_id', promotion.id);
     if (additionalGames.length > 0) {
       await supabase.from('promotion_game_assignments').insert(
@@ -622,9 +629,10 @@ export default function PromotionBuilderPage() {
           <p className="text-sm font-black uppercase text-[#FF6B00]">Customer Experiences</p>
           <p className="mt-1 text-sm font-bold text-stone-600">Choose additional experiences customers may receive. Your Primary Experience is automatically included.</p>
 
-          {/* Primary Experience — always active, derived from promotions.game_type */}
+          {/* Primary Experience — always active, derived from promotions.game_type.
+              normalizePrimary maps 'wheel' → 'spin_wheel' so the lookup always hits. */}
           {(() => {
-            const primary = POOL_GAMES.find((g) => g.type === (promotion?.game_type || 'spin_wheel'));
+            const primary = POOL_GAMES.find((g) => g.type === normalizePrimary(promotion?.game_type));
             return (
               <div className="mt-4 flex items-center gap-3 rounded-2xl bg-stone-50 p-4 ring-2 ring-stone-200">
                 <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-xs font-black uppercase tracking-wide text-stone-400 shadow-sm">Primary</span>
@@ -635,10 +643,10 @@ export default function PromotionBuilderPage() {
             );
           })()}
 
-          {/* Additional experiences checklist — primary excluded */}
+          {/* Additional experiences checklist — primary excluded via normalizePrimary */}
           {(() => {
-            const primaryType = promotion?.game_type || 'spin_wheel';
-            const additionalGames = POOL_GAMES.filter((g) => g.type !== primaryType);
+            const primaryNorm = normalizePrimary(promotion?.game_type);
+            const additionalGames = POOL_GAMES.filter((g) => g.type !== primaryNorm);
             return (
               <>
                 <div className="mt-4 flex items-center justify-between">
@@ -664,9 +672,9 @@ export default function PromotionBuilderPage() {
             );
           })()}
 
-          {/* Status */}
+          {/* Status — pool size = 1 primary + N additional */}
           {gamePool.length === 0 && (() => {
-            const primary = POOL_GAMES.find((g) => g.type === (promotion?.game_type || 'spin_wheel'));
+            const primary = POOL_GAMES.find((g) => g.type === normalizePrimary(promotion?.game_type));
             return <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-sm font-bold text-stone-500">Single Experience Mode — All customers receive: {primary?.icon} {primary?.name}.</p>;
           })()}
           {gamePool.length > 0 && <p className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">🎲 Randomized Experience Mode — Customers may receive one of {gamePool.length + 1} experiences.</p>}

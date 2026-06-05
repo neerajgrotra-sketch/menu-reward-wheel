@@ -71,19 +71,20 @@ export async function resolvePromotionGame({
 
   // Build the effective pool: primary experience always leads, followed by
   // additional experiences from promotion_game_assignments.
-  // De-duplicate by game_type to protect against legacy rows where the primary
-  // was accidentally saved into the assignments table.
+  // De-duplicate by normalised game_type: 'wheel' and 'spin_wheel' are the same
+  // game stored under two historical identifiers and must count as one slot.
+  const normType = (gt: string) => (gt === 'wheel' ? 'spin_wheel' : gt);
   const seen = new Set<string>();
   const effectivePool: GamePoolEntry[] = [];
 
   if (fallbackGameType) {
-    seen.add(fallbackGameType);
+    seen.add(normType(fallbackGameType));
     effectivePool.push({ gameType: fallbackGameType, weight: 1, enabled: true });
   }
 
   for (const a of (assignments ?? [])) {
-    if (!seen.has(a.game_type)) {
-      seen.add(a.game_type);
+    if (!seen.has(normType(a.game_type))) {
+      seen.add(normType(a.game_type));
       effectivePool.push({ gameType: a.game_type as GameType, weight: a.weight, enabled: a.enabled });
     }
   }
