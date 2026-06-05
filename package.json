@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
@@ -29,5 +30,7 @@
     "tailwindcss": "^3.4.3",
     "typescript": "^5.4.3"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "vitest": "^4.1.8"
+  }
 }
