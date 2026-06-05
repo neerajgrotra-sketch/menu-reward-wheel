@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
+import SaveRewardPanel, { shouldShowIdentityPanel } from '@/components/CustomerIdentityScreen';
 import { getGameDefinition } from '@/lib/games/registry';
 import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
 import { formatCouponTimeRemaining, formatCouponValidUntil } from '@/lib/coupon-expiry';
@@ -245,6 +246,8 @@ export default function PromotionPlayPage() {
   // UUID of the play_sessions row — forwarded to the coupon issue route so it
   // can store the proper play_session_id FK on coupon_redemptions.
   const [playSessionId, setPlaySessionId] = useState<string>('');
+  // Identity screen: true once the customer has interacted (saved or skipped).
+  const [identityDone, setIdentityDone] = useState(false);
 
   const game = useMemo(() => getGameDefinition(promotion?.game_type), [promotion?.game_type]);
   const PlayComponent = game.PlayComponent;
@@ -300,6 +303,11 @@ export default function PromotionPlayPage() {
       }
 
       setRewards(payload.rewards || []);
+
+      // Determine whether the Save Reward panel should appear after the first win.
+      // Skipped promotions are tracked by UUID — re-prompts on new promotions.
+      if (!shouldShowIdentityPanel(payload.promotion?.id ?? '')) setIdentityDone(true);
+
       setLoading(false);
     }
 
@@ -401,21 +409,65 @@ export default function PromotionPlayPage() {
       {showReveal && activeCoupon && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40 px-3 pb-3 backdrop-blur-sm">
           <section className="mx-auto flex w-full max-w-md flex-col rounded-[2rem] bg-white text-center shadow-2xl max-h-[90vh]">
-            {/* Pinned header — always visible, never scrolls away */}
-            <div className="shrink-0 px-5 pt-5 pb-2">
+
+            {/* ── Pinned header — always visible ── */}
+            <div className="shrink-0 px-5 pt-5 pb-3">
               <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" />
               <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">🎉 You won</p>
               <h2 className="mt-2 text-4xl font-black leading-tight">{activeCoupon.reward.description}</h2>
+              {/* Coupon code pinned so it's always visible regardless of scroll position */}
+              <div className="relative mt-3 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4 text-left">
+                {activeExpired && (
+                  <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">
+                    Expired
+                  </div>
+                )}
+                <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
+                <p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p>
+              </div>
+              {activeExpired
+                ? <p className="mt-2 text-lg font-black text-red-600">Coupon expired</p>
+                : <CouponExpiryBlock expiresAtMs={activeExpiresAt || 0} now={now} />
+              }
             </div>
-            {/* Scrollable body */}
-            <div className="overflow-y-auto px-5 pb-5 pt-2">
-              <div className="relative mt-3 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-4">{activeExpired && <div className="absolute right-3 top-3 rotate-[-10deg] rounded-xl border-4 border-red-600 px-3 py-1 text-lg font-black uppercase text-red-600 opacity-90">Expired</div>}<p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p><p className="mt-1 break-all text-3xl font-black tracking-wider">{activeCoupon.code}</p></div>
-              {activeExpired ? <p className="mt-4 text-lg font-black text-red-600">Coupon expired</p> : <CouponExpiryBlock expiresAtMs={activeExpiresAt || 0} now={now} />}
-              <div className="relative mt-4 rounded-3xl bg-stone-50 p-4">{activeExpired && <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded-xl border-4 border-red-600 bg-white/85 px-5 py-2 text-2xl font-black uppercase text-red-600 shadow-lg">Expired</div>}{activeExpired && <div className="absolute inset-4 z-10 rounded-3xl bg-white/65" />}<p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p><img src={couponQrUrl(activeCoupon.code)} alt="Coupon QR code" className={activeExpired ? 'mx-auto mt-3 h-36 w-36 rounded-2xl bg-white p-2 opacity-35 shadow' : 'mx-auto mt-3 h-36 w-36 rounded-2xl bg-white p-2 shadow'} /></div>
-              {!activeExpired && <WalletButtons code={activeCoupon.code} />}
-              <div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button><button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button></div>
-              <p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p>
+
+            {/* ── Scrollable body ── */}
+            <div className="overflow-y-auto px-5 pb-5 pt-1">
+              {!identityDone ? (
+                /* Save Reward panel — shown after first win until saved or dismissed */
+                <SaveRewardPanel
+                  restaurant={restaurant}
+                  playSessionId={playSessionId}
+                  promotionId={promotion.id}
+                  onDone={() => setIdentityDone(true)}
+                />
+              ) : (
+                /* Normal coupon view — QR, wallet, actions */
+                <>
+                  <div className="relative mt-4 rounded-3xl bg-stone-50 p-4">
+                    {activeExpired && (
+                      <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded-xl border-4 border-red-600 bg-white/85 px-5 py-2 text-2xl font-black uppercase text-red-600 shadow-lg">
+                        Expired
+                      </div>
+                    )}
+                    {activeExpired && <div className="absolute inset-4 z-10 rounded-3xl bg-white/65" />}
+                    <p className="text-xs font-black uppercase tracking-wide text-stone-500">Scan Coupon</p>
+                    <img
+                      src={couponQrUrl(activeCoupon.code)}
+                      alt="Coupon QR code"
+                      className={activeExpired ? 'mx-auto mt-3 h-36 w-36 rounded-2xl bg-white p-2 opacity-35 shadow' : 'mx-auto mt-3 h-36 w-36 rounded-2xl bg-white p-2 shadow'}
+                    />
+                  </div>
+                  {!activeExpired && <WalletButtons code={activeCoupon.code} />}
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button>
+                    <button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button>
+                  </div>
+                  <p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p>
+                </>
+              )}
             </div>
+
           </section>
         </div>
       )}
