@@ -246,10 +246,10 @@ export default function ValidateCouponPage() {
 
     let updateResult = await supabase
       .from('coupon_redemptions')
-      .update({ status: 'redeemed', redeemed_at: redeemedAt, redemption_confirmation_code: nextConfirmation })
+      .update({ status: 'redeemed', redeemed_at: redeemedAt })
       .eq('id', record.id)
       .eq('status', 'issued')
-      .select('id,status,redeemed_at,redemption_confirmation_code')
+      .select('id,status,redeemed_at')
       .maybeSingle();
 
     if (updateResult.error) {

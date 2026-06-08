@@ -101,7 +101,8 @@ export default function MenuPage() {
   async function addMenu() {
     if (!newMenu.trim() || !restaurant) return;
     setError('');
-    const result = await supabase.from('menus').insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), restaurant_id: restaurant.id });
+    const slug = newMenu.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'menu';
+    const result = await supabase.from('menus').insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), restaurant_id: restaurant.id, slug });
     if (result.error) { setError(result.error.message); return; }
     setNewMenu(''); await loadMenus(restaurant.id);
     setNotice(`Menu created for ${restaurant.name} — ${restaurantAddress(restaurant)}`); setTimeout(() => setNotice(''), 1800);

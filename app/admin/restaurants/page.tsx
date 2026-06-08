@@ -1,359 +1,327 @@
 'use client';
 
-import { ChangeEvent, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type { Restaurant, ProfileForm, ContactForm, WeekHours, DayHours, ConfirmOptions } from '@/components/admin/restaurants/types';
+import { parseHours } from '@/components/admin/restaurants/types';
+import { ConfirmModal } from '@/components/admin/restaurants/ConfirmModal';
+import { RestaurantProfileTab } from '@/components/admin/restaurants/RestaurantProfileTab';
+import { RestaurantContactTab } from '@/components/admin/restaurants/RestaurantContactTab';
+import { RestaurantSettingsTab } from '@/components/admin/restaurants/RestaurantSettingsTab';
 
-type Restaurant = {
-  id: string;
-  name: string;
-  slug: string;
-  phone?: string | null;
-  address_line1?: string | null;
-  city?: string | null;
-  cuisine_type?: string | null;
-  logo_url?: string | null;
-};
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-const LOGO_BUCKET = 'restaurant-logos';
-const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+type TabId = 'profile' | 'contact' | 'settings';
 
-function sanitizeFileName(value: string) {
-  const parts = value.split('.');
-  const extension = parts.length > 1 ? parts.pop()?.toLowerCase() : 'png';
-  const base = parts.join('.').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'logo';
-  return `${base}.${extension || 'png'}`;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function modeLabel(mode: string | null | undefined) {
+  if (mode === 'menu_and_promotion') return 'Menu + Promotion';
+  if (mode === 'menu_only') return 'Menu Only';
+  return 'Promotion Only';
 }
 
-function objectPathFromPublicUrl(url?: string | null) {
-  if (!url) return null;
-  const marker = `/storage/v1/object/public/${LOGO_BUCKET}/`;
-  const index = url.indexOf(marker);
-  if (index === -1) return null;
-  return decodeURIComponent(url.slice(index + marker.length));
+function modeBadgeColor(mode: string | null | undefined) {
+  if (mode === 'menu_and_promotion') return 'bg-green-100 text-green-700';
+  if (mode === 'menu_only') return 'bg-blue-100 text-blue-700';
+  return 'bg-orange-100 text-orange-700';
 }
 
-function fileSizeMb(file: File) {
-  return (file.size / 1024 / 1024).toFixed(2);
+function initProfileForm(r: Restaurant): ProfileForm {
+  return {
+    experience_mode: r.experience_mode ?? 'promotion_only',
+    description:     r.description     ?? '',
+    secondary_color: r.secondary_color ?? '',
+    accent_color:    r.accent_color    ?? '',
+  };
 }
+
+function initContactForm(r: Restaurant): ContactForm {
+  return {
+    phone:           r.phone           ?? '',
+    address_line1:   r.address_line1   ?? '',
+    city:            r.city            ?? '',
+    province_state:  r.province_state  ?? '',
+    postal_code:     r.postal_code     ?? '',
+    country:         r.country         ?? 'Canada',
+    website_url:     r.website_url     ?? '',
+    instagram_url:   r.instagram_url   ?? '',
+    facebook_url:    r.facebook_url    ?? '',
+    google_maps_url: r.google_maps_url ?? '',
+    hours:           parseHours(r.hours),
+  };
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function RestaurantsPage() {
+  const supabase = useMemo(() => createClient(), []);
+
+  const [ownerId, setOwnerId] = useState<string | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
+
+  // Per-restaurant tab state
+  const [activeTabs, setActiveTabs] = useState<Record<string, TabId>>({});
+
+  // Per-restaurant form state (kept in parent so switching tabs doesn't discard edits)
+  const [profileForms, setProfileForms] = useState<Record<string, ProfileForm>>({});
+  const [contactForms, setContactForms] = useState<Record<string, ContactForm>>({});
+
+  // Copy link feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const [removingLogoId, setRemovingLogoId] = useState<string | null>(null);
-  const [localLogoPreviewById, setLocalLogoPreviewById] = useState<Record<string, string>>({});
-  const [logoMessageById, setLogoMessageById] = useState<Record<string, { type: 'info' | 'error' | 'success'; text: string }>>({});
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
-  const supabase = createClient();
 
-  function setLogoMessage(restaurantId: string, type: 'info' | 'error' | 'success', text: string) {
-    setLogoMessageById((current) => ({ ...current, [restaurantId]: { type, text } }));
-  }
+  // Confirm modal
+  const [confirm, setConfirm] = useState<(ConfirmOptions & { open: boolean }) | null>(null);
 
-  async function loadRestaurants() {
-    const { data: sessionData } = await supabase.auth.getUser();
-    const user = sessionData.user;
+  // ── Auth + data loading ────────────────────────────────────────────────────
 
-    if (!user) {
-      window.location.href = '/auth';
-      return;
-    }
-
-    const { data, error: loadError } = await supabase
+  const loadRestaurants = useCallback(async (uid: string) => {
+    const { data, error } = await supabase
       .from('restaurants')
-      .select('id,name,slug,phone,address_line1,city,cuisine_type,logo_url')
-      .eq('owner_id', user.id)
+      .select('*')
+      .eq('owner_id', uid)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
-    if (loadError) setError(loadError.message);
-    setRestaurants((data || []) as Restaurant[]);
+    if (error) { setPageError(error.message); setLoading(false); return; }
+
+    const list = data ?? [];
+    setRestaurants(list);
+
+    // Initialise form state for new restaurants only — don't overwrite in-progress edits.
+    setProfileForms(prev => {
+      const next = { ...prev };
+      for (const r of list) { if (!next[r.id]) next[r.id] = initProfileForm(r); }
+      return next;
+    });
+    setContactForms(prev => {
+      const next = { ...prev };
+      for (const r of list) { if (!next[r.id]) next[r.id] = initContactForm(r); }
+      return next;
+    });
+
     setLoading(false);
-  }
+  }, [supabase]);
 
   useEffect(() => {
-    loadRestaurants();
-  }, []);
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) { window.location.href = '/auth'; return; }
+      setOwnerId(data.user.id);
+      loadRestaurants(data.user.id);
+    });
+  }, [supabase, loadRestaurants]);
 
-  async function copyLink(restaurant: Restaurant) {
-    const link = `${window.location.origin}/admin/promotions?slug=${restaurant.slug}`;
-    await navigator.clipboard.writeText(link);
-    setCopiedId(restaurant.id);
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const getTab = (id: string): TabId => activeTabs[id] ?? 'profile';
+  const setTab = (id: string, tab: TabId) => setActiveTabs(c => ({ ...c, [id]: tab }));
+
+  const patchProfile = (id: string, patch: Partial<ProfileForm>) =>
+    setProfileForms(c => ({ ...c, [id]: { ...c[id], ...patch } }));
+
+  const patchContact = (id: string, patch: Partial<ContactForm>) =>
+    setContactForms(c => ({ ...c, [id]: { ...c[id], ...patch } }));
+
+  const patchHours = (id: string, day: keyof WeekHours, patch: Partial<DayHours>) =>
+    setContactForms(c => ({
+      ...c,
+      [id]: { ...c[id], hours: { ...c[id].hours, [day]: { ...c[id].hours[day], ...patch } } },
+    }));
+
+  function requestConfirm(opts: ConfirmOptions) {
+    setConfirm({ ...opts, open: true });
+  }
+
+  async function copyLink(r: Restaurant) {
+    await navigator.clipboard.writeText(`${window.location.origin}/admin/promotions?slug=${r.slug}`);
+    setCopiedId(r.id);
     setTimeout(() => setCopiedId(null), 1600);
   }
 
-  async function handleLogoInputChange(restaurant: Restaurant, event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    await uploadLogo(restaurant, file);
-  }
-
-  async function uploadLogo(restaurant: Restaurant, file?: File | null) {
-    if (!file) {
-      setLogoMessage(restaurant.id, 'info', 'No logo file was selected.');
-      return;
-    }
-
-    const localPreview = URL.createObjectURL(file);
-    setLocalLogoPreviewById((current) => ({ ...current, [restaurant.id]: localPreview }));
-    setLogoMessage(restaurant.id, 'info', `Selected ${file.name || 'logo'} (${fileSizeMb(file)} MB). Uploading...`);
-
-    if (!file.type.startsWith('image/')) {
-      setLogoMessage(restaurant.id, 'error', `The selected file type is ${file.type || 'unknown'}. Please choose an image file.`);
-      URL.revokeObjectURL(localPreview);
-      return;
-    }
-    if (file.size > MAX_LOGO_BYTES) {
-      setLogoMessage(restaurant.id, 'error', `This logo is ${fileSizeMb(file)} MB. Please upload an image smaller than 2 MB.`);
-      URL.revokeObjectURL(localPreview);
-      return;
-    }
-
-    setUploadingId(restaurant.id);
-    setError('');
-    setNotice('');
-
-    const { data: sessionData } = await supabase.auth.getUser();
-    const user = sessionData.user;
-    if (!user) {
-      window.location.href = '/auth';
-      return;
-    }
-
-    const previousPath = objectPathFromPublicUrl(restaurant.logo_url);
-    const storagePath = `${user.id}/${restaurant.id}/${Date.now()}-${sanitizeFileName(file.name || 'logo.png')}`;
-    const uploadResult = await supabase.storage.from(LOGO_BUCKET).upload(storagePath, file, {
-      cacheControl: '3600',
-      upsert: true,
-      contentType: file.type || 'image/png',
+  function handleDeleteRequest(r: Restaurant) {
+    requestConfirm({
+      title: `Delete ${r.name}?`,
+      message: 'This permanently removes the restaurant and all related data. This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        const { error } = await supabase.rpc('delete_restaurant_cascade', { target_restaurant_id: r.id });
+        if (error) { setPageError(error.message); return; }
+        if (ownerId) loadRestaurants(ownerId);
+      },
     });
-
-    if (uploadResult.error) {
-      setLogoMessage(restaurant.id, 'error', `Upload failed: ${uploadResult.error.message}`);
-      setUploadingId(null);
-      return;
-    }
-
-    const { data: publicUrlData } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(storagePath);
-    const updateResult = await supabase
-      .from('restaurants')
-      .update({ logo_url: publicUrlData.publicUrl })
-      .eq('id', restaurant.id)
-      .eq('owner_id', user.id);
-
-    if (updateResult.error) {
-      setLogoMessage(restaurant.id, 'error', `Logo uploaded, but saving it to the restaurant failed: ${updateResult.error.message}`);
-      setUploadingId(null);
-      return;
-    }
-
-    if (previousPath) await supabase.storage.from(LOGO_BUCKET).remove([previousPath]);
-    await loadRestaurants();
-    setLogoMessage(restaurant.id, 'success', 'Logo uploaded successfully. It will now appear on print kits.');
-    setNotice(`Logo saved for ${restaurant.name}. It will now appear on print kits.`);
-    setTimeout(() => setNotice(''), 2400);
-    setUploadingId(null);
-    setTimeout(() => URL.revokeObjectURL(localPreview), 3000);
   }
 
-  async function removeLogo(restaurant: Restaurant) {
-    const confirmed = window.confirm(`Remove the logo for ${restaurant.name}? Print kits will fall back to the restaurant name.`);
-    if (!confirmed) return;
+  // ── Render ────────────────────────────────────────────────────────────────
 
-    setRemovingLogoId(restaurant.id);
-    setError('');
-    setNotice('');
-
-    const { data: sessionData } = await supabase.auth.getUser();
-    const user = sessionData.user;
-    if (!user) {
-      window.location.href = '/auth';
-      return;
-    }
-
-    const updateResult = await supabase
-      .from('restaurants')
-      .update({ logo_url: null })
-      .eq('id', restaurant.id)
-      .eq('owner_id', user.id);
-
-    if (updateResult.error) {
-      setLogoMessage(restaurant.id, 'error', `Could not remove logo: ${updateResult.error.message}`);
-      setRemovingLogoId(null);
-      return;
-    }
-
-    const path = objectPathFromPublicUrl(restaurant.logo_url);
-    if (path) await supabase.storage.from(LOGO_BUCKET).remove([path]);
-
-    await loadRestaurants();
-    setLocalLogoPreviewById((current) => {
-      const next = { ...current };
-      delete next[restaurant.id];
-      return next;
-    });
-    setLogoMessage(restaurant.id, 'success', 'Logo removed. Print kits will use the restaurant name.');
-    setNotice(`Logo removed for ${restaurant.name}.`);
-    setTimeout(() => setNotice(''), 2200);
-    setRemovingLogoId(null);
+  if (loading || !ownerId) {
+    return <main className="min-h-screen bg-[#FFF8F0] p-6 text-stone-600">Loading restaurants…</main>;
   }
 
-  async function deleteRestaurant(restaurant: Restaurant) {
-    const confirmed = window.confirm(`Delete ${restaurant.name}? This will remove this restaurant and its related menus/promotions.`);
-    if (!confirmed) return;
-
-    setDeletingId(restaurant.id);
-    setError('');
-
-    const logoPath = objectPathFromPublicUrl(restaurant.logo_url);
-    const { error } = await supabase.rpc('delete_restaurant_cascade', {
-      target_restaurant_id: restaurant.id,
-    });
-
-    if (error) {
-      setError(error.message);
-      setDeletingId(null);
-      return;
-    }
-
-    if (logoPath) await supabase.storage.from(LOGO_BUCKET).remove([logoPath]);
-    await loadRestaurants();
-    setDeletingId(null);
-  }
-
-  if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6">Loading restaurants...</main>;
+  const TABS: { id: TabId; label: string }[] = [
+    { id: 'profile',  label: 'Profile' },
+    { id: 'contact',  label: 'Contact' },
+    { id: 'settings', label: 'Settings' },
+  ];
 
   return (
-    <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
-      <section className="mx-auto max-w-5xl">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
-            <p className="mt-1 text-sm font-bold text-stone-500">Restaurant locations</p>
-          </div>
-          <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a>
-        </div>
+    <>
+      {confirm && (
+        <ConfirmModal
+          open={confirm.open}
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          danger={confirm.danger}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
 
-        <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
-          <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">Manage Restaurants</p>
-          <h2 className="mt-3 text-4xl font-black leading-tight">Add and manage your restaurant locations.</h2>
-          <p className="mt-3 text-sm font-semibold text-white/85">
-            Each restaurant can have its own menus, promotions, QR links, reward wheels, and branded print-kit logo. Start by adding a restaurant, then build menus and promotions for that location.
-          </p>
-        </div>
+      <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
+        <section className="mx-auto max-w-5xl">
 
-        <a href="/setup" className="mt-5 block rounded-3xl bg-green-600 p-5 text-center text-xl font-black text-white shadow-xl">
-          + Add Restaurant
-        </a>
-
-        {notice && <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>}
-        {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
-
-        <div className="mt-5 space-y-4">
-          {restaurants.length === 0 && (
-            <div className="rounded-3xl bg-white p-6 shadow-xl">
-              <p className="text-2xl font-black">No restaurants yet</p>
-              <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">
-                Add your first restaurant to begin creating menus, promotions, QR campaigns, customer reward wheels, and branded print kits.
-              </p>
+          {/* Page header */}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-black text-[#FF6B00]">SpinBite</h1>
+              <p className="mt-1 text-sm font-bold text-stone-500">Restaurant locations</p>
             </div>
-          )}
+            <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a>
+          </div>
 
-          {restaurants.map((restaurant, index) => {
-            const address = [restaurant.address_line1, restaurant.city].filter(Boolean).join(', ');
-            const promotionLink = `/admin/promotions?slug=${restaurant.slug}`;
-            const isUploading = uploadingId === restaurant.id;
-            const isRemovingLogo = removingLogoId === restaurant.id;
-            const localLogoPreview = localLogoPreviewById[restaurant.id];
-            const displayedLogo = localLogoPreview || restaurant.logo_url;
-            const logoMessage = logoMessageById[restaurant.id];
+          <a href="/setup" className="mt-5 block rounded-3xl bg-green-600 p-5 text-center text-xl font-black text-white shadow-xl">
+            + Add Restaurant
+          </a>
 
-            return (
-              <article key={restaurant.id} className="overflow-hidden rounded-3xl bg-white shadow-xl">
-                <div className="h-32 bg-gradient-to-br from-orange-200 via-amber-100 to-red-100 px-5 py-4">
-                  <div className="flex h-full items-start justify-between">
-                    <div className="rounded-2xl bg-white/80 px-3 py-2 text-sm font-black text-[#FF6B00] shadow">
-                      Location #{index + 1}
-                    </div>
-                    {displayedLogo ? (
-                      <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 shadow-lg">
-                        <img src={displayedLogo} alt={`${restaurant.name} logo`} className="max-h-full max-w-full object-contain" />
+          {pageError && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{pageError}</p>}
+
+          <div className="mt-5 space-y-4">
+            {restaurants.length === 0 && (
+              <div className="rounded-3xl bg-white p-6 shadow-xl">
+                <p className="text-2xl font-black">No restaurants yet</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-stone-600">
+                  Add your first restaurant to begin creating menus, promotions, QR campaigns, and branded experiences.
+                </p>
+              </div>
+            )}
+
+            {restaurants.map((r, index) => {
+              const tab = getTab(r.id);
+              const pf = profileForms[r.id];
+              const cf = contactForms[r.id];
+
+              return (
+                <article key={r.id} className="overflow-hidden rounded-3xl bg-white shadow-xl">
+
+                  {/* Hero banner */}
+                  <div className="relative h-32 overflow-hidden bg-gradient-to-br from-orange-200 via-amber-100 to-red-100">
+                    {r.hero_image_url && (
+                      <img src={r.hero_image_url} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover" />
+                    )}
+                    <div className="relative flex h-full items-start justify-between px-5 py-4">
+                      <span className="rounded-2xl bg-white/80 px-3 py-1.5 text-xs font-black text-[#FF6B00] shadow backdrop-blur-sm">
+                        #{index + 1}
+                      </span>
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-3xl bg-white/90 p-2 shadow-lg backdrop-blur-sm">
+                        {r.logo_url
+                          ? <img src={r.logo_url} alt={`${r.name} logo`} className="max-h-full max-w-full object-contain" />
+                          : <span className="text-2xl">🍽️</span>
+                        }
                       </div>
-                    ) : (
-                      <div className="text-4xl">🍽️</div>
+                    </div>
+                  </div>
+
+                  {/* Name + actions row */}
+                  <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
+                    <div>
+                      <h3 className="text-2xl font-black">{r.name}</h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-stone-400">/{r.slug}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-black ${modeBadgeColor(r.experience_mode)}`}>
+                          {modeLabel(r.experience_mode)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <a href={`/admin/promotions?slug=${r.slug}`} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-black text-white">
+                        Promotions
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => copyLink(r)}
+                        className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700"
+                      >
+                        {copiedId === r.id ? 'Copied!' : 'Copy Link'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteRequest(r)}
+                        className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-black text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tab strip */}
+                  <div className="mt-4 flex gap-1 border-b border-stone-100 px-5">
+                    {TABS.map(({ id, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setTab(r.id, id)}
+                        className={`rounded-t-xl px-4 py-2 text-sm font-black transition-colors ${
+                          tab === id
+                            ? 'border-b-2 border-[#FF6B00] text-[#FF6B00]'
+                            : 'text-stone-500 hover:text-stone-800'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tab content */}
+                  <div className="p-5">
+                    {tab === 'profile' && pf && (
+                      <RestaurantProfileTab
+                        restaurant={r}
+                        form={pf}
+                        onChange={(patch) => patchProfile(r.id, patch)}
+                        supabase={supabase}
+                        ownerId={ownerId}
+                        requestConfirm={requestConfirm}
+                        onSaved={() => loadRestaurants(ownerId)}
+                      />
+                    )}
+                    {tab === 'contact' && cf && (
+                      <RestaurantContactTab
+                        restaurant={r}
+                        form={cf}
+                        onChange={(patch) => patchContact(r.id, patch)}
+                        onHoursChange={(day, patch) => patchHours(r.id, day, patch)}
+                        supabase={supabase}
+                        ownerId={ownerId}
+                        onSaved={() => loadRestaurants(ownerId)}
+                      />
+                    )}
+                    {tab === 'settings' && (
+                      <RestaurantSettingsTab
+                        restaurantId={r.id}
+                        supabase={supabase}
+                      />
                     )}
                   </div>
-                </div>
 
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-3xl font-black">{restaurant.name}</h3>
-                      <p className="mt-1 break-all text-sm font-bold text-stone-500">/{restaurant.slug}</p>
-                    </div>
-                    <button onClick={() => deleteRestaurant(restaurant)} disabled={deletingId === restaurant.id} className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600 disabled:opacity-50">
-                      {deletingId === restaurant.id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid gap-2 text-sm font-semibold text-stone-600">
-                    <p>📍 {address || 'Address not added yet'}</p>
-                    <p>☎️ {restaurant.phone || 'Phone not added yet'}</p>
-                    <p>🍛 {restaurant.cuisine_type || 'Cuisine not added yet'}</p>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl bg-orange-50 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-[#FF6B00]">Restaurant Branding</p>
-                    <div className="mt-3 flex items-center gap-4">
-                      <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-orange-100 bg-white p-2 shadow-sm">
-                        {displayedLogo ? (
-                          <img src={displayedLogo} alt={`${restaurant.name} logo preview`} className="max-h-full max-w-full object-contain" />
-                        ) : (
-                          <span className="text-center text-xs font-black text-stone-400">No logo</span>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold leading-5 text-stone-600">Upload a PNG, JPG, SVG, or WebP logo under 2 MB. iPhone photo-library images may need a moment after tapping the blue checkmark.</p>
-                        <label className="mt-3 inline-flex cursor-pointer rounded-2xl bg-[#FF6B00] px-4 py-3 text-sm font-black text-white shadow-sm">
-                          {isUploading ? 'Uploading...' : restaurant.logo_url ? 'Replace Logo' : 'Upload Logo'}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            disabled={isUploading}
-                            onChange={(event) => handleLogoInputChange(restaurant, event)}
-                            className="hidden"
-                          />
-                        </label>
-                        {restaurant.logo_url && (
-                          <button onClick={() => removeLogo(restaurant)} disabled={isRemovingLogo} className="ml-2 rounded-2xl bg-white px-4 py-3 text-sm font-black text-red-600 shadow-sm disabled:opacity-50">
-                            {isRemovingLogo ? 'Removing...' : 'Remove'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {logoMessage && <p className={`mt-3 rounded-2xl p-3 text-sm font-black ${logoMessage.type === 'error' ? 'bg-red-50 text-red-700' : logoMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-white text-stone-600'}`}>{logoMessage.text}</p>}
-                  </div>
-
-                  <div className="mt-4 rounded-2xl bg-stone-50 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-stone-500">Current promotion workspace link</p>
-                    <p className="mt-1 break-all text-sm font-black text-[#FF6B00]">{promotionLink}</p>
-                    <button onClick={() => copyLink(restaurant)} className="mt-3 w-full rounded-2xl bg-[#FF6B00] px-4 py-3 font-black text-white">
-                      {copiedId === restaurant.id ? 'Copied!' : 'Copy Link'}
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <a href={`/admin?slug=${restaurant.slug}`} className="rounded-2xl bg-stone-200 px-4 py-3 text-center font-black">Open</a>
-                    <a href={`/admin/promotions?slug=${restaurant.slug}`} className="rounded-2xl bg-green-600 px-4 py-3 text-center font-black text-white">Promotions</a>
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </section>
-    </main>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
