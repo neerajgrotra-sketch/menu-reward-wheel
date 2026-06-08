@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { requireSuperAdmin } from '@/lib/super-admin';
 import { createClient } from '@/lib/supabase/server';
+import type { TablesUpdate } from '@/lib/supabase/database.types';
 
 const STATUSES = ['active', 'coming_soon', 'disabled'] as const;
 const WIN_EFFECTS = ['confetti', 'stars', 'celebration', 'none'] as const;
@@ -100,9 +101,10 @@ export async function updateGame(formData: FormData) {
   }
 
   const supabase = createClient();
+  // updatePayload is built above with only valid game columns — safe to cast.
   const { error } = await supabase
     .from('games')
-    .update(updatePayload)
+    .update(updatePayload as TablesUpdate<'games'>)
     .eq('id', id);
 
   if (error) throw new Error(error.message);

@@ -22,7 +22,6 @@ type RewardRow = {
   id: string;
   label: string;
   description: string;
-  terms: string | null;
   weight: number;
   active: boolean | null;
   display_order: number | null;
@@ -77,11 +76,11 @@ export default function RewardEditorPage() {
 
       const rewardsResult = await supabase
         .from('rewards')
-        .select('id,label,description,terms,weight,active,display_order')
+        .select('id,label,description,weight,active,display_order')
         .eq('promotion_id', promotionId)
         .order('display_order', { ascending: true });
 
-      setRewards((rewardsResult.data || []) as RewardRow[]);
+      setRewards((rewardsResult.data || []) as unknown as RewardRow[]);
     }
 
     load();
@@ -91,7 +90,7 @@ export default function RewardEditorPage() {
     const supabase = createClient();
     const rewardsResult = await supabase
       .from('rewards')
-      .select('id,label,description,terms,weight,active,display_order')
+      .select('id,label,description,weight,active,display_order')
       .eq('promotion_id', promotionId)
       .order('display_order', { ascending: true });
 
@@ -109,7 +108,6 @@ export default function RewardEditorPage() {
       promotion_id: promotion.id,
       label: label.trim(),
       description: description.trim() || label.trim(),
-      terms: terms.trim() || 'Standard terms apply.',
       weight,
       active: true,
       display_order: rewards.length,
@@ -123,7 +121,6 @@ export default function RewardEditorPage() {
 
     setLabel('');
     setDescription('');
-    setTerms('Standard terms apply.');
     setWeight(10);
     await refreshRewards();
     setSaving(false);
