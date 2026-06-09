@@ -70,6 +70,17 @@ export type PublicSection = {
   items: PublicMenuItem[];
 };
 
+export type PublicPromotion = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+export type PublicReward = {
+  id: string;
+  label: string;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeServiceClient() {
@@ -80,6 +91,65 @@ function makeServiceClient() {
   return createServiceClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+async function fetchPromotionForCard(
+  supabase: ReturnType<typeof makeServiceClient>,
+  restaurant: PublicRestaurant,
+  now: Date,
+): Promise<[PublicPromotion | null, PublicReward[]]> {
+  const promoResult = await supabase
+    .from('promotions')
+    .select('id,name,slug,status,starts_at,ends_at')
+    .eq('restaurant_id', restaurant.id)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (promoResult.error || !promoResult.data?.length) return [null, []];
+
+  type PromoRow = { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null };
+  const live = (promoResult.data as PromoRow[]).find((p) => {
+    if (p.starts_at && now < new Date(p.starts_at)) return false;
+    if (p.ends_at && now > new Date(p.ends_at)) return false;
+    return true;
+  });
+
+  if (!live) return [null, []];
+
+  const promotion: PublicPromotion = { id: live.id, name: live.name, slug: live.slug };
+
+  const rewardsResult = await supabase
+    .from('promotion_rewards')
+    .select('id,custom_name,reward_type,reward_value,menu_item_id,display_order')
+    .eq('promotion_id', live.id)
+    .order('display_order', { ascending: true });
+
+  if (rewardsResult.error || !rewardsResult.data?.length) return [promotion, []];
+
+  type RewardRow = { id: string; custom_name?: string | null; reward_type?: string | null; reward_value?: number | null; menu_item_id?: string | null; display_order: number };
+  const rawRewards = rewardsResult.data as RewardRow[];
+
+  const menuItemIds = rawRewards.map((r) => r.menu_item_id).filter((id): id is string => !!id);
+  let menuNamesById: Record<string, string> = {};
+
+  if (menuItemIds.length > 0) {
+    const menuResult = await supabase.from('menu_items').select('id,name').in('id', menuItemIds);
+    if (!menuResult.error && menuResult.data) {
+      menuNamesById = Object.fromEntries((menuResult.data as Array<{ id: string; name: string }>).map((m) => [m.id, m.name]));
+    }
+  }
+
+  const promotionRewards: PublicReward[] = rawRewards.slice(0, 4).map((r) => {
+    const itemName = r.custom_name || (r.menu_item_id ? menuNamesById[r.menu_item_id] : null) || 'Reward';
+    let label: string;
+    if (r.reward_type === 'free') label = `Free ${itemName}`;
+    else if (r.reward_type === 'discount') label = `${r.reward_value ?? 0}% Off ${itemName}`;
+    else label = itemName;
+    return { id: r.id, label };
+  });
+
+  return [promotion, promotionRewards];
 }
 
 function isPromotionLive(promotion: Promotion, now: Date) {
@@ -166,7 +236,12 @@ export default async function PermanentRestaurantQrPage({
   // ── menu_only / menu_and_promotion → public menu experience ─────────────────
 
   if (mode === 'menu_only' || mode === 'menu_and_promotion') {
-    const [menusResult, itemsResult] = await Promise.all([
+    const promotionFetch: Promise<[PublicPromotion | null, PublicReward[]]> =
+      mode === 'menu_and_promotion'
+        ? fetchPromotionForCard(supabase, restaurant, now)
+        : Promise.resolve([null, []]);
+
+    const [menusResult, itemsResult, [activePromotion, promotionRewards]] = await Promise.all([
       supabase
         .from('menus')
         .select('id,name,display_order')
@@ -179,6 +254,7 @@ export default async function PermanentRestaurantQrPage({
         .eq('available', true)
         .is('deleted_at', null)
         .order('display_order', { ascending: true }),
+      promotionFetch,
     ]);
 
     const menus = (menusResult.data || []) as Array<{
@@ -195,7 +271,14 @@ export default async function PermanentRestaurantQrPage({
       items: allItems.filter((item) => item.menu_id === menu.id),
     }));
 
-    return <RestaurantPublicPage restaurant={restaurant} sections={sections} />;
+    return (
+      <RestaurantPublicPage
+        restaurant={restaurant}
+        sections={sections}
+        promotion={activePromotion}
+        promotionRewards={promotionRewards}
+      />
+    );
   }
 
   // ── promotion_only → existing flow, unchanged ────────────────────────────────

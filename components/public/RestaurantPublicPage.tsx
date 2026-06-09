@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PublicRestaurant, PublicSection, PublicMenuItem } from '@/app/r/[restaurantSlug]/page';
+import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -350,19 +350,260 @@ function ItemDetailSheet({
   );
 }
 
+// ─── Today's Reward Card ─────────────────────────────────────────────────────
+
+function TodaysRewardCard({
+  promotion,
+  rewards,
+  playUrl,
+  accentColor,
+  onDismiss,
+}: {
+  promotion: PublicPromotion;
+  rewards: PublicReward[];
+  playUrl: string;
+  accentColor: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      className="mx-4 mt-5 overflow-hidden rounded-3xl bg-white shadow-xl"
+      style={{ borderTop: `4px solid ${accentColor}` }}
+    >
+      <div className="p-5">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p
+              className="text-xs font-black uppercase tracking-widest"
+              style={{ color: accentColor }}
+            >
+              Today&apos;s Reward
+            </p>
+            <h3 className="mt-1 text-lg font-black leading-tight text-stone-900">
+              {promotion.name}
+            </h3>
+          </div>
+          <span className="text-3xl leading-none" aria-hidden="true">🎁</span>
+        </div>
+
+        {rewards.length > 0 && (
+          <ul className="mt-3 space-y-1.5" aria-label="Available rewards">
+            {rewards.map((r) => (
+              <li key={r.id} className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+                <span aria-hidden="true">🎁</span>
+                {r.label}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="mt-3 text-xs text-stone-500">
+          Play today&apos;s game and you could win one of the above.
+        </p>
+
+        <div className="mt-4 flex gap-3">
+          <a
+            href={playUrl}
+            className="flex-1 rounded-2xl py-3.5 text-center text-sm font-black text-white shadow-sm active:scale-95"
+            style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
+          >
+            Play Now
+          </a>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="flex-1 rounded-2xl border border-stone-200 bg-white py-3.5 text-center text-sm font-black text-stone-500 active:scale-95"
+            style={{ transition: 'transform 150ms' }}
+          >
+            Maybe Later
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Floating Reward Widget ───────────────────────────────────────────────────
+
+function RewardWidget({
+  promotion,
+  rewards,
+  playUrl,
+  accentColor,
+}: {
+  promotion: PublicPromotion;
+  rewards: PublicReward[];
+  playUrl: string;
+  accentColor: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [sheetVisible, setSheetVisible] = useState(false);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (sheetVisible) closeBtnRef.current?.focus();
+  }, [sheetVisible]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, [expanded]);
+
+  function openSheet() {
+    setExpanded(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => setSheetVisible(true));
+    });
+  }
+
+  function closeSheet() {
+    setSheetVisible(false);
+    setTimeout(() => setExpanded(false), 300);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') { e.preventDefault(); closeSheet(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = e.currentTarget.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
+  return (
+    <>
+      {/* Collapsed floating button */}
+      <button
+        type="button"
+        onClick={openSheet}
+        aria-label="View today's reward"
+        className="reward-pulse-btn fixed bottom-6 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-2xl"
+        style={{
+          backgroundColor: accentColor,
+          color: '#fff',
+          animation: 'spinbiteRewardPulse 3s ease-in-out infinite',
+        }}
+      >
+        🎁
+      </button>
+
+      {/* Bottom sheet */}
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="widget-sheet-title"
+          onKeyDown={handleKeyDown}
+        >
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            style={{ opacity: sheetVisible ? 1 : 0, transition: 'opacity 300ms ease-out' }}
+            onClick={closeSheet}
+          />
+
+          {/* Sheet */}
+          <div
+            className="absolute bottom-0 left-0 right-0 max-h-[80vh] overflow-y-auto rounded-t-3xl bg-white overscroll-contain"
+            style={{
+              transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
+              transition: 'transform 300ms ease-out',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="h-1 w-10 rounded-full bg-stone-300" />
+            </div>
+
+            <div className="flex items-center justify-between px-5 pt-2">
+              <h2 id="widget-sheet-title" className="text-lg font-black text-stone-900">
+                Today&apos;s Rewards
+              </h2>
+              <button
+                ref={closeBtnRef}
+                type="button"
+                onClick={closeSheet}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600"
+                aria-label="Close"
+              >
+                <span aria-hidden="true">✕</span>
+              </button>
+            </div>
+
+            <div className="px-5 pb-8 pt-3">
+              <p className="font-black text-stone-900">{promotion.name}</p>
+
+              {rewards.length > 0 && (
+                <ul className="mt-3 space-y-2" aria-label="Available rewards">
+                  {rewards.map((r) => (
+                    <li key={r.id} className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+                      <span aria-hidden="true">🎁</span>
+                      {r.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="mt-3 text-sm text-stone-500">
+                Play today&apos;s game and you could win a free item or discount.
+              </p>
+
+              <a
+                href={playUrl}
+                className="mt-5 block rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95"
+                style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
+              >
+                Play Now
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function RestaurantPublicPage({
   restaurant,
   sections,
+  promotion,
+  promotionRewards,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
+  promotion?: PublicPromotion | null;
+  promotionRewards?: PublicReward[];
 }) {
   const brandColor = brandPrimary(restaurant);
   // D2: accent_color for badges/featured treatment; falls back to brand_color then amber
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
   const heroFallbackGradient = `linear-gradient(135deg, ${brandColor} 0%, ${darken(brandColor, 40)} 100%)`;
+
+  const hasPromotion = !!promotion;
+  const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
+  const [rewardCardDismissed, setRewardCardDismissed] = useState(false);
 
   const featuredItems = sections
     .flatMap((s) => s.items)
@@ -599,6 +840,17 @@ export function RestaurantPublicPage({
         </div>
       )}
 
+      {/* ── Today's Reward Card (menu_and_promotion mode) ── */}
+      {hasPromotion && !rewardCardDismissed && (
+        <TodaysRewardCard
+          promotion={promotion!}
+          rewards={promotionRewards ?? []}
+          playUrl={playUrl}
+          accentColor={accentColor}
+          onDismiss={() => setRewardCardDismissed(true)}
+        />
+      )}
+
       {/* ── Featured items ── */}
       {featuredItems.length > 0 && (
         <div className="mt-8">
@@ -733,6 +985,16 @@ export function RestaurantPublicPage({
           brandColor={brandColor}
           accentColor={accentColor}
           onClose={closeSheet}
+        />
+      )}
+
+      {/* ── Floating Reward Widget (appears after card is dismissed) ── */}
+      {hasPromotion && rewardCardDismissed && (
+        <RewardWidget
+          promotion={promotion!}
+          rewards={promotionRewards ?? []}
+          playUrl={playUrl}
+          accentColor={accentColor}
         />
       )}
     </div>
