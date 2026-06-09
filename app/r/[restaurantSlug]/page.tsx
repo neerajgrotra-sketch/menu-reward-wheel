@@ -1,8 +1,11 @@
 import { redirect } from 'next/navigation';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
+import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
 
-type Restaurant = {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type PromotionLookupRestaurant = {
   id: string;
   name: string;
   slug: string;
@@ -21,22 +24,64 @@ type Promotion = {
   created_at?: string | null;
 };
 
+export type PublicRestaurant = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  hero_image_url: string | null;
+  logo_url: string | null;
+  brand_color: string | null;
+  secondary_color: string | null;
+  accent_color: string | null;
+  phone: string | null;
+  address_line1: string | null;
+  city: string | null;
+  province_state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  website_url: string | null;
+  instagram_url: string | null;
+  facebook_url: string | null;
+  google_maps_url: string | null;
+  hours: unknown;
+  experience_mode: string;
+  current_promotion_id: string | null;
+};
+
+export type PublicMenuItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  price: number | null;
+  is_featured: boolean;
+  available: boolean;
+  tags: string[];
+  menu_id: string | null;
+  display_order: number;
+};
+
+export type PublicSection = {
+  id: string;
+  name: string;
+  display_order: number;
+  items: PublicMenuItem[];
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
-
   if (!url) throw new Error('Supabase URL is missing.');
   if (!serviceKey) throw new Error('Reusable QR resolver is not configured. Add SUPABASE_SERVICE_ROLE_KEY in Vercel.');
-
   return createServiceClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
 
 function isPromotionLive(promotion: Promotion, now: Date) {
-  // No-expiry rule:
-  // ends_at = null means the promotion runs until staff manually ends it.
-  // Manual ending still works because End Promotion sets ends_at = now().
   if (promotion.status !== 'active') return false;
   if (promotion.starts_at && now < new Date(promotion.starts_at)) return false;
   if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
@@ -44,28 +89,39 @@ function isPromotionLive(promotion: Promotion, now: Date) {
 }
 
 function isPromotionNotEnded(promotion: Promotion, now: Date) {
-  // No-expiry rule:
-  // A null end date is not ended. It remains eligible until an end timestamp is written.
   if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
   return true;
 }
 
+// ─── Route ────────────────────────────────────────────────────────────────────
+
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function PermanentRestaurantQrPage({ params }: { params: { restaurantSlug: string } }) {
+export default async function PermanentRestaurantQrPage({
+  params,
+}: {
+  params: { restaurantSlug: string };
+}) {
   const now = new Date();
   let supabase;
 
   try {
     supabase = makeServiceClient();
   } catch (error: any) {
-    return <BrandedUnavailablePage message={error?.message || 'Reusable QR resolver is not configured.'} />;
+    return (
+      <BrandedUnavailablePage
+        message={error?.message || 'Reusable QR resolver is not configured.'}
+      />
+    );
   }
 
+  // Fetch full restaurant row — needed for both modes.
   const restaurantResult = await supabase
     .from('restaurants')
-    .select('id,name,slug,address_line1,city,current_promotion_id')
+    .select(
+      'id,name,slug,description,hero_image_url,logo_url,brand_color,secondary_color,accent_color,phone,address_line1,city,province_state,postal_code,country,website_url,instagram_url,facebook_url,google_maps_url,hours,experience_mode,current_promotion_id'
+    )
     .eq('slug', params.restaurantSlug)
     .single();
 
@@ -73,13 +129,48 @@ export default async function PermanentRestaurantQrPage({ params }: { params: { 
     return <BrandedUnavailablePage message="Restaurant not found." />;
   }
 
-  const restaurant = restaurantResult.data as Restaurant;
+  const restaurant = restaurantResult.data as PublicRestaurant;
+  const mode = restaurant.experience_mode;
 
-  // Source of truth for reusable QR:
-  // The printed QR belongs to the restaurant location, not to the promotion that
-  // generated the print kit. It must route to the current playable promotion for
-  // this location even if current_promotion_id is stale or the status/date fields
-  // are not perfectly synchronized.
+  // ── menu_only / menu_and_promotion → public menu experience ─────────────────
+
+  if (mode === 'menu_only' || mode === 'menu_and_promotion') {
+    const [menusResult, itemsResult] = await Promise.all([
+      supabase
+        .from('menus')
+        .select('id,name,display_order')
+        .eq('restaurant_id', restaurant.id)
+        .order('display_order', { ascending: true }),
+      supabase
+        .from('menu_items')
+        .select('id,name,description,image_url,price,is_featured,available,tags,menu_id,display_order')
+        .eq('restaurant_id', restaurant.id)
+        .eq('available', true)
+        .is('deleted_at', null)
+        .order('display_order', { ascending: true }),
+    ]);
+
+    const menus = (menusResult.data || []) as Array<{
+      id: string;
+      name: string;
+      display_order: number;
+    }>;
+    const allItems = (itemsResult.data || []) as PublicMenuItem[];
+
+    const sections: PublicSection[] = menus.map((menu) => ({
+      id: menu.id,
+      name: menu.name,
+      display_order: menu.display_order,
+      items: allItems.filter((item) => item.menu_id === menu.id),
+    }));
+
+    return <RestaurantPublicPage restaurant={restaurant} sections={sections} />;
+  }
+
+  // ── promotion_only → existing flow, unchanged ────────────────────────────────
+
+  const promotionRestaurant = restaurant as unknown as PromotionLookupRestaurant;
+
   const promotionsResult = await supabase
     .from('promotions')
     .select('id,name,slug,status,starts_at,ends_at,created_at')
@@ -90,27 +181,27 @@ export default async function PermanentRestaurantQrPage({ params }: { params: { 
   if (promotionsResult.error) {
     return (
       <BrandedUnavailablePage
-        restaurant={restaurant}
+        restaurant={promotionRestaurant}
         message={`Promotion lookup failed: ${promotionsResult.error.message}`}
       />
     );
   }
 
   const promotions = (promotionsResult.data || []) as Promotion[];
-  const livePromotions = promotions.filter((promotion) => isPromotionLive(promotion, now));
-  const nonEndedPromotions = promotions.filter((promotion) => isPromotionNotEnded(promotion, now));
+  const livePromotions = promotions.filter((p) => isPromotionLive(p, now));
+  const nonEndedPromotions = promotions.filter((p) => isPromotionNotEnded(p, now));
 
   const promotion =
-    livePromotions.find((item) => item.id === restaurant.current_promotion_id) ||
+    livePromotions.find((p) => p.id === restaurant.current_promotion_id) ||
     livePromotions[0] ||
-    nonEndedPromotions.find((item) => item.id === restaurant.current_promotion_id) ||
+    nonEndedPromotions.find((p) => p.id === restaurant.current_promotion_id) ||
     nonEndedPromotions[0] ||
     null;
 
   if (!promotion) {
     return (
       <BrandedUnavailablePage
-        restaurant={restaurant}
+        restaurant={promotionRestaurant}
         message="There is no active SpinBite promotion for this location right now. Please ask staff."
       />
     );
