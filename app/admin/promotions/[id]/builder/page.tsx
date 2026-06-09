@@ -305,97 +305,19 @@ export default function PromotionBuilderPage() {
         setMenuItems([]);
         return;
       }
-
       const supabase = createClient();
-      const selectedMenu = menus.find((menu) => menu.id === menuId);
       const result = await supabase
         .from('menu_items')
         .select('id,menu_id,restaurant_id,name,price')
         .eq('menu_id', menuId)
         .order('name');
-
-      if ((result.data || []).length > 0) {
-        setMenuItems(result.data || []);
-        return;
+      setMenuItems(result.data || []);
+      if ((result.data || []).length === 0) {
+        setMenuNotice('This section has no items yet. Add items in the Menu builder before assigning rewards.');
       }
-
-      if (!restaurant || !selectedMenu) {
-        setMenuItems([]);
-        return;
-      }
-
-      const siblingRestaurants = await supabase
-        .from('restaurants')
-        .select('id,name,owner_id')
-        .eq('owner_id', restaurant.owner_id)
-        .eq('name', restaurant.name)
-        .neq('id', restaurant.id);
-
-      const siblingIds = (siblingRestaurants.data || []).map((item: any) => item.id);
-      if (!siblingIds.length) {
-        setMenuItems([]);
-        return;
-      }
-
-      const siblingMenus = await supabase
-        .from('menus')
-        .select('id,name,menu_type,restaurant_id')
-        .in('restaurant_id', siblingIds);
-
-      const matchingSiblingMenuIds = ((siblingMenus.data || []) as BuilderMenu[])
-        .filter((menu) => menuKey(menu) === menuKey(selectedMenu) || menu.name.toLowerCase().trim() === selectedMenu.name.toLowerCase().trim())
-        .map((menu) => menu.id);
-
-      if (!matchingSiblingMenuIds.length) {
-        setMenuItems([]);
-        return;
-      }
-
-      const siblingItems = await supabase
-        .from('menu_items')
-        .select('name,price')
-        .in('menu_id', matchingSiblingMenuIds)
-        .order('name');
-
-      const sourceItems = siblingItems.data || [];
-      if (!sourceItems.length) {
-        setMenuItems([]);
-        return;
-      }
-
-      const uniqueByName = new Map<string, any>();
-      sourceItems.forEach((item: any) => {
-        const key = item.name.toLowerCase().trim();
-        if (!uniqueByName.has(key)) uniqueByName.set(key, item);
-      });
-
-      const insertResult = await supabase.from('menu_items').insert(
-        Array.from(uniqueByName.values()).map((item: any) => ({
-          name: item.name,
-          price: item.price,
-          menu_id: menuId,
-          restaurant_id: restaurant.id,
-        }))
-      );
-
-      if (insertResult.error) {
-        setMenuItems([]);
-        setMenuNotice('This location has an empty menu. Add menu items or copy the menu from another location.');
-        return;
-      }
-
-      const copied = await supabase
-        .from('menu_items')
-        .select('id,menu_id,restaurant_id,name,price')
-        .eq('menu_id', menuId)
-        .order('name');
-
-      setMenuItems(copied.data || []);
-      setMenuNotice(`Copied ${(copied.data || []).length} menu items from another ${restaurant.name} location.`);
     }
-
     loadItems();
-  }, [menuId, menus, restaurant]);
+  }, [menuId]);
 
   const errors = useMemo(() => {
     const messages: string[] = [];
@@ -617,9 +539,9 @@ export default function PromotionBuilderPage() {
         {launchSuccess && isLive && <div className="rounded-3xl bg-green-50 p-4 text-sm font-black text-green-800">🎉 Promotion is live. The customer link and QR code are ready below.</div>}
         {launchSuccess && isPending && <div className="rounded-3xl bg-yellow-50 p-4 text-sm font-black text-yellow-800">Promotion is scheduled. It will become playable at the start date/time.</div>}
 
-        <div className="rounded-[2rem] bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 1: Select Menu</p><select value={menuId} onChange={(event) => setMenuId(event.target.value)} className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 font-black outline-none focus:border-[#FF6B00]"><option value="">Select a menu</option>{menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.name}{typeof menu.item_count === 'number' ? ` (${menu.item_count} items)` : ''}</option>)}</select>{menuNotice && <p className="mt-3 rounded-2xl bg-green-50 p-3 text-sm font-black text-green-700">{menuNotice}</p>}</div>
+        <div className="rounded-[2rem] bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 1: Select Section</p><select value={menuId} onChange={(event) => setMenuId(event.target.value)} className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 font-black outline-none focus:border-[#FF6B00]"><option value="">Select a section</option>{menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.name}{typeof menu.item_count === 'number' ? ` (${menu.item_count} items)` : ''}</option>)}</select>{menuNotice && <p className="mt-3 rounded-2xl bg-green-50 p-3 text-sm font-black text-green-700">{menuNotice}</p>}</div>
 
-        <div className="rounded-[2rem] bg-white p-5 shadow-xl"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black uppercase text-[#FF6B00]">Step 2: Add Rewards</p><p className="mt-2 text-sm font-bold text-stone-600">Choose 6–10 menu rewards. Add custom rewards only when needed.</p></div><button onClick={addCustom} disabled={rewards.length >= MAX} className="rounded-2xl bg-[#1F1F1F] px-4 py-3 text-sm font-black text-white disabled:bg-stone-300">Custom</button></div><div className="mt-4 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">{rewardStatus}</div><div className="mt-4 grid gap-3 md:grid-cols-2">{menuItems.map((item) => { const added = rewards.some((reward) => reward.menu_item_id === item.id); return <div key={item.id} className="flex items-center justify-between gap-4 rounded-2xl border border-stone-100 p-4"><div className="min-w-0"><p className="truncate text-lg font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{money(item.price)}</p></div><button onClick={() => addItem(item)} disabled={added || rewards.length >= MAX} className="rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-black text-white disabled:bg-stone-300">{added ? 'Added' : 'Add'}</button></div>; })}{!menuItems.length && <p className="rounded-2xl bg-stone-50 p-4 text-sm font-bold text-stone-500 md:col-span-2">No items found in this menu. If this is a new location, the builder will try to copy items from another matching restaurant location.</p>}</div></div>
+        <div className="rounded-[2rem] bg-white p-5 shadow-xl"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black uppercase text-[#FF6B00]">Step 2: Add Rewards</p><p className="mt-2 text-sm font-bold text-stone-600">Choose 6–10 menu rewards. Add custom rewards only when needed.</p></div><button onClick={addCustom} disabled={rewards.length >= MAX} className="rounded-2xl bg-[#1F1F1F] px-4 py-3 text-sm font-black text-white disabled:bg-stone-300">Custom</button></div><div className="mt-4 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">{rewardStatus}</div><div className="mt-4 grid gap-3 md:grid-cols-2">{menuItems.map((item) => { const added = rewards.some((reward) => reward.menu_item_id === item.id); return <div key={item.id} className="flex items-center justify-between gap-4 rounded-2xl border border-stone-100 p-4"><div className="min-w-0"><p className="truncate text-lg font-black">{item.name}</p><p className="text-sm font-bold text-stone-500">{money(item.price)}</p></div><button onClick={() => addItem(item)} disabled={added || rewards.length >= MAX} className="rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-black text-white disabled:bg-stone-300">{added ? 'Added' : 'Add'}</button></div>; })}{!menuItems.length && <p className="rounded-2xl bg-stone-50 p-4 text-sm font-bold text-stone-500 md:col-span-2">No items found in this section yet. Add items using the Menu builder.</p>}</div></div>
 
         <div className="rounded-[2rem] bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 3: Configure Rewards</p><div className="mt-4 grid gap-4 lg:grid-cols-2">{rewards.map((reward, index) => <div key={reward.temp_id} className="rounded-3xl bg-stone-50 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase text-stone-400">Segment {index + 1}</p><p className="text-xl font-black">{reward.label}</p></div><button onClick={() => removeReward(reward.temp_id)} className="rounded-full bg-white px-3 py-2 text-xs font-black text-red-600 shadow-sm">Remove</button></div>{!reward.menu_item_id && <input value={reward.label} onChange={(event) => updateReward(reward.temp_id, { label: event.target.value, custom_name: event.target.value })} className="mt-4 w-full rounded-2xl border border-stone-200 px-4 py-3 font-bold" />}<div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-sm font-black text-stone-700">Reward Type<select value={reward.reward_type} onChange={(event) => updateReward(reward.temp_id, { reward_type: event.target.value as RewardType })} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold"><option value="free">Free item</option><option value="discount">% Discount</option><option value="custom">Custom</option></select></label>{reward.reward_type === 'discount' && <label className="text-sm font-black text-stone-700">Discount %<input type="number" min={1} max={100} value={reward.reward_value || ''} onChange={(event) => updateReward(reward.temp_id, { reward_value: Number(event.target.value) })} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label>}<label className="text-sm font-black text-stone-700">Daily Limit<input type="number" min={1} value={reward.daily_limit} onChange={(event) => updateReward(reward.temp_id, { daily_limit: Number(event.target.value) })} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold" /></label><label className="text-sm font-black text-stone-700">Weight<select value={reward.weight_label} onChange={(event) => updateReward(reward.temp_id, { weight_label: event.target.value as WeightLabel })} className="mt-1 w-full rounded-2xl border border-stone-200 px-3 py-3 font-bold"><option value="Common">Common</option><option value="Normal">Normal</option><option value="Rare">Rare</option></select></label></div></div>)}{!rewards.length && <p className="rounded-2xl bg-stone-50 p-4 text-sm font-bold text-stone-500 lg:col-span-2">Add rewards from the selected menu to configure the wheel.</p>}</div></div>
 
