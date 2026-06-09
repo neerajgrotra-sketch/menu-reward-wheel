@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import type { Metadata } from 'next';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
 
@@ -91,6 +92,36 @@ function isPromotionLive(promotion: Promotion, now: Date) {
 function isPromotionNotEnded(promotion: Promotion, now: Date) {
   if (promotion.ends_at && now > new Date(promotion.ends_at)) return false;
   return true;
+}
+
+// ─── Metadata ─────────────────────────────────────────────────────────────────
+
+// E1: per-page metadata for OG sharing and browser tab title
+export async function generateMetadata({
+  params,
+}: {
+  params: { restaurantSlug: string };
+}): Promise<Metadata> {
+  try {
+    const supabase = makeServiceClient();
+    const { data } = await supabase
+      .from('restaurants')
+      .select('name,description,logo_url')
+      .eq('slug', params.restaurantSlug)
+      .single();
+    if (!data) return { title: 'Menu' };
+    return {
+      title: `${data.name} — Menu`,
+      description: data.description || `Browse the menu for ${data.name}.`,
+      openGraph: {
+        title: `${data.name} — Menu`,
+        description: data.description || `Browse the menu for ${data.name}.`,
+        ...(data.logo_url ? { images: [{ url: data.logo_url }] } : {}),
+      },
+    };
+  } catch {
+    return { title: 'Menu' };
+  }
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────

@@ -67,9 +67,13 @@ function darken(hex: string, amount = 30): string {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function TagPill({ tag }: { tag: string }) {
+// D2: accent color tints tag pills per restaurant branding
+function TagPill({ tag, accentColor }: { tag: string; accentColor: string }) {
   return (
-    <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-bold text-stone-600">
+    <span
+      className="rounded-full px-3 py-1 text-xs font-bold"
+      style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
+    >
       {tag}
     </span>
   );
@@ -92,7 +96,7 @@ function ItemPlaceholder() {
   );
 }
 
-// Featured card — used in horizontal scroll strip
+// Featured card — horizontal scroll strip; all items here are featured so no badge needed
 function FeaturedCard({
   item,
   brandColor,
@@ -111,19 +115,14 @@ function FeaturedCard({
     >
       <div className="relative h-28 w-full overflow-hidden bg-stone-100">
         {item.image_url ? (
+          // A5: eager load — featured strip is above the fold
           <img
             src={item.image_url}
             alt={item.name}
             className="h-full w-full object-cover"
-            loading="lazy"
           />
         ) : (
           <ItemPlaceholder />
-        )}
-        {item.is_featured && (
-          <span className="absolute left-2 top-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-black text-white shadow">
-            ⭐
-          </span>
         )}
       </div>
       <div className="p-3">
@@ -131,7 +130,8 @@ function FeaturedCard({
           {item.name}
         </p>
         {item.description && (
-          <p className="mt-1 line-clamp-2 text-left text-xs text-stone-400">{item.description}</p>
+          // C7: stone-500 (4.6:1) replaces stone-400 (2.4:1 — fails WCAG AA)
+          <p className="mt-1 line-clamp-2 text-left text-xs text-stone-500">{item.description}</p>
         )}
         <div className="mt-2">
           <PriceBadge price={item.price} color={brandColor} />
@@ -141,14 +141,16 @@ function FeaturedCard({
   );
 }
 
-// Menu item card — used in 2-column grid
+// Menu item card — 2-column grid
 function MenuItemCard({
   item,
   brandColor,
+  accentColor,
   onTap,
 }: {
   item: PublicMenuItem;
   brandColor: string;
+  accentColor: string;
   onTap: () => void;
 }) {
   return (
@@ -158,7 +160,8 @@ function MenuItemCard({
       className="overflow-hidden rounded-2xl bg-white text-left shadow-md active:scale-95"
       style={{
         transition: 'transform 150ms',
-        outline: item.is_featured ? `2px solid ${brandColor}22` : undefined,
+        // D3: colored top border replaces the near-invisible outline treatment
+        borderTop: item.is_featured ? `3px solid ${accentColor}` : undefined,
       }}
     >
       <div className="relative h-28 w-full overflow-hidden bg-stone-100">
@@ -173,15 +176,20 @@ function MenuItemCard({
           <ItemPlaceholder />
         )}
         {item.is_featured && (
-          <span className="absolute right-2 top-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-black text-white shadow">
-            ⭐
+          // D2/D3: accent_color badge with legible text label
+          <span
+            className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
+            style={{ backgroundColor: accentColor }}
+          >
+            ★ Featured
           </span>
         )}
       </div>
       <div className="p-3">
         <p className="line-clamp-2 text-sm font-black leading-tight text-stone-800">{item.name}</p>
         {item.description && (
-          <p className="mt-1 line-clamp-2 text-xs text-stone-400">{item.description}</p>
+          // C7: stone-500 replaces stone-400
+          <p className="mt-1 line-clamp-2 text-xs text-stone-500">{item.description}</p>
         )}
         <div className="mt-2">
           <PriceBadge price={item.price} color={brandColor} />
@@ -196,25 +204,70 @@ function ItemDetailSheet({
   item,
   visible,
   brandColor,
+  accentColor,
   onClose,
 }: {
   item: PublicMenuItem;
   visible: boolean;
   brandColor: string;
+  accentColor: string;
   onClose: () => void;
 }) {
-  // Prevent body scroll while sheet is open
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+
+  // C1: Focus close button when sheet opens so keyboard users land in the dialog
   useEffect(() => {
-    if (visible) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => { document.body.style.overflow = ''; };
+    if (visible) closeBtnRef.current?.focus();
   }, [visible]);
 
+  // B1: iOS-safe scroll lock — position:fixed preserves scroll on Mobile Safari
+  // document.body.overflow = 'hidden' alone does not block scrolling on iOS Safari
+  useEffect(() => {
+    if (!visible) return;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, [visible]);
+
+  // C2: Focus trap (WCAG 2.1.2) + Escape to close
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const focusable = e.currentTarget.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50" aria-modal="true" role="dialog">
+    // C3: aria-labelledby ties the dialog title to this container for screen readers
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="item-sheet-title"
+      onKeyDown={handleKeyDown}
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
@@ -236,16 +289,17 @@ function ItemDetailSheet({
           <div className="h-1 w-10 rounded-full bg-stone-300" />
         </div>
 
-        {/* Close button */}
+        {/* B2: 44×44px close button meets minimum touch target */}
         <div className="flex items-center justify-between px-5 pt-1">
           <div />
           <button
+            ref={closeBtnRef}
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-stone-600"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600"
             aria-label="Close"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
 
@@ -267,7 +321,10 @@ function ItemDetailSheet({
 
         {/* Content */}
         <div className="px-5 pb-10 pt-5">
-          <h2 className="text-2xl font-black leading-tight text-stone-900">{item.name}</h2>
+          {/* C3: id matches aria-labelledby on the dialog */}
+          <h2 id="item-sheet-title" className="text-2xl font-black leading-tight text-stone-900">
+            {item.name}
+          </h2>
 
           {item.price != null && (
             <p className="mt-2 text-2xl font-black" style={{ color: brandColor }}>
@@ -282,7 +339,8 @@ function ItemDetailSheet({
           {item.tags.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
               {item.tags.map((tag) => (
-                <TagPill key={tag} tag={tag} />
+                // D2: accent-tinted tag pills
+                <TagPill key={tag} tag={tag} accentColor={accentColor} />
               ))}
             </div>
           )}
@@ -302,6 +360,8 @@ export function RestaurantPublicPage({
   sections: PublicSection[];
 }) {
   const brandColor = brandPrimary(restaurant);
+  // D2: accent_color for badges/featured treatment; falls back to brand_color then amber
+  const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
   const heroFallbackGradient = `linear-gradient(135deg, ${brandColor} 0%, ${darken(brandColor, 40)} 100%)`;
 
   const featuredItems = sections
@@ -314,6 +374,9 @@ export function RestaurantPublicPage({
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
   const [selectedItem, setSelectedItem] = useState<PublicMenuItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
+
+  // C1: remember which element triggered the sheet so focus returns on close
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   // Scroll to section (accounts for sticky nav height ~56px)
   const scrollToSection = useCallback((sectionId: string) => {
@@ -351,8 +414,10 @@ export function RestaurantPublicPage({
   }, [activeSection]);
 
   function openSheet(item: PublicMenuItem) {
+    // C1: capture trigger element before mounting sheet
+    triggerRef.current = document.activeElement as HTMLElement ?? null;
     setSelectedItem(item);
-    // Double rAF: ensure DOM is painted before transition triggers
+    // Double rAF: ensure DOM is painted before CSS transition triggers
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
     });
@@ -360,7 +425,13 @@ export function RestaurantPublicPage({
 
   function closeSheet() {
     setSheetVisible(false);
-    setTimeout(() => setSelectedItem(null), 300);
+    // C1: restore focus to trigger after close animation (300ms)
+    const trigger = triggerRef.current;
+    setTimeout(() => {
+      setSelectedItem(null);
+      trigger?.focus();
+      triggerRef.current = null;
+    }, 300);
   }
 
   const hasHours = !!restaurant.hours;
@@ -378,26 +449,40 @@ export function RestaurantPublicPage({
     restaurant.facebook_url;
 
   return (
-    <div className="min-h-screen bg-stone-50">
+    // D1: secondary_color provides a per-restaurant page background tint at ~4% opacity
+    <div
+      className="min-h-screen"
+      style={{
+        backgroundColor: restaurant.secondary_color
+          ? `${restaurant.secondary_color}0a`
+          : '#fafaf9',
+      }}
+    >
 
       {/* ── Hero ── */}
       <div className="relative">
         {restaurant.hero_image_url ? (
+          // A1: fetchPriority (was priority-hint which is silently ignored)
           <img
             src={restaurant.hero_image_url}
             alt={`${restaurant.name} hero`}
             className="h-64 w-full object-cover"
-            priority-hint="high"
+            fetchPriority="high"
           />
         ) : (
           <div className="h-56 w-full" style={{ background: heroFallbackGradient }} />
         )}
-        {/* Gradient overlay for text legibility */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+        {/* A4: gradient overlay only when a real hero image exists — avoids gradient-on-gradient */}
+        {restaurant.hero_image_url && (
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+        )}
+      </div>
 
-        {/* Logo — bottom-left */}
+      {/* ── Info card ── */}
+      {/* A2: logo moved here as absolute -top-10 so it straddles the hero/card boundary cleanly */}
+      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl">
         {restaurant.logo_url && (
-          <div className="absolute bottom-4 left-4 h-16 w-16 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl">
+          <div className="absolute -top-10 left-5 h-20 w-20 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-stone-100">
             <img
               src={restaurant.logo_url}
               alt={`${restaurant.name} logo`}
@@ -405,24 +490,19 @@ export function RestaurantPublicPage({
             />
           </div>
         )}
-      </div>
 
-      {/* ── Info card ── */}
-      <div className="-mt-6 rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl">
-        {/* Name */}
+        {/* A3: no paddingLeft — logo is above, not beside, the name */}
         <h1
-          className="text-3xl font-black leading-tight"
-          style={{ color: brandColor, paddingLeft: restaurant.logo_url ? '4.5rem' : undefined }}
+          className={`text-3xl font-black leading-tight${restaurant.logo_url ? ' mt-12' : ''}`}
+          style={{ color: brandColor }}
         >
           {restaurant.name}
         </h1>
 
-        {/* Description */}
         {restaurant.description && (
           <p className="mt-3 text-sm leading-relaxed text-stone-600">{restaurant.description}</p>
         )}
 
-        {/* Address + phone */}
         <div className="mt-3 space-y-1.5">
           {address && (
             <p className="text-sm font-semibold text-stone-500">
@@ -445,7 +525,8 @@ export function RestaurantPublicPage({
       {/* ── Hours ── */}
       {parsedHours && !allDaysClosed && (
         <div className="mx-4 mt-4 rounded-3xl bg-white px-5 py-4 shadow-md">
-          <h2 className="text-xs font-black uppercase tracking-widest text-stone-400">Hours</h2>
+          {/* C7: stone-500 (4.6:1) replaces stone-400 (2.4:1 — fails WCAG AA) */}
+          <h2 className="text-xs font-black uppercase tracking-widest text-stone-500">Hours</h2>
           <div className="mt-3 space-y-1.5">
             {DAY_KEYS.map((key) => {
               const d = parsedHours[key];
@@ -453,7 +534,8 @@ export function RestaurantPublicPage({
                 <div key={key} className="flex items-center justify-between text-sm">
                   <span className="w-10 shrink-0 font-bold text-stone-500">{DAY_SHORT[key]}</span>
                   {d.closed ? (
-                    <span className="text-stone-400">Closed</span>
+                    // C7: stone-500 replaces stone-400
+                    <span className="text-stone-500">Closed</span>
                   ) : (
                     <span className="text-stone-700">
                       {fmt12(d.open)} – {fmt12(d.close)}
@@ -477,6 +559,8 @@ export function RestaurantPublicPage({
               className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
             >
               🌐 Website
+              {/* C5: sr-only text for screen readers announcing new-tab behavior */}
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           )}
           {restaurant.google_maps_url && (
@@ -487,6 +571,7 @@ export function RestaurantPublicPage({
               className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
             >
               🗺️ Directions
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           )}
           {restaurant.instagram_url && (
@@ -497,6 +582,7 @@ export function RestaurantPublicPage({
               className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
             >
               📸 Instagram
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           )}
           {restaurant.facebook_url && (
@@ -507,6 +593,7 @@ export function RestaurantPublicPage({
               className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
             >
               👥 Facebook
+              <span className="sr-only"> (opens in new tab)</span>
             </a>
           )}
         </div>
@@ -515,8 +602,9 @@ export function RestaurantPublicPage({
       {/* ── Featured items ── */}
       {featuredItems.length > 0 && (
         <div className="mt-8">
-          <h2 className="px-4 text-xl font-black text-stone-800">
-            <span className="mr-2">⭐</span>Featured Dishes
+          {/* D4: brand color on section heading */}
+          <h2 className="px-4 text-xl font-black" style={{ color: brandColor }}>
+            <span className="mr-2" aria-hidden="true">⭐</span>Featured Dishes
           </h2>
           <div className="mt-3 flex gap-4 overflow-x-auto px-4 pb-4">
             {featuredItems.map((item) => (
@@ -540,7 +628,8 @@ export function RestaurantPublicPage({
             className="w-full rounded-2xl py-4 text-lg font-black text-white shadow-lg active:scale-95"
             style={{ backgroundColor: brandColor, transition: 'transform 150ms' }}
           >
-            Browse Menu ↓
+            {/* C6: decorative arrow is hidden from assistive technology */}
+            Browse Menu <span aria-hidden="true">↓</span>
           </button>
         </div>
       )}
@@ -548,13 +637,14 @@ export function RestaurantPublicPage({
       {/* ── Menu ── */}
       <div ref={menuRef} className="mt-8 pb-24">
 
-        {/* Empty state: no sections at all */}
+        {/* Empty state */}
         {sections.length === 0 && (
           <div className="mx-4 rounded-3xl bg-white p-8 text-center shadow-md">
             <p className="text-4xl">🍽️</p>
             <p className="mt-3 text-xl font-black text-stone-700">Menu coming soon</p>
-            <p className="mt-2 text-sm text-stone-400">
-              We're putting the finishing touches on our menu. Check back soon!
+            {/* C7: stone-500 replaces stone-400 */}
+            <p className="mt-2 text-sm text-stone-500">
+              We&apos;re putting the finishing touches on our menu. Check back soon!
             </p>
           </div>
         )}
@@ -575,6 +665,8 @@ export function RestaurantPublicPage({
                     data-nav-id={section.id}
                     onClick={() => scrollToSection(section.id)}
                     className="shrink-0 rounded-full px-4 py-2 text-sm font-black shadow-sm transition-colors"
+                    // C4: aria-current exposes active state to screen readers
+                    aria-current={isActive ? 'true' : undefined}
                     style={
                       isActive
                         ? { backgroundColor: brandColor, color: '#fff' }
@@ -599,10 +691,20 @@ export function RestaurantPublicPage({
                 if (el) sectionRefs.current.set(section.id, el);
               }}
             >
-              <h2 className="text-2xl font-black text-stone-800">{section.name}</h2>
+              {/* D4: brand-colored heading with subtle divider line */}
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-black" style={{ color: brandColor }}>
+                  {section.name}
+                </h2>
+                <div
+                  className="h-px flex-1 rounded-full"
+                  style={{ backgroundColor: brandColor, opacity: 0.2 }}
+                />
+              </div>
 
               {section.items.length === 0 ? (
-                <p className="mt-3 text-sm text-stone-400">
+                // C7: stone-500 replaces stone-400
+                <p className="mt-3 text-sm text-stone-500">
                   No items available in this section right now.
                 </p>
               ) : (
@@ -612,6 +714,7 @@ export function RestaurantPublicPage({
                       key={item.id}
                       item={item}
                       brandColor={brandColor}
+                      accentColor={accentColor}
                       onTap={() => openSheet(item)}
                     />
                   ))}
@@ -628,6 +731,7 @@ export function RestaurantPublicPage({
           item={selectedItem}
           visible={sheetVisible}
           brandColor={brandColor}
+          accentColor={accentColor}
           onClose={closeSheet}
         />
       )}
