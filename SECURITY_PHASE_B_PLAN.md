@@ -3,7 +3,17 @@
 **Date:** 2026-06-09  
 **Branch:** feature/security-hardening-phase-b  
 **Prerequisite:** Phase A merged and tagged as v0.2.1-security-phase-a  
-**Status:** NOT STARTED — planning document only
+**Status:** C-1 + C-6 RESOLVED 2026-06-09 — remaining findings deferred
+
+---
+
+## Current Finding Counts (as of 2026-06-09)
+
+| Severity | Total | Resolved | Remaining |
+|---|---|---|---|
+| Critical | 2 | **2** (C-1, C-6) | **0** |
+| High | 5 | 0 | **5** (H-1, H-2, H-3, H-5, H-6) |
+| Medium | 2 | 0 | 2 (C-4 INSERT, C-5 INSERT) |
 
 ---
 
@@ -15,94 +25,31 @@ Each Phase B item must be accompanied by a review of the client-side code that r
 
 ---
 
-## Remaining Critical Findings
+## Resolved Critical Findings
 
-### C-1 — `customer_profiles`: Full unauthenticated PII exposure
+### C-1 — `customer_profiles`: Full unauthenticated PII exposure — ✓ RESOLVED
 
 **Severity:** Critical  
 **Table:** `public.customer_profiles`  
-**Finding:** The policy `service role full access on customer_profiles` is bound to the `{public}` role (not `service_role`). Any anonymous caller can `SELECT * FROM customer_profiles` and retrieve every customer's phone number and post-win consent record.
+**Finding:** The policy `service role full access on customer_profiles` was bound to the `{public}` role, granting any anon-key caller full SELECT/INSERT/UPDATE/DELETE on all customer phone numbers and consent records.
 
-**Current policy:**
-```sql
--- Roles: {public}  Cmd: ALL  USING: true  WITH CHECK: true
-CREATE POLICY "service role full access on customer_profiles"
-  ON public.customer_profiles FOR ALL TO public
-  USING (true) WITH CHECK (true);
-```
+**Resolution:** Policy dropped. All legitimate access confirmed to use `SUPABASE_SERVICE_ROLE_KEY` via server-side routes. No replacement policies needed — service role bypasses RLS. Zero application impact.
 
-**Risk:** Complete exposure of all customer PII to any unauthenticated request. This is the highest-priority finding remaining.
-
-**Affected application code to review before remediation:**
-- Customer identity capture flow (phone entry, consent)
-- Coupon issuance — writes `customer_profiles` after a win
-- QR play page — reads `customer_profiles` to detect returning customers
-- Any server-side API route that calls `customer_profiles` with the service role key
-
-**Proposed remediation:**
-```sql
-DROP POLICY "service role full access on customer_profiles" ON public.customer_profiles;
-
--- Service role retains full access (bypasses RLS by default — no policy needed)
--- Anonymous: insert only their own session-scoped record
-CREATE POLICY "anon insert own profile"
-  ON public.customer_profiles FOR INSERT TO anon
-  WITH CHECK (true);  -- scope further once session-token column is confirmed
-
--- Authenticated: read and update own record only
-CREATE POLICY "users read own profile"
-  ON public.customer_profiles FOR SELECT TO authenticated
-  USING (auth.uid() IS NOT NULL);  -- refine to specific uid match once schema confirmed
-
--- play flow reads via service role (server-side API) — no RLS policy required
-```
-
-**Expected application impact:** The play flow must be confirmed to use the service role key (via a server-side API route) rather than the anon key directly. If any client-side code reads `customer_profiles` with the anon key, it will break. Review required before migration.
+**Migration:** `20260609010000_phase_b_drop_public_customer_and_session_policies`  
+**Validation:** See [PHASE_B_CUSTOMER_DATA_PROTECTION.md](docs/security/PHASE_B_CUSTOMER_DATA_PROTECTION.md)
 
 ---
 
-### C-6 — `play_sessions`: Full cross-tenant access via promotion existence
+### C-6 — `play_sessions`: Full cross-tenant access via promotion existence — ✓ RESOLVED
 
 **Severity:** Critical  
 **Table:** `public.play_sessions`  
-**Finding:** Any caller knowing one promotion UUID gains ALL (SELECT/INSERT/UPDATE/DELETE) access to every play session for that promotion. Play sessions contain coupon issuance state and session tokens.
+**Finding:** `Users can access their play sessions` granted ALL operations to any caller knowing a promotion UUID. 63 of 63 rows were reachable. Session tokens, IP addresses, and `customer_profile_id` links were fully exposed, enabling coupon recovery hijack and cross-table PII joins.
 
-**Current policy:**
-```sql
--- Roles: {public}  Cmd: ALL
--- USING: EXISTS (SELECT 1 FROM promotions WHERE promotions.id = play_sessions.promotion_id)
-CREATE POLICY "Users can access their play sessions"
-  ON public.play_sessions FOR ALL TO public
-  USING (EXISTS (SELECT 1 FROM promotions WHERE promotions.id = play_sessions.promotion_id));
-```
+**Resolution:** Policy dropped. All legitimate access confirmed to use `SUPABASE_SERVICE_ROLE_KEY` via server-side routes. No replacement policies needed. Zero application impact.
 
-**Risk:** Any caller with a valid promotion UUID (publicly discoverable) can read or overwrite any play session for that promotion — including session tokens used for coupon issuance.
-
-**Affected application code to review before remediation:**
-- QR play page — creates and reads play sessions
-- Coupon issuance — updates play session with coupon state
-- Unplayed session recovery flow — reads play sessions by token
-- `20260603000000_session_token_in_coupons.sql` — session token design
-
-**Proposed remediation:**
-```sql
-DROP POLICY "Users can access their play sessions" ON public.play_sessions;
-
--- Anonymous: insert their own session (scoped to their guest_session_id or session_token)
-CREATE POLICY "anon insert own play session"
-  ON public.play_sessions FOR INSERT TO anon
-  WITH CHECK (true);  -- refine to session_token or guest_session_id match
-
--- Read own session by session token (no auth.uid() required for QR flow)
-CREATE POLICY "anon read own play session"
-  ON public.play_sessions FOR SELECT TO anon
-  USING (session_token = current_setting('request.headers')::json->>'x-session-token'
-         OR /* alternative: guest_session_id approach */);
-
--- Server-side coupon issuance uses service role — no RLS policy required
-```
-
-**Expected application impact:** High. The play flow relies on this table from the client side. Full schema and client code review required before writing the migration.
+**Migration:** `20260609010000_phase_b_drop_public_customer_and_session_policies`  
+**Validation:** See [PHASE_B_CUSTOMER_DATA_PROTECTION.md](docs/security/PHASE_B_CUSTOMER_DATA_PROTECTION.md)
 
 ---
 
