@@ -1271,3 +1271,769 @@ A targeted stabilization sprint (estimated 5–7 days) would close all blocking 
 ---
 
 *Parts 11–13 added 2026-06-09. All findings are evidence-based. No code or schema changes made.*
+
+---
+
+## Menu Stabilization Sprint
+
+*Parts 14–18 added 2026-06-09. Planning only. No implementation.*
+
+---
+
+## 14. Menu Stabilization Sprint Design
+
+### 14.1 Problem Statement
+
+The current state is a **two-tier flat hierarchy** where the `menus` table rows are semantically sections (Breakfast, Lunch, Dinner), not menu documents.
+
+```
+Current State
+─────────────
+Restaurant "Punjabi By Nature"
+  menus row: "Breakfast"  (slug: breakfast, menu_type: breakfast)
+    menu_item: Chai
+    menu_item: Paratha
+  menus row: "Dinner"     (slug: dinner, menu_type: dinner)
+    menu_item: Butter Chicken
+    menu_item: Naan
+  [orphaned items: menu_id = NULL]
+  [menu_sections: 0 rows — never used]
+  [menu_items.section_id: always NULL]
+```
+
+```
+Target State
+────────────
+Restaurant "Punjabi By Nature"
+  menus row: "Main Menu"  (slug: main-menu)
+    menu_sections row: "Breakfast"
+      menu_item: Chai
+      menu_item: Paratha
+    menu_sections row: "Dinner"
+      menu_item: Butter Chicken
+      menu_item: Naan
+```
+
+### 14.2 Breakage Risk Inventory
+
+Before designing the migration, every system that touches `menus` or `menu_items` must be audited for breakage.
+
+| System | Touches menus? | Touches menu_items? | Breakage risk if hierarchy changes |
+|---|---|---|---|
+| QR resolver (`/r/[slug]`) | ✗ | ✗ | None — reads restaurants + promotions only |
+| Play page (`/play/[slug]/[promo]`) | ✗ | ✗ | None |
+| Promotion-play API | ✗ | `menu_items.id + name` only | None — reads items by ID, no menu join |
+| Coupons issue API | ✗ | ✗ | None |
+| Coupon recovery / session | ✗ | `menu_items.name` (via promotion_rewards) | None |
+| Admin coupons API | ✗ | `menu_items.id + name` | None |
+| Promotion performance API | ✗ | `menu_items.id + name` | None |
+| Admin promotions builder | **reads `menus`** | reads items by `menu_id` | **Medium** — item picker queries menus then items |
+| Admin menu page | **full CRUD on `menus`** | full CRUD on `menu_items` | **High** — primary consumer of both tables |
+| `promotions.menu_id` FK | exists, nullable | n/a | **None** — this FK is never read or written by any code path |
+
+**Key finding:** The QR flow, coupon flow, and all customer-facing APIs are completely decoupled from the `menus` table. They only touch `menu_items` by `id`. A structural change to the menus-to-sections relationship has **zero customer impact**.
+
+**Only two code files touch the `menus` table:**
+- `app/admin/menu/page.tsx` (CRUD)
+- `app/admin/promotions/[id]/builder/page.tsx` (read-only: populates reward item picker)
+
+### 14.3 Two-Phase Architecture Recommendation
+
+A single stabilization sprint cannot safely do the data migration AND the bug fixes AND the feature additions simultaneously. Attempting all three in one sprint creates a compound-risk sprint where a data migration error could corrupt production data while fixing what should be a UI-only bug.
+
+The recommended approach splits the work into two distinct phases with a clear handoff boundary.
+
+---
+
+**Phase S1 — Stabilization Sprint (bugs + rich fields, no data migration)**
+
+Scope: Fix all active defects. Add all rich-content fields to the admin UI. Rename the UX concept from "menu" to "section" without touching any data.
+
+Architectural choice: For this phase, treat the **existing `menus` rows as sections**. The QR menu page (when built) renders them as categories within an implicit "Your Menu" wrapper. No data moves.
+
+Outcome: A stable, fully-featured two-tier admin. All bugs fixed. Rich content accessible. The `menu_sections` table and `section_id` column remain dormant until Phase S2.
+
+Duration estimate: **5–7 days**
+
+---
+
+**Phase S2 — Hierarchy Migration (separate sprint, post-QR-launch)**
+
+Scope: Execute the data migration from two-tier to three-tier. Update admin UI to show true menu documents. Wire `menu_items.section_id` to `menu_sections`.
+
+Architectural choice: Create one "Main Menu" per restaurant, migrate existing `menus` rows to `menu_sections`, update `menu_items` FK targets.
+
+Trigger: When a restaurant needs more than one menu document (e.g., "Dine-In Menu" vs. "Takeout Menu"), or when multi-menu scheduling is required.
+
+Duration estimate: **5–7 days** (heavy migration risk, requires careful staging)
+
+---
+
+### 14.4 Phase S1 Minimum Work Definition
+
+The minimum work required to reach a stable, shippable state **without a data migration:**
+
+| Task | Defect closed | Time |
+|---|---|---|
+| Remove silent auto-copy from promotion builder | MA-2 | 0.5d |
+| Clear `items` state before `loadItems` in toggleMenu | MA-3 | 1h |
+| Assign orphaned items (menu_id = NULL) to first menu via one-time admin button | MA-5 | 0.5d |
+| Write migration adding `NOT NULL` default to menu_items.menu_id (after orphan cleanup) | MA-4 | 0.5d |
+| Rename admin UI labels: "Create Menu" → "Create Section", "Menus" → "Sections" | MA-7 | 2h |
+| Fix slug update on menu rename | MA-8 | 1h |
+| Add description, image_url, is_featured, available, tags fields to item editor | MA-6 (partial) | 2d |
+| Build section management UI (create/rename/delete sections using existing menus table) | MA-6 | 1d |
+
+**Phase S1 total: 5–6 days**
+
+---
+
+## 15. Migration Strategy
+
+### 15.1 The Core Question
+
+**Should Breakfast/Lunch/Dinner become sections under "Main Menu", or should `menus` remain first-class?**
+
+Three alternatives evaluated:
+
+---
+
+**Alternative A — Full 3-tier migration: menus → sections**
+
+```
+Before                               After
+──────                               ─────
+menus: "Breakfast" (id: a1)          menus: "Main Menu" (id: m1, NEW)
+menus: "Dinner"    (id: a2)          menu_sections: "Breakfast" (menu_id: m1, id: s1, NEW)
+menu_items: Chai    (menu_id: a1)    menu_sections: "Dinner"    (menu_id: m1, id: s2, NEW)
+menu_items: Naan    (menu_id: a2)    menu_items: Chai  (menu_id: m1, section_id: s1)
+                                     menu_items: Naan  (menu_id: m1, section_id: s2)
+                                     [old menus rows: soft-deleted]
+```
+
+**Migration SQL (per restaurant, in a transaction):**
+```sql
+-- Step 1: Create "Main Menu" for each restaurant
+INSERT INTO menus (restaurant_id, name, slug, menu_type, display_order)
+  SELECT DISTINCT restaurant_id, 'Main Menu', 'main-menu', 'default', 0
+  FROM menus;
+
+-- Step 2: For each existing menus row, create a menu_section
+INSERT INTO menu_sections (menu_id, restaurant_id, name, display_order)
+  SELECT m_new.id, m_old.restaurant_id, m_old.name, m_old.display_order
+  FROM menus m_old
+  JOIN menus m_new ON m_new.restaurant_id = m_old.restaurant_id
+                   AND m_new.slug = 'main-menu'
+  WHERE m_old.slug != 'main-menu';
+
+-- Step 3: Update menu_items to point to new parent menu + new section
+UPDATE menu_items mi
+  SET menu_id   = m_new.id,
+      section_id = s_new.id
+  FROM menus m_old
+  JOIN menus m_new ON m_new.restaurant_id = m_old.restaurant_id
+                   AND m_new.slug = 'main-menu'
+  JOIN menu_sections s_new ON s_new.restaurant_id = m_old.restaurant_id
+                           AND lower(s_new.name) = lower(m_old.name)
+  WHERE mi.menu_id = m_old.id
+    AND m_old.slug != 'main-menu';
+
+-- Step 4: Soft-delete old menus rows (not the new Main Menu)
+UPDATE menus SET active = false WHERE slug != 'main-menu';
+```
+
+**Risk:** Medium-High. Three-step chained UPDATE. If any restaurant name collision exists between old menus and new sections, rows could map incorrectly. Requires a dry-run count before execution.
+
+**Code changes required:**
+- `app/admin/menu/page.tsx` — full rewrite: query hierarchy as Menu → Section → Item
+- `app/admin/promotions/[id]/builder/page.tsx` — update item picker to query Section → Item
+
+**Pro:** Semantically correct. "Breakfast" is a section, not a menu. Future multi-menu support has a clean foundation.  
+**Con:** High-risk data migration. Requires full admin UI rewrite simultaneously. Two-sprint scope minimum.
+
+---
+
+**Alternative B — Self-referential `menus` (add parent_menu_id column)**
+
+```sql
+ALTER TABLE menus ADD COLUMN parent_menu_id UUID REFERENCES menus(id) ON DELETE SET NULL;
+
+-- Root menus: parent_menu_id = NULL → "Main Menu", "Takeout Menu"
+-- Child menus: parent_menu_id = <root id> → "Breakfast", "Dinner" (current rows)
+```
+
+No data needs to move. All existing `menu_items.menu_id` FKs stay valid. The tree structure is expressed via the nullable parent column.
+
+**Pro:** Zero data migration. No changes to `menu_items`. Admin UI updates only the query pattern (filter by parent_menu_id IS NULL vs IS NOT NULL).  
+**Con:** Makes the `menu_sections` table permanently redundant. Increases schema confusion (menus table now represents two different levels depending on parent_menu_id value). The `section_id` FK on `menu_items` is wasted.
+
+---
+
+**Alternative C — Keep menus as first-class, treat as sections in UX (Phase S1 recommendation)**
+
+No schema change. No data change. Rename the admin UI labels from "Menu" to "Section". The QR menu page renders an implicit "Your Menu" wrapper around all sections.
+
+```
+Admin UI (after relabeling):          QR Menu Page:
+───────────────────────────           ─────────────
+"Sections"                            [Restaurant Name]
+  + Add Section                       [Description, Hours]
+  "Breakfast"                         ─── Breakfast ───
+    + Add Item                          Chai  $3.50
+  "Dinner"                            ─── Dinner ─────
+    + Add Item                          Butter Chicken  $18.00
+```
+
+**Pro:** Zero risk. No migrations. No FK changes. Full stability.  
+**Con:** `menu_sections` and `section_id` remain unused. Deferred technical debt. Multi-menu support requires a later migration anyway.
+
+---
+
+### 15.2 Recommendation
+
+**Phase S1: Alternative C. Phase S2: Alternative A.**
+
+**Rationale:**
+
+The stabilization sprint must not include a data migration. Combining a data migration with bug fixes creates a compound-risk sprint — if the migration fails, it could corrupt production data while you're also trying to fix an existing bug. These concerns are orthogonal and should be managed separately.
+
+Alternative C (Phase S1) closes all blocking defects and makes the system stable for QR menu development with zero data risk.
+
+Alternative A (Phase S2) is the correct long-term architecture, and it can be executed as a dedicated migration sprint after the QR menu page is shipping to real customers. At that point, the business has revenue to justify the migration risk, and the data set is well-understood.
+
+Alternative B (self-referential) is rejected: it makes the `menu_sections` table permanently redundant and would require undoing when the proper migration is eventually executed.
+
+---
+
+**Auto-migration eligibility for existing restaurants:**
+
+| Restaurant state | Auto-migratable? | Notes |
+|---|---|---|
+| Has menus with items (normal state) | ✓ Yes | Standard 3-step migration, low risk |
+| Has orphaned items (menu_id = NULL) | ✓ Yes, with default | Assign to first menu or create "General" section |
+| Has menus with duplicate names | ⚠ Needs dedup | Migration must resolve slug collisions before running |
+| Has no menus at all | ✓ Yes | Skip Steps 2–3; Main Menu created with no sections |
+| Has menus with items already in sibling (auto-copy artifact) | ⚠ Needs audit | Duplicated items should be identified and deduplicated before migration |
+
+---
+
+## 16. Public Menu Data Model
+
+### 16.1 Current Schema Fitness for QR Menu
+
+The existing tables, **as-is**, can support a QR menu page with sections, items, descriptions, photos, and featured items. No new tables or columns are required for the Phase S1 QR menu MVP.
+
+```
+Phase S1 QR menu data query (flat, menus-as-sections):
+
+restaurants → name, slug, logo_url, hero_image_url, brand_color,
+              secondary_color, accent_color, description, hours,
+              website_url, instagram_url
+  └── menus (as sections) → name, display_order
+        └── menu_items → name, description, price, image_url,
+                         is_featured, available, tags[]
+```
+
+All fields exist today. No new migrations needed for Phase S1 QR menu.
+
+### 16.2 Target Three-Tier Schema (Phase S2 and beyond)
+
+**Layer 0 — Restaurant (already complete)**
+
+```
+restaurants:
+  id, name, slug
+  logo_url, hero_image_url
+  brand_color, secondary_color, accent_color
+  description
+  hours JSONB          { monday: { open: "11:00", close: "22:00", closed: false }, ... }
+  experience_mode      promotion_only | menu_only | menu_and_promotion
+  website_url, instagram_url, facebook_url, google_maps_url
+  timezone
+```
+
+**Layer 1 — Menu (top-level document, Phase S2 addition)**
+
+```
+menus:
+  id, restaurant_id, name, slug, description
+  is_default BOOLEAN               -- marks the primary QR-facing menu
+  menu_type TEXT                   -- 'dine_in' | 'takeout' | 'bar' | 'seasonal' | 'custom'
+  available_days TEXT[]            -- ['monday','tuesday',...] for scheduled menus
+  available_from TIME              -- null = always
+  available_to   TIME              -- null = always
+  display_order INTEGER
+  active BOOLEAN, deleted_at TIMESTAMPTZ
+```
+
+`is_default` replaces `restaurants.current_promotion_id` as the QR menu target. The experience router reads `restaurants.experience_mode` and, if menu-facing, fetches the `is_default = true` menu.
+
+**Layer 2 — Section (already exists, wire it)**
+
+```
+menu_sections:
+  id, menu_id, restaurant_id, name, description
+  display_order INTEGER
+  active BOOLEAN, deleted_at TIMESTAMPTZ
+  -- No additions needed for V1 or V2
+```
+
+**Layer 3 — Item (Phase S1 additions only — fields already in schema)**
+
+```
+menu_items:
+  id, menu_id, restaurant_id, section_id
+  name, description, price
+  image_url                        -- primary photo
+  display_order INTEGER
+  is_featured BOOLEAN              -- appears in "Featured" widget / promotion reward
+  available BOOLEAN                -- 86'd toggle (sold out today)
+  active BOOLEAN                   -- archived (not available ever)
+  tags TEXT[]                      -- ['vegan','gluten-free','spicy','halal','popular']
+  ai_metadata JSONB                -- generation provenance envelope
+  deleted_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+```
+
+**Layer 4 — Future: Modifiers (Phase 5+)**
+
+```
+menu_item_modifier_groups:
+  id, menu_item_id, name, description
+  selection_type TEXT CHECK IN ('single','multiple')
+  required BOOLEAN
+  min_selections INT, max_selections INT
+  display_order INT
+
+menu_item_modifiers:
+  id, modifier_group_id, name
+  price_delta NUMERIC              -- positive = add-on, negative = substitution
+  available BOOLEAN, display_order INT
+```
+
+**Layer 5 — Future: Structured Allergens (Phase 5+)**
+
+```
+menu_item_allergens:
+  id, menu_item_id
+  allergen TEXT CHECK IN ('gluten','dairy','nuts','eggs','soy',
+                           'shellfish','fish','sesame','mustard','sulphites')
+  -- structured vs. freeform tags: queryable, localizable, exportable
+```
+
+Rationale for a separate table over adding allergen columns to `menu_items`: allergen count is variable, structured queries ("show me all gluten-free items") require a join rather than an array contains, and allergen lists vary by jurisdiction (EU has 14 mandatory, Canada has 9).
+
+**Layer 6 — Future: Nutrition (Phase 6+)**
+
+```
+menu_item_nutrition:
+  id, menu_item_id
+  serving_size TEXT                -- "1 portion (350g)"
+  calories INT
+  protein_g NUMERIC, carbs_g NUMERIC, fat_g NUMERIC
+  sodium_mg NUMERIC, fibre_g NUMERIC, sugar_g NUMERIC
+  source TEXT CHECK IN ('manual','ai_estimated','lab_tested')
+  last_verified_at TIMESTAMPTZ
+```
+
+**Layer 7 — Future: Multiple Item Images (Phase 6+)**
+
+```
+menu_item_images:
+  id, menu_item_id
+  url TEXT, storage_path TEXT
+  display_order INT
+  source TEXT CHECK IN ('manual','ai_generated','imported')
+  alt_text TEXT
+  is_primary BOOLEAN
+  created_at TIMESTAMPTZ
+```
+
+`menu_items.image_url` becomes a denormalized shortcut to the primary image; the full gallery lives in `menu_item_images`.
+
+### 16.3 Data Model Principles
+
+1. **`menu_items.restaurant_id` is intentionally redundant.** It exists as an RLS shortcut (owner can manage items by `restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid())` without a join through sections). This is a deliberate denormalization for security performance.
+
+2. **`ai_metadata` envelope is the single AI tracking surface.** All AI features write to this JSONB column. No new columns should be added to `menu_items` for AI provenance — use the envelope.
+
+3. **`tags[]` is not a replacement for structured allergens.** Tags are for display labels (Popular, Chef's Pick, Seasonal). Allergens require a normalized table for regulatory compliance queries.
+
+4. **Soft-delete everywhere.** `deleted_at` on menus, sections, and items ensures that historical `promotion_rewards.menu_item_id` FKs remain valid even after items are "deleted". Analytics data never becomes orphaned.
+
+---
+
+## 17. Admin UX Evolution
+
+### 17.1 Current Builder Inventory
+
+| Screen | Route | What it does | Verdict |
+|---|---|---|---|
+| Menu Builder | `/admin/menu` | Accordion: menus (as sections) + name/price items | **Replace** — extend to full rich content |
+| Promotion Builder | `/admin/promotions/[id]/builder` | Includes item picker (menus → items) | **Extend** — update item picker for richer display |
+| Restaurant Profile | `/admin/restaurants` (tabs) | Branding, hours, contact, settings | **Survives** unchanged |
+| Promotion List | `/admin/promotions` | List of promotions | **Survives** unchanged |
+| Coupons | `/admin/coupons` | Coupon list + validation | **Survives** unchanged |
+
+### 17.2 Admin UX: Phase S1 Evolution
+
+**Current menu admin (single page, two-level accordion):**
+
+```
+[Step 1: Select Restaurant]     ← dropdown
+[Step 2: Create Menu]           ← mislabeled as "Menu" when it's actually a section
+  + input + Add button
+[Breakfast ▼]  3 items
+  [Edit Menu]  [Delete Menu]
+  ├── Chai     $3.50  [Edit] [Delete]
+  └── Paratha  $8.00  [Edit] [Delete]
+  [+ Add Item: name | price | +]
+```
+
+**Phase S1 target (renamed, same data, richer item form):**
+
+```
+[Step 1: Select Location]
+[Step 2: Add Category]          ← renamed from "Create Menu"
+  + input + Add button
+
+[Breakfast ▼]  3 items          ← now labeled "Category" or "Section"
+  [Edit Category] [Delete]
+  ├── Chai     $3.50  ★ Featured  ✓ Available  [Edit] [Delete]
+  └── Paratha  $8.00             ✓ Available  [Edit] [Delete]
+  [+ Add Item] (opens rich item form below)
+
+  Item editor (inline or modal):
+    Name  ────────────────────
+    Price [$    ]
+    Description ┐
+                │ (textarea)
+                ┘
+    [Upload Photo]  [photo preview]
+    Tags: [ vegan ] [ spicy ] [ popular ] [ + add ]
+    [ ] Featured item    [✓] Available
+    [Save Item]  [Cancel]
+```
+
+**What survives from current UI:**
+- Restaurant selector dropdown
+- Accordion panel structure per section
+- Inline name/price editing pattern
+- Delete-with-confirm dialog
+- Done / Cancel workflow
+
+**What gets replaced:**
+- "Create Menu" label → "Add Category" or "Add Section"
+- Name+price-only item form → rich item editor
+- Flat item list → items with inline badges (featured, available, has photo, has description)
+
+**What gets added:**
+- Image upload component (reuses `HeroImageUploader` pattern, targets `menu-item-images` bucket)
+- Description textarea
+- is_featured toggle
+- available toggle
+- Tags multi-select (preset list + freeform)
+
+### 17.3 Admin UX: Phase S2 Evolution (post-hierarchy migration)
+
+After the 3-tier migration, a new top-level menu document layer appears:
+
+```
+[My Menus for: Punjabi By Nature]
+  + New Menu
+  ┌──────────────────────────────────┐
+  │ Main Menu  (default ★)           │ 8 sections  24 items
+  │ [Edit]  [Manage Sections]        │
+  └──────────────────────────────────┘
+  ┌──────────────────────────────────┐
+  │ Takeout Menu                     │ 3 sections  12 items
+  │ [Edit]  [Manage Sections]        │
+  └──────────────────────────────────┘
+```
+
+Clicking "Manage Sections" enters the Phase S1 section editor (now using `menu_sections` table instead of `menus` table).
+
+**Phase S2 new screens:**
+- Menu list page (per restaurant)
+- Menu document editor (name, type, schedule, is_default toggle)
+
+**Phase S2 screen retirement:**
+- The Phase S1 accordion (menus-as-sections) is retired and replaced by the two-level navigator
+
+### 17.4 Promotion Builder Item Picker Evolution
+
+**Current item picker (builder, lines 238–248 + 301–314):**
+
+```
+Select Menu: [ Breakfast ▼ ]   (reads menus table)
+Items in Breakfast:
+  Chai         $3.50
+  Paratha      $8.00
+  [ Add to reward slots ]
+```
+
+**Phase S1 item picker (no query changes needed — menus still the row type):**
+- Rename dropdown label from "Menu" to "Category"
+- Show item description and image thumbnail if present
+- No functional change to queries
+
+**Phase S2 item picker (after hierarchy migration):**
+```
+Select Menu:     [ Main Menu ▼ ]
+Select Section:  [ Breakfast ▼ ]
+Items:
+  [🖼] Chai         $3.50  Masala chai with ginger
+  [🖼] Paratha      $8.00  Butter paratha, served with chutney
+```
+
+Requires query update: `menus → menu_sections → menu_items` instead of `menus → menu_items`.
+
+---
+
+## 18. Stabilization Sprint Backlog
+
+### 18.1 Sprint Constraints
+
+- Branch: `feature/restaurant-experience-audit` (planning only)
+- Implementation branch: `feature/menu-stabilization-sprint` (to be created)
+- No data migrations during Phase S1
+- No changes to the promotions/rewards/coupons/QR code path
+- All admin-facing code changes isolated to `app/admin/menu/page.tsx` and `app/admin/promotions/[id]/builder/page.tsx`
+
+---
+
+### 18.2 Must Have
+
+---
+
+**EPIC-MS-1: Fix Silent Auto-Copy (MA-2)**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner with multiple locations, when I open the promotion builder for a location with an empty menu, I should NOT have items silently copied from my other locations. |
+| Acceptance | Opening the promotion builder for an empty-menu restaurant never inserts rows. If copying is desired, user sees an explicit "Copy items from [Location Name]?" prompt and must confirm. |
+| Complexity | Medium |
+| Risk | Low — change is isolated to `app/admin/promotions/[id]/builder/page.tsx` loadItems effect |
+| Dependency | None |
+| Defects closed | MA-2 |
+| Implementation note | Replace the silent INSERT block (lines 372–379) with a user-visible notice: "This location has no menu items. [Copy from another location?]" button that, when clicked, shows a confirmation modal, and only inserts on explicit confirmation. Alternatively: remove the auto-copy entirely and surface a link to `/admin/menu` to set up the menu first. |
+
+---
+
+**EPIC-MS-2: Fix Stale Items State (MA-3)**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner browsing between sections, I should not see items from one section flash briefly when I click on a different section. |
+| Acceptance | When expanding a new section panel, no items from any other panel are ever displayed, even for a moment. |
+| Complexity | Very Low |
+| Risk | Very Low |
+| Dependency | None |
+| Defects closed | MA-3 |
+| Implementation note | In `toggleMenu()`, add `setItems([])` immediately before `await loadItems(menuId)`. Single line change at `app/admin/menu/page.tsx:113`. |
+
+---
+
+**EPIC-MS-3: Orphaned Item Recovery Tool (MA-5)**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner, items I created before the menu system was introduced should be visible and manageable, not lost. |
+| Acceptance | All items with `menu_id = NULL` are assigned to a section and visible in the admin menu UI. |
+| Complexity | Medium |
+| Risk | Medium — modifies existing data rows |
+| Dependency | Must run BEFORE EPIC-MS-4 (NOT NULL migration) |
+| Defects closed | MA-5 |
+| Implementation note | Two sub-tasks: (a) Admin UI: display orphaned item count per restaurant with "Recover orphaned items" button that assigns all NULL-menu-id items to the restaurant's first section. (b) One-time SQL statement (run manually by admin before EPIC-MS-4 migration): `UPDATE menu_items SET menu_id = (SELECT id FROM menus WHERE restaurant_id = menu_items.restaurant_id ORDER BY created_at LIMIT 1) WHERE menu_id IS NULL AND restaurant_id IS NOT NULL;`. Must be run WITHIN a transaction with count verification. |
+
+---
+
+**EPIC-MS-4: menu_items.menu_id NOT NULL Migration (MA-4)**
+
+| Field | Value |
+|---|---|
+| Story | As an engineer, `menu_items.menu_id` should be NOT NULL to prevent future orphaned items and enable reliable queries. |
+| Acceptance | `menu_items.menu_id` has a NOT NULL constraint. No existing rows have NULL menu_id. |
+| Complexity | Low (schema only, after orphan cleanup) |
+| Risk | Low — only after EPIC-MS-3 confirms 0 NULL rows |
+| Dependency | **Blocked by EPIC-MS-3** (orphan cleanup must complete first) |
+| Defects closed | MA-4 |
+| Implementation note | Migration: `ALTER TABLE menu_items ALTER COLUMN menu_id SET NOT NULL;`. Must be run only after verifying: `SELECT COUNT(*) FROM menu_items WHERE menu_id IS NULL;` returns 0. |
+
+---
+
+**EPIC-MS-5: Rename "Menu" to "Section" in Admin UI (MA-7)**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner, the admin UI should use language that matches what I'm actually doing — organizing items into categories/sections — not creating "menus". |
+| Acceptance | All user-visible text in `app/admin/menu/page.tsx` and its components uses "Section" (or "Category") instead of "Menu" where appropriate. The `site_content` admin copy is updated. |
+| Complexity | Low |
+| Risk | Very Low — UI labels only, no data or query changes |
+| Dependency | None |
+| Defects closed | MA-7 (partial — semantic rename only) |
+| Implementation note | Change: "Create Menu" → "Add Section". "Step 2: Create Menu" → "Step 2: Add a Section". The `menus` DB table name does not change. Only user-visible labels change. Update `site_content` keys for `admin_menu` to match. |
+
+---
+
+### 18.3 Should Have
+
+---
+
+**EPIC-MS-6: Rich Item Editor (MA-6 partial)**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner, I need to be able to add a description, photo, dietary tags, and availability status to each menu item — not just a name and price. |
+| Acceptance | The item editor exposes: description (textarea), image upload (to `menu-item-images` bucket), is_featured (toggle), available (toggle), tags (multi-select with preset options). All fields save correctly to the DB columns that already exist. |
+| Complexity | High — multiple new UI elements, new file upload component |
+| Risk | Medium — image upload requires storage RLS to be working (Phase C1 confirmed fixed) |
+| Dependency | None (all DB columns exist) |
+| Defects closed | MA-6 (exposes fields that exist in schema but are inaccessible) |
+| Sub-tasks | (a) Extend item INSERT/UPDATE queries to include new fields; (b) Build MenuItemImageUploader component (pattern: `HeroImageUploader.tsx`); (c) Add description textarea; (d) Add is_featured / available toggles; (e) Add tags multi-select; (f) Update display in read-only list view to show badges |
+
+---
+
+**EPIC-MS-7: Section Management UI (MA-6 remaining)**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner, I need to be able to create, rename, reorder, and delete sections without those actions being conflated with managing items. |
+| Acceptance | Sections have their own explicit create/rename/delete controls. Deleting a section shows item count and requires confirmation. Section display order is manageable. |
+| Complexity | Medium |
+| Risk | Low — uses existing menus table CRUD patterns |
+| Dependency | EPIC-MS-5 (renamed concepts) |
+| Defects closed | MA-6 (section management UX) |
+| Notes | This is a UX refactor of the existing accordion, not a new data layer. The `menus` table is the backing store for sections throughout Phase S1. |
+
+---
+
+### 18.4 Nice to Have
+
+---
+
+**EPIC-MS-8: Fix Slug Drift on Rename (MA-8)**
+
+| Field | Value |
+|---|---|
+| Story | As an engineer building the public menu page, the `menus.slug` should reflect the current section name so URL segments are predictable. |
+| Acceptance | When a section (menu) is renamed, the slug is regenerated using the same logic as creation: `name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+\|-+$/g, '') \|\| 'section'`. Duplicate slug within the same restaurant appends `-2`, `-3`, etc. |
+| Complexity | Low |
+| Risk | Low — but affects URLs if any external links to `/menu/[slug]` exist |
+| Dependency | None for the rename fix; slug URL stability is only relevant once the public menu page exists |
+| Defects closed | MA-8 |
+
+---
+
+**EPIC-MS-9: Item Count Query Optimization**
+
+| Field | Value |
+|---|---|
+| Story | As an engineer, the item count shown per section should not require fetching all items for the restaurant in-memory. |
+| Acceptance | Item count is computed via SQL aggregation (`SELECT menu_id, COUNT(*) FROM menu_items GROUP BY menu_id`) rather than fetching all rows and counting in JS. |
+| Complexity | Low |
+| Risk | Very Low |
+| Dependency | None |
+| Notes | `loadMenus()` at `app/admin/menu/page.tsx:58–66` currently fetches all menu_items for the restaurant (without pagination) and counts in JS. As item counts grow, this loads unnecessary data on every section list render. |
+
+---
+
+**EPIC-MS-10: Display Order Management**
+
+| Field | Value |
+|---|---|
+| Story | As a restaurant owner, I should be able to control the order in which sections and items appear on the QR menu. |
+| Acceptance | Sections can be reordered (at minimum via up/down buttons; ideally drag-and-drop). Items within a section can be reordered. `display_order` integer is persisted. |
+| Complexity | Medium-High (drag-and-drop is significant UI work) |
+| Risk | Low |
+| Dependency | EPIC-MS-6 (rich item editor) |
+
+---
+
+### 18.5 Stabilization Sprint Summary
+
+| Epic | Priority | Defect | Complexity | Days | Dependency |
+|---|---|---|---|---|---|
+| MS-1: Remove auto-copy | Must Have | MA-2 | Medium | 0.5d | — |
+| MS-2: Fix stale items | Must Have | MA-3 | Very Low | 1h | — |
+| MS-3: Orphan recovery | Must Have | MA-5 | Medium | 0.5d | — |
+| MS-4: menu_id NOT NULL | Must Have | MA-4 | Low | 0.5d | MS-3 |
+| MS-5: Rename UI labels | Must Have | MA-7 | Low | 2h | — |
+| MS-6: Rich item editor | Should Have | MA-6 | High | 2d | — |
+| MS-7: Section mgmt UX | Should Have | MA-6 | Medium | 1d | MS-5 |
+| MS-8: Slug drift fix | Nice to Have | MA-8 | Low | 1h | — |
+| MS-9: Count query opt | Nice to Have | — | Low | 2h | — |
+| MS-10: Display order | Nice to Have | — | Medium | 1d | MS-6 |
+
+**Must Have total: ~1.5–2 days**  
+**Must Have + Should Have total: ~4–5 days**  
+**Full sprint with Nice to Have: ~6–7 days**
+
+---
+
+## 19. Go/No-Go Recommendation for Menu Foundation
+
+### 19.1 Architecture Recommendation
+
+**Adopt the two-phase architecture** (Phase S1 now, Phase S2 after QR launch):
+
+- **Phase S1** treats existing `menus` rows as sections. No data migration. All bugs fixed. Rich content fields accessible. Public QR menu page can be built against this structure immediately after Phase S1 completes.
+- **Phase S2** executes the 3-tier migration at a time when the data set is stable, the business has validated the QR menu, and a dedicated migration sprint can be resourced properly.
+
+This avoids the common trap of letting architecture purity block a working product.
+
+### 19.2 Migration Recommendation
+
+**Do not execute the data migration in the stabilization sprint.**
+
+The correct migration is Alternative A (menus → menu_sections under a new "Main Menu" parent). It is semantically correct and uses the schema as designed. But it must be a dedicated sprint after:
+1. All orphaned items are cleaned up (EPIC-MS-3)
+2. The menu_items.menu_id NOT NULL constraint is in place (EPIC-MS-4)
+3. A dry-run count confirms zero collision cases
+
+**Auto-migration for existing restaurants:** Yes — the SQL is well-defined and reversible within a transaction. The risk is medium. A dry-run check should be mandatory before applying.
+
+### 19.3 Admin UX Recommendation
+
+**Phase S1 UX target:** Renamed accordion (sections, not menus) with rich item editor. This is the minimum UX that unblocks food photos, descriptions, and featured items.
+
+**Phase S2 UX target:** Full three-panel menu builder — Menu Documents → Section List → Item Editor. This is the target state that matches Toast/Square/Owner.com capability.
+
+The Phase S1 UX is not embarrassing — it's a focused tool for a well-understood use case. It does not need to be the final state before shipping.
+
+### 19.4 Go/No-Go for Menu Foundation
+
+| Question | Answer |
+|---|---|
+| Is the schema capable of supporting a QR menu page? | **Yes** — all required fields exist |
+| Are there active defects that would corrupt data during QR menu development? | **Yes — MA-2 (auto-copy)** must be resolved first |
+| Is a 3-tier data migration required before the QR menu page can launch? | **No** — the QR menu page can render menus-as-sections in Phase S1 |
+| Can food photos be built before the stabilization sprint? | **No** — the upload UI doesn't exist and MA-2 would propagate photos to unintended locations |
+| Can AI descriptions be built before the stabilization sprint? | **No** — MA-2 would silently propagate AI content to sibling restaurants |
+| Is the stabilization sprint a blocker or just recommended? | **Blocker for MA-2 only.** The remaining items are strongly recommended but not hard-blockers |
+
+---
+
+### 19.5 Final Recommendation
+
+**🟡 Conditional Go: Perform Must Have items from the stabilization sprint, then proceed to Menu Foundation.**
+
+**Minimum gate to proceed:**
+- MA-2 (silent auto-copy) resolved ← hard blocker
+- MA-3 (stale items) resolved ← 1-hour fix, do it
+- MA-5 (orphan recovery) executed ← data integrity
+- MA-4 (NOT NULL constraint) applied ← schema integrity
+- MA-7 (UI renamed) ← naming alignment
+
+**Total gate time: ~2 days of focused engineering**
+
+After these five items are complete, Menu Foundation can begin with:
+- A stable, bug-free two-tier menu admin
+- All rich-content fields accessible for items (via Phase S1 rich editor)
+- A safe data model (no nullability gaps, no auto-copy artifacts)
+- Clear upgrade path to three-tier architecture in a future sprint
+
+**Do not proceed to Menu Foundation with MA-2 unresolved.** Every AI description, food photo, and rich content item added to a multi-location restaurant's menu will be silently duplicated to sibling locations the next time any owner opens the promotion builder for an empty-menu location.
+
+---
+
+*Parts 14–19 added 2026-06-09. Planning only. No code or schema changes made. All findings are evidence-based from codebase analysis performed in this session.*
