@@ -3,7 +3,7 @@
 **Date:** 2026-06-08  
 **Branch:** feature/security-hardening-phase-1  
 **Blocks:** Menu Foundation (Phase 2), Public Menu, Promotion Widget  
-**Status:** NOT STARTED — audit complete, remediation pending
+**Status:** PHASE A COMPLETE — applied 2026-06-09, see docs/security/PHASE_A_VALIDATION.md
 
 ---
 
