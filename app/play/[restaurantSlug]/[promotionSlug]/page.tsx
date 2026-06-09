@@ -10,7 +10,7 @@ import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
 import { formatCouponTimeRemaining, formatCouponValidUntil } from '@/lib/coupon-expiry';
 import type { Reward } from '@/types/reward';
 
-type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; logo_url?: string | null };
+type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; logo_url?: string | null; experience_mode?: string | null };
 type Promotion = { id: string; name: string; slug: string; game_type?: string | null; status: string; coupon_expiry_minutes?: number | null; starts_at?: string | null; ends_at?: string | null; max_spins?: number | null };
 type WonCoupon = { id: string; redemptionId?: string | null; reward: Reward; code: string; issuedAt: number };
 type SessionCoupon = { id: string; code: string; status: string; issuedAt: string; expiresAt: string; rewardLabel: string };
@@ -216,6 +216,15 @@ function AlreadyPlayedView({
             </div>
           );
         })}
+
+        {restaurant.experience_mode === 'menu_and_promotion' && (
+          <a
+            href={`/r/${restaurant.slug}`}
+            className="mt-5 block rounded-3xl bg-white px-5 py-4 text-center text-sm font-black text-stone-800 shadow-xl"
+          >
+            ← Return to Menu
+          </a>
+        )}
       </section>
     </main>
   );
@@ -489,6 +498,15 @@ export default function PromotionPlayPage() {
                     <button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button>
                     <button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button>
                   </div>
+                  {restaurant?.experience_mode === 'menu_and_promotion' && (
+                    <a
+                      href={`/r/${restaurant.slug}`}
+                      className="mt-3 block rounded-2xl bg-white py-4 text-center text-sm font-black text-stone-700 ring-1 ring-stone-200 active:scale-95"
+                      style={{ transition: 'transform 150ms' }}
+                    >
+                      Browse Menu
+                    </a>
+                  )}
                   <p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p>
                 </>
               )}

@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
     const restaurantResult = await supabase
       .from('restaurants')
-      .select('id,name,slug,address_line1,city,logo_url')
+      .select('id,name,slug,address_line1,city,logo_url,experience_mode')
       .eq('slug', restaurantSlug)
       .single();
 

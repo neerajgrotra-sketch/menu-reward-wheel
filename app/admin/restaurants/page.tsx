@@ -8,10 +8,11 @@ import { ConfirmModal } from '@/components/admin/restaurants/ConfirmModal';
 import { RestaurantProfileTab } from '@/components/admin/restaurants/RestaurantProfileTab';
 import { RestaurantContactTab } from '@/components/admin/restaurants/RestaurantContactTab';
 import { RestaurantSettingsTab } from '@/components/admin/restaurants/RestaurantSettingsTab';
+import { RestaurantQrTab } from '@/components/admin/restaurants/RestaurantQrTab';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TabId = 'profile' | 'contact' | 'settings';
+type TabId = 'profile' | 'contact' | 'settings' | 'qr';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,9 +162,10 @@ export default function RestaurantsPage() {
   }
 
   const TABS: { id: TabId; label: string }[] = [
-    { id: 'profile',  label: 'Profile' },
-    { id: 'contact',  label: 'Contact' },
+    { id: 'profile',  label: 'Profile'  },
+    { id: 'contact',  label: 'Contact'  },
     { id: 'settings', label: 'Settings' },
+    { id: 'qr',       label: 'QR'       },
   ];
 
   return (
@@ -249,6 +251,14 @@ export default function RestaurantsPage() {
                       <a href={`/admin/promotions?slug=${r.slug}`} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-black text-white">
                         Promotions
                       </a>
+                      <a
+                        href={`/r/${r.slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700"
+                      >
+                        Preview
+                      </a>
                       <button
                         type="button"
                         onClick={() => copyLink(r)}
@@ -311,6 +321,12 @@ export default function RestaurantsPage() {
                     {tab === 'settings' && (
                       <RestaurantSettingsTab
                         restaurantId={r.id}
+                        supabase={supabase}
+                      />
+                    )}
+                    {tab === 'qr' && (
+                      <RestaurantQrTab
+                        restaurant={r}
                         supabase={supabase}
                       />
                     )}
