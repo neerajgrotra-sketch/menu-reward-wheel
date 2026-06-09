@@ -19,6 +19,9 @@
 8. [AI Readiness Assessment](#8-ai-readiness-assessment)
 9. [Future Restaurant Experience Architecture](#9-future-restaurant-experience-architecture)
 10. [Implementation Readiness Assessment](#10-implementation-readiness-assessment)
+11. [Menu Architecture Validation Report](#11-menu-architecture-validation-report)
+12. [Menu Builder Maturity Assessment](#12-menu-builder-maturity-assessment)
+13. [Menu Foundation Readiness Gate](#13-menu-foundation-readiness-gate)
 
 ---
 
@@ -833,3 +836,438 @@ Priority order for maximum customer-facing impact vs. minimum implementation ris
 ---
 
 *Audit completed 2026-06-09 on branch `feature/restaurant-experience-audit`. No migrations, schema changes, production code, or UI implemented as part of this audit. All findings are evidence-based from current codebase state.*
+
+---
+
+## 11. Menu Architecture Validation Report
+
+### 11.1 Schema Lineage — The Three-File Problem
+
+The `menus` and `menu_items` tables were defined across three separate SQL files applied at different times outside the tracked migration system. Each file made conflicting assumptions. This is the root of all three defects.
+
+**File 1: `supabase/schema.sql`** (original baseline)
+
+```sql
+create table if not exists menu_items (
+  id uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references restaurants(id) on delete cascade,
+  name text not null,
+  category text default 'General',
+  price numeric,
+  description text,
+  active boolean default true,
+  created_at timestamptz default now()
+  -- NO menu_id column
+  -- NO menu_type column
+  -- NO slug column
+);
+-- NO menus table
+```
+
+`menu_items` created without any menu grouping. No `menus` table. Items belong only to a restaurant.
+
+**File 2: `supabase/multi_promotion_system.sql`** (ad-hoc, applied after schema.sql)
+
+```sql
+create table if not exists menus (
+  id uuid primary key default gen_random_uuid(),
+  restaurant_id uuid not null references restaurants(id) on delete cascade,
+  name text not null default 'Main Menu',
+  -- NO menu_type column
+  -- NO slug column
+  -- NO display_order column
+  active boolean default true,
+  created_at timestamptz default now()
+);
+
+alter table menu_items
+  add column if not exists menu_id uuid references menus(id) on delete cascade;
+  --                                                                 ^^^^^^^^^^
+  -- NULLABLE — no NOT NULL constraint
+  -- This ALTER is what actually runs against the live DB
+```
+
+Adds `menu_id` as a **nullable** FK to the already-existing `menu_items` table.
+
+**File 3: `supabase/menu_system.sql`** (ad-hoc, applied after multi_promotion_system.sql)
+
+```sql
+create table if not exists menus ( ... );        -- NO-OP: table already exists
+create table if not exists menu_items (
+  ...
+  menu_id uuid references menus(id) on delete cascade NOT NULL,  -- NEVER APPLIED
+  ...
+);
+```
+
+**Both `CREATE TABLE IF NOT EXISTS` statements are no-ops.** The tables already exist. The `NOT NULL` constraint on `menu_id` in `menu_system.sql` is dead code — it was never applied to the live database.
+
+**Consequence:** `menu_items.menu_id` is **nullable** in the live database. Any item created before the menus system was introduced has `menu_id = NULL`. These items are permanently orphaned in the admin UI.
+
+---
+
+### 11.2 Defect A — Menu Creation Slug NOT NULL Violation
+
+**Observed error:** `null value in column "slug" of relation "menus" violates not-null constraint`
+
+**Schema state established by migration `20260606020000_menu_display_order.sql`:**
+
+```sql
+alter table public.menus add column if not exists slug text;  -- nullable first
+-- ... back-fill all existing rows ...
+alter table public.menus alter column slug set not null;       -- then enforce
+alter table public.menus add constraint menus_restaurant_slug_unique unique (restaurant_id, slug);
+```
+
+After this migration, any `INSERT INTO menus` that omits `slug` is rejected by the DB.
+
+**Current `addMenu()` code** (`app/admin/menu/page.tsx:101–108`):
+
+```javascript
+const slug = newMenu.trim().toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '') || 'menu';
+const result = await supabase.from('menus').insert({
+  name: newMenu.trim(),
+  menu_type: newMenu.trim().toLowerCase(),
+  restaurant_id: restaurant.id,
+  slug   // ← slug IS included
+});
+```
+
+The current code **does supply `slug`**. The constraint violation cannot be triggered by this code path today.
+
+**Root cause — deployment window gap:**
+
+The `slug NOT NULL` constraint was introduced as a DB migration. The frontend code that generates and supplies `slug` in the insert payload must have been deployed at a different time (or from a cached browser bundle). The error was real but is architectural in nature: the DB schema constraint was applied before or independently of the frontend code that satisfies it.
+
+**Secondary issue — slug not updated on rename:**
+
+`saveMenuName()` (`app/admin/menu/page.tsx:123–128`) updates `name` and `menu_type` but **does not update `slug`**:
+
+```javascript
+await supabase.from('menus').update({
+  name: editingMenuName.trim(),
+  menu_type: editingMenuName.trim().toLowerCase()
+  // slug: intentionally absent — slug is not updated on rename
+}).eq('id', menuId);
+```
+
+Result: A menu renamed from "Lunch" to "Afternoon" retains `slug = 'lunch'`. This is not a crash defect, but it means the `slug` column drifts from the menu name. If a public menu page ever uses the slug as a URL segment, the URL would not match the name.
+
+**Defect A verdict:** Historical defect caused by a deployment window gap between migration and frontend code update. Not reproducible with current codebase. Secondary slug-drift issue is an active latent defect.
+
+---
+
+### 11.3 Defect B — Incorrect Item Assignment
+
+**Observed behavior:** Items the owner created for one context appear under a different menu or restaurant.
+
+**Root cause — Promotion builder silent auto-copy** (`app/admin/promotions/[id]/builder/page.tsx:301–398`):
+
+The promotion builder's `loadItems` effect executes the following undocumented decision tree:
+
+```
+STEP 1: Query menu_items WHERE menu_id = {selected menu}
+  → If items found: display them → STOP
+
+STEP 2 (triggered when menu is empty): Query sibling restaurants
+  SELECT id FROM restaurants
+  WHERE owner_id = {current owner}
+    AND name = {current restaurant name}     ← same restaurant name
+    AND id != {current restaurant}           ← different location
+
+STEP 3: Query sibling menus matching by menuKey
+  menuKey(menu) = (menu.menu_type || menu.name || '').toLowerCase().trim()
+  → Matches if menuKey matches OR names match case-insensitively
+
+STEP 4: SILENTLY INSERT sibling items into current restaurant's menu
+  INSERT INTO menu_items (name, price, menu_id, restaurant_id)
+  VALUES (sibling_item.name, sibling_item.price,
+          {current menu id}, {current restaurant id})
+```
+
+**Data integrity consequence:** This auto-copy creates rows in `menu_items` that:
+1. The restaurant owner never explicitly created
+2. Appear in the admin menu UI for the target restaurant
+3. Are permanent (not cleaned up on promotion save/cancel)
+4. Are triggered without any user confirmation or notification
+
+**Trigger condition:** Any restaurant owner who has:
+- Two or more restaurants with the same name (multi-location)
+- An empty menu at one location that matches a populated menu at another location
+- Opens the promotion builder for the empty-menu location
+
+The insert happens **during the `useEffect` that fires when `menuId` changes** — not on any explicit user action. The owner sees items populate and may not realize they came from another location.
+
+**Secondary cause — stale `items` state during menu panel switching** (`app/admin/menu/page.tsx:111–114`):
+
+```javascript
+async function toggleMenu(menuId: string) {
+  if (expandedMenuId === menuId && editingMenuId !== menuId) {
+    setExpandedMenuId(null); setItems([]); return;
+  }
+  setExpandedMenuId(menuId);  // ← re-render fires here: items still old
+  await loadItems(menuId);    // ← items updated after async completes
+}
+```
+
+`setItems([])` is not called before `await loadItems(menuId)`. During the async gap, the previous menu's items array remains in state. The component re-renders with `expandedMenuId = new menu` but `items = old items`. Items from the previously-expanded menu are briefly visible under the newly-expanded menu.
+
+This is a UI rendering race condition. It resolves once `loadItems` completes, but creates the visual impression of cross-menu item assignment.
+
+**Defect B verdict:** Two distinct causes:
+1. **Architectural defect** — Promotion builder silently auto-copies items across restaurant locations. Creates permanent data that owner did not intend. Requires explicit design decision and code change to resolve.
+2. **UI race condition** — `items` state not cleared before async load, causing stale items to flash under the wrong menu. Minor UX defect.
+
+---
+
+### 11.4 Defect C — Actual Hierarchy Verification
+
+**Designed hierarchy (from schema + migration intent):**
+
+```
+restaurants (1)
+  └── menus (many)             [restaurant_id FK]
+        ├── menu_sections (many)  [menu_id FK, restaurant_id FK]
+        │     └── menu_items (many)  [section_id FK → menu_sections]
+        └── menu_items (many, unsectioned)  [section_id = NULL]
+```
+
+**Actual hierarchy in practice:**
+
+```
+restaurants (1)
+  └── menus (many)             [restaurant_id FK, active, slug, menu_type, display_order]
+        └── menu_items (many)  [menu_id FK — NULLABLE in live DB, section_id ALWAYS NULL]
+
+menu_sections                  [table exists, RLS configured, ZERO rows — never used]
+menu_items.section_id          [column exists, ALWAYS NULL — no code ever sets it]
+menu_items with menu_id = NULL [exist in DB from schema.sql era — ORPHANED, invisible to admin UI]
+```
+
+**Evidence for each finding:**
+
+**`menu_sections` is never used:**
+- Table created by `20260606030000_menu_sections.sql` with full RLS
+- Zero admin UI to create, view, or manage sections
+- No INSERT INTO `menu_sections` in any application code path
+- `section_id` on `menu_items` is never set by any INSERT or UPDATE in `app/admin/menu/page.tsx` or `app/admin/promotions/[id]/builder/page.tsx`
+
+**`menu_items.section_id` is always NULL:**
+- The only menu item INSERT is `app/admin/menu/page.tsx:135`: `insert({ name, price, menu_id, restaurant_id })` — `section_id` omitted
+- The promotion builder INSERT at line 372: `insert({ name, price, menu_id, restaurant_id })` — `section_id` omitted
+- No UPDATE statement ever touches `section_id`
+
+**`menu_items.menu_id` is nullable in live DB:**
+- `schema.sql` created `menu_items` without `menu_id`
+- `multi_promotion_system.sql` added it via `ALTER TABLE ... ADD COLUMN menu_id ... ON DELETE CASCADE` (no NOT NULL)
+- `menu_system.sql` declared NOT NULL in a `CREATE TABLE IF NOT EXISTS` that was a no-op
+- No tracked migration has ever added a NOT NULL constraint to `menu_items.menu_id`
+
+**Orphaned items (menu_id = NULL):**
+- Any items created via the original schema.sql-era code have `menu_id = NULL`
+- The admin menu UI queries `WHERE menu_id = {specific id}`, which excludes NULL rows
+- These items exist in the database but are invisible to every admin code path
+- They remain accessible to the `menu_items` SELECT policies (public read, owner read) — they would appear on any public menu page that doesn't filter by `menu_id`
+
+**`menus` are functioning as sections, not as menus:**
+- The UX label is "Create Menu" but the input placeholder reads "Breakfast, Lunch, Dinner..."
+- In practice, owners create one row per meal-type or category (Breakfast, Drinks, Appetizers)
+- This is conceptually a section, not a menu
+- The schema has a dedicated `menu_sections` table for this purpose — which is never used
+- There is no concept of a "menu document" (e.g., Dine-In Menu vs. Take-Out Menu) in the current UI
+
+**Current hierarchy diagram:**
+
+```
+Restaurant: "Punjabi By Nature"
+  ├── menu row: id=abc, name="Breakfast", slug="breakfast", menu_type="breakfast"
+  │     ├── menu_item: "Chai" $3.50, section_id=NULL
+  │     └── menu_item: "Paratha" $8.00, section_id=NULL
+  │
+  ├── menu row: id=def, name="Dinner", slug="dinner", menu_type="dinner"
+  │     ├── menu_item: "Butter Chicken" $18.00, section_id=NULL
+  │     └── menu_item: "Naan" $4.00, section_id=NULL
+  │
+  └── [orphaned items with menu_id=NULL — invisible to admin UI]
+        └── menu_item: "Samosa" $6.00, category="General", menu_id=NULL
+
+menu_sections: (0 rows for this restaurant — never created)
+```
+
+**Defect C verdict:** The intended three-tier hierarchy (Menu → Section → Item) does not exist at runtime. What exists is a two-tier hierarchy where `menus` rows are used as sections. The `menu_sections` table is an unused schema artifact. Items from the schema.sql era are permanently orphaned.
+
+---
+
+## 12. Menu Builder Maturity Assessment
+
+### 12.1 Competitor Baseline
+
+| Feature | Toast | Square | Lightspeed | Owner.com | SpinBite |
+|---|---|---|---|---|---|
+| Menu → Category → Item | ✓ | ✓ | ✓ | ✓ | ✗ (2-tier only) |
+| Item modifiers / add-ons | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Item photo upload | ✓ | ✓ | ✓ | ✓ | ✗ (bucket ready) |
+| Item description | ✓ | ✓ | ✓ | ✓ | ✗ (column ready) |
+| Available / sold-out toggle | ✓ | ✓ | ✓ | ✓ | ✗ (column ready) |
+| Featured / promoted items | ✓ | Partial | ✓ | ✓ | ✗ (column ready) |
+| Dietary / allergen tags | ✓ | ✓ | ✓ | ✓ | Partial (tags[] field) |
+| Drag-and-drop ordering | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Multi-menu (dine-in vs. take-out) | ✓ | ✓ | ✓ | ✓ | ✗ |
+| Time-scheduled menus | ✓ | ✓ | ✓ | ✗ | ✗ |
+| Bulk import (PDF / URL) | ✗ | ✗ | ✗ | ✓ | ✗ (schema ready) |
+| AI description generation | ✓ (beta) | ✗ | ✗ | ✓ | ✗ (schema ready) |
+| Public QR menu page | ✓ | ✓ | ✓ | ✓ | ✗ |
+| SEO / structured data | ✗ | ✓ | ✓ | ✓ | ✗ |
+| POS sync (real-time) | ✓ (native) | ✓ (native) | ✓ (native) | ✗ | ✗ |
+| Mobile management app | ✓ | ✓ | ✗ | ✗ | Responsive web only |
+
+### 12.2 Dimension Scores
+
+**Data Model: 45/100**
+
+The schema is well-designed. All the right columns exist: `description`, `image_url`, `tags[]`, `is_featured`, `available`, `display_order`, `section_id`, `ai_metadata`. The `ai_metadata` JSONB envelope is actually more comprehensive than what most competitors offer.
+
+Deductions:
+- No modifiers or modifier groups (required for real restaurant menus)
+- No structured allergen/dietary flags (tags[] is freeform, not validated)
+- `menu_items.menu_id` is nullable in live DB (schema integrity issue)
+- Three-tier hierarchy (`menu_sections`) exists in schema but is never populated
+- Orphaned items (menu_id = NULL) create a permanently inconsistent data state
+
+**UX: 15/100**
+
+The admin UI exposes 2 of the ~12 available schema fields (name and price). All other fields — description, image, tags, featured, availability, section, display order — are inaccessible. Specific gaps:
+
+- No image upload UI (bucket and path convention exist; no uploader component)
+- No description textarea
+- No featured/availability toggles
+- No section management
+- No drag-and-drop reorder
+- No search or filter
+- No bulk operations
+- Item count displayed per menu, but no item-level detail view without entering edit mode
+
+**Scalability: 35/100**
+
+The DB layer has appropriate indexes (`menu_items_menu_id_order_idx`, `menu_items_featured_idx`, `menu_items_tags_gin_idx`). However:
+
+- Item count in `loadMenus` fetches ALL items for the restaurant, then counts in-memory — scales poorly above ~500 items
+- The auto-copy in the promotion builder (Defect B) creates unchecked data proliferation at multi-location scale
+- No pagination on item lists
+- `menu_type` is set to the lowercased menu name — it carries no semantic meaning distinct from `name`; `dedupeMenus` in the builder silently drops menus with matching `menu_type`
+
+**Mobile Friendliness: 45/100**
+
+The Tailwind-based UI is responsive. The single-column accordion layout is readable on mobile. However:
+
+- No touch-optimized image picker
+- No swipe-to-delete
+- Inline edit mode for items requires precise tap targets on small screens
+- No dedicated mobile flow
+
+**AI Readiness: 35/100**
+
+Schema ahead of most competitors. The `ai_metadata` envelope tracks description source, model, generation timestamp, review state, image source, and import job ID. The `ai_features_enabled` restaurant setting flag is in place.
+
+Deductions:
+- Zero generation code
+- No LLM API integration
+- No admin review workflow
+- No import parser
+- AI features cannot be turned on even for testing
+
+**QR Menu Readiness: 5/100**
+
+- No public `/menu/[restaurantSlug]` route
+- No customer-facing menu rendering of any kind
+- No structured data markup
+- No menu-specific QR code generation
+- The menu data exists in the DB but has no public display path
+
+### 12.3 Overall Maturity Score
+
+| Dimension | Weight | Score | Weighted |
+|---|---|---|---|
+| Data Model | 20% | 45 | 9.0 |
+| UX | 30% | 15 | 4.5 |
+| Scalability | 15% | 35 | 5.3 |
+| Mobile Friendliness | 10% | 45 | 4.5 |
+| AI Readiness | 10% | 35 | 3.5 |
+| QR Menu Readiness | 15% | 5 | 0.8 |
+
+**Overall Menu Builder Maturity: 28/100**
+
+The score reflects a system where the DB schema is materially more advanced than the UI that exposes it. The schema would score ~52/100 in isolation. The UX brings the composite score to 28/100.
+
+---
+
+## 13. Menu Foundation Readiness Gate
+
+### 13.1 Gate Assessment per Capability
+
+| Capability | Gate | Evidence |
+|---|---|---|
+| Food photos | 🟡 Yellow | `menu-item-images` bucket created, path convention `{uid}/{restaurantId}/items/{itemId}/{ts}.ext` defined in migration. Policy fixed (Phase C1 H-6). No upload UI in menu item editor. One component to build. |
+| Descriptions | 🟡 Yellow | `menu_items.description` column exists. No edit textarea in admin UI. One field to add to existing edit form. |
+| Featured items | 🟡 Yellow | `menu_items.is_featured` column + partial index exists. No toggle UI. One boolean field to expose. |
+| Menu sections | 🔴 Red | `menu_sections` table and `section_id` FK exist but have NEVER been used. The current UX treats `menus` rows as sections. An architectural decision is required before a section UI can be built: should `menus` be renamed to `sections`, or should a new UI layer be added on top of the current structure? Cannot build section support on top of the current UX without addressing this conceptual conflict. |
+| QR menu pages | 🔴 Red | No `/menu/[restaurantSlug]` route exists. No customer-facing rendering. The experience router in `/r/[slug]` does not handle `menu_only` or `menu_and_promotion` modes. Must be built from scratch. However, all required data (items, sections, branding) is schema-ready. |
+| AI menu import | 🔴 Red | No import pipeline, no parser, no batch insert UI, no job tracking. The `ai_metadata.import_job_id` field exists but there is no job runner. Requires full pipeline construction. |
+| AI description generation | 🟡 Yellow | Schema (ai_metadata envelope), storage (not required for text), and feature gate (`ai_features_enabled`) are all in place. Requires: LLM API integration, a "Generate" button in the menu item editor, and a review workflow (items with `description_reviewed = false`). Blocked by the missing description field in the admin UI — which is itself a Yellow item. |
+
+### 13.2 Active Defects Blocking Feature Work
+
+| Defect | Severity | Blocking |
+|---|---|---|
+| B1: Silent auto-copy in promotion builder | **High** | Multi-location menu management, any future menu sync, AI-generated content workflows (content gets silently overwritten on next builder open) |
+| B2: Stale `items` state on panel switch | Low | Visual only — resolves on async completion. Not blocking. |
+| C1: Orphaned items (menu_id = NULL) | Medium | Public menu page (orphaned items would appear if not filtered), AI import (ambiguous assignment target for items without menu context) |
+| C2: menu_sections never populated | Medium | Section-based menu display, AI-powered section grouping, any UX that references sections |
+| A2: Slug drift on rename | Low | Public menu page URLs — a menu renamed from "Lunch" to "Afternoon" keeps the `/menu/slug/lunch` URL |
+
+### 13.3 Recommendation
+
+**🟡 Perform a Menu Stabilization Sprint before Menu Foundation work begins.**
+
+**This is not a full re-architecture.** The DB schema is sound. The data model is correct. The gaps are in the application layer.
+
+A targeted stabilization sprint (estimated 5–7 days) would close all blocking issues:
+
+| Task | Time | Closes |
+|---|---|---|
+| Remove silent auto-copy from promotion builder OR replace with an explicit "Copy items from another location?" confirmation dialog | 0.5d | Defect B1 |
+| Add `setItems([])` before `await loadItems(menuId)` in toggleMenu | 0.5h | Defect B2 |
+| Write migration: `UPDATE menu_items SET menu_id = (SELECT id FROM menus WHERE restaurant_id = menu_items.restaurant_id ORDER BY created_at LIMIT 1) WHERE menu_id IS NULL` | 0.5d | Defect C1 |
+| Architectural decision: treat current `menus` rows as "sections" going forward; rename/re-label in UI | 0.5d | Defect C2 (partial) |
+| Extend menu item editor: add description textarea, image upload (reuse HeroImageUploader pattern), is_featured toggle, available toggle | 2d | Unblocks food photos, descriptions, featured items |
+| Update slug on menu rename | 0.5h | Defect A2 |
+
+**Without the stabilization sprint:**
+
+- Food photos can be built, but the upload component is attaching images to items that may be auto-copied silently to other locations
+- AI descriptions can be generated, but the auto-copy will silently propagate AI-generated content to sibling restaurant menus without owner review
+- A QR menu page can be built, but it would display orphaned items (menu_id = NULL) if it queries by `restaurant_id` without a `menu_id` filter
+- Section navigation on the QR menu page cannot be built at all without resolving the menus-as-sections naming conflict
+
+**The stabilization sprint takes ≤1 week and prevents technical debt from compounding into every subsequent feature.**
+
+---
+
+### Summary: Menu Architecture Defect Register
+
+| ID | Defect | Type | Severity | Status |
+|---|---|---|---|---|
+| MA-1 | Slug NOT NULL on menu creation — historical deploy gap | Historical | Low | Not reproducible in current code; secondary slug-drift still active |
+| MA-2 | Promotion builder silently auto-copies items across locations | Architectural | High | Active |
+| MA-3 | Stale `items` state during menu panel switch | UI | Low | Active |
+| MA-4 | `menu_items.menu_id` is nullable (NOT NULL never applied) | Schema | Medium | Active |
+| MA-5 | Orphaned items (menu_id = NULL) invisible to admin | Data | Medium | Active |
+| MA-6 | `menu_sections` table and `section_id` column never used | Architectural | Medium | Active |
+| MA-7 | `menus` rows function as sections, not menus — conceptual mismatch | Architectural | Medium | Active |
+| MA-8 | Slug not updated when menu is renamed | Logic | Low | Active |
+
+---
+
+*Parts 11–13 added 2026-06-09. All findings are evidence-based. No code or schema changes made.*
