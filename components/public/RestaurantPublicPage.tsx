@@ -517,12 +517,8 @@ function RewardWidget({
         type="button"
         onClick={openSheet}
         aria-label="View today's reward"
-        className="reward-pulse-btn fixed bottom-6 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-2xl"
-        style={{
-          backgroundColor: accentColor,
-          color: '#fff',
-          animation: 'spinbiteRewardPulse 3s ease-in-out infinite',
-        }}
+        className="fixed bottom-6 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-2xl"
+        style={{ backgroundColor: accentColor, color: '#fff' }}
       >
         🎁
       </button>
@@ -691,6 +687,9 @@ export function RestaurantPublicPage({
   const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
   const storageKey = promotion?.id ? `promotion-dismissed-${promotion.id}` : null;
   const [rewardCardDismissed, setRewardCardDismissed] = useState(false);
+  const cappedRewardItemIds = rewardItemIds
+    ? new Set(Array.from(rewardItemIds).slice(0, 3))
+    : undefined;
 
   useEffect(() => {
     if (!storageKey) return;
@@ -813,19 +812,9 @@ export function RestaurantPublicPage({
         )}
       </div>
 
-      {/* ── Reward Banner (menu_and_promotion mode) ── */}
-      {hasPromotion && (
-        <RewardBanner
-          promotion={promotion!}
-          playUrl={playUrl}
-          accentColor={accentColor}
-        />
-      )}
-
       {/* ── Info card ── */}
-      {/* A2: logo moved here as absolute -top-10 so it straddles the hero/card boundary cleanly */}
-      {/* -mt-8 removed when banner is present so the card butts up against the banner instead of the hero */}
-      <div className={`relative ${hasPromotion ? '' : '-mt-8'} rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl`}>
+      {/* A2: logo straddles hero/card boundary via absolute -top-10 */}
+      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl">
         {restaurant.logo_url && (
           <div className="absolute -top-10 left-5 h-20 w-20 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-stone-100">
             <img
@@ -944,6 +933,17 @@ export function RestaurantPublicPage({
         </div>
       )}
 
+      {/* ── Reward Banner (menu_and_promotion mode) — below restaurant info, above reward card ── */}
+      {hasPromotion && (
+        <div className="mx-4 mt-4 overflow-hidden rounded-2xl shadow-md">
+          <RewardBanner
+            promotion={promotion!}
+            playUrl={playUrl}
+            accentColor={accentColor}
+          />
+        </div>
+      )}
+
       {/* ── Today's Reward Card (menu_and_promotion mode) ── */}
       {hasPromotion && !rewardCardDismissed && (
         <TodaysRewardCard
@@ -974,7 +974,7 @@ export function RestaurantPublicPage({
                 item={item}
                 brandColor={brandColor}
                 accentColor={accentColor}
-                isRewardItem={rewardItemIds?.has(item.id)}
+                isRewardItem={cappedRewardItemIds?.has(item.id)}
                 onTap={() => openSheet(item)}
               />
             ))}
@@ -1078,7 +1078,7 @@ export function RestaurantPublicPage({
                       item={item}
                       brandColor={brandColor}
                       accentColor={accentColor}
-                      isRewardItem={rewardItemIds?.has(item.id)}
+                      isRewardItem={cappedRewardItemIds?.has(item.id)}
                       onTap={() => openSheet(item)}
                     />
                   ))}
