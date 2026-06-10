@@ -468,7 +468,7 @@ function RewardWidget({
           bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
         }}
       >
-        🎁
+        🎯
       </button>
 
       {/* Bottom sheet */}
@@ -599,7 +599,7 @@ function RewardBanner({
       style={{ backgroundColor: accentColor }}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <span className="shrink-0 text-xl leading-none" aria-hidden="true">🎁</span>
+        <span className="spinbite-banner-icon-spin shrink-0 text-xl leading-none" aria-hidden="true">🎯</span>
         <p className="truncate text-sm font-black text-white">Win Rewards While You Dine</p>
       </div>
       <a
@@ -780,9 +780,25 @@ export function RestaurantPublicPage({
           </div>
         )}
 
+        {/* Compact reward banner — top-right of card, alongside the logo */}
+        {hasPromotion && (
+          <div className="flex items-center gap-3">
+            {restaurant.logo_url && <div className="w-20 shrink-0" />}
+            <div className="min-w-0 flex-1 overflow-hidden rounded-xl shadow-sm">
+              <RewardBanner
+                promotion={promotion!}
+                playUrl={playUrl}
+                accentColor={accentColor}
+              />
+            </div>
+          </div>
+        )}
+
         {/* A3: no paddingLeft — logo is above, not beside, the name */}
         <h1
-          className={`text-3xl font-black leading-tight${restaurant.logo_url ? ' mt-12' : ''}`}
+          className={`text-3xl font-black leading-tight${
+            restaurant.logo_url && !hasPromotion ? ' mt-12' : hasPromotion ? ' mt-3' : ''
+          }`}
           style={{ color: brandColor }}
         >
           {restaurant.name}
@@ -888,17 +904,6 @@ export function RestaurantPublicPage({
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* ── Reward Banner (menu_and_promotion mode) — below restaurant info, above reward card ── */}
-      {hasPromotion && (
-        <div className="mx-4 mt-4 overflow-hidden rounded-2xl shadow-md">
-          <RewardBanner
-            promotion={promotion!}
-            playUrl={playUrl}
-            accentColor={accentColor}
-          />
         </div>
       )}
 
