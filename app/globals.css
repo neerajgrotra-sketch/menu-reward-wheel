@@ -69,3 +69,36 @@ button div.flex.h-16.w-16.shrink-0.items-center.justify-center.rounded-3xl.bg-gr
   box-shadow: 0 0 18px rgba(255,255,255,.65);
   animation: spinbiteScratchSweep 1.8s ease-in-out infinite;
 }
+
+/* ── Reward Banner: animated game icon ───────────────────────────────────── */
+@keyframes spinbiteBannerSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes spinbiteBannerPulse {
+  0%, 88%, 100% { transform: scale(1); }
+  93%           { transform: scale(1.08); filter: drop-shadow(0 0 5px rgba(255,255,255,0.30)); }
+}
+.spinbite-banner-icon-spin {
+  display: inline-block;
+  animation: spinbiteBannerSpin 11s linear infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+.spinbite-banner-icon-spin-fast {
+  display: inline-block;
+  animation: spinbiteBannerSpin 0.75s linear infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+.spinbite-banner-icon-pulse {
+  display: inline-block;
+  animation: spinbiteBannerPulse 9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinbite-banner-icon-spin,
+  .spinbite-banner-icon-spin-fast,
+  .spinbite-banner-icon-pulse {
+    animation: none !important;
+  }
+}
