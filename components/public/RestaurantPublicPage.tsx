@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Globe, Navigation2 } from 'lucide-react';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
@@ -601,6 +602,40 @@ function RewardWidget({
   );
 }
 
+// ─── Brand icons ─────────────────────────────────────────────────────────────
+
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="2" y="2" width="20" height="20" rx="5" />
+      <circle cx="12" cy="12" r="4.5" />
+      <circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function FacebookIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+    </svg>
+  );
+}
+
 // ─── Reward Banner ────────────────────────────────────────────────────────────
 
 function RewardBanner({
@@ -753,7 +788,8 @@ export function RestaurantPublicPage({
   const hasContactLinks =
     restaurant.website_url ||
     restaurant.google_maps_url ||
-    restaurant.instagram_url;
+    restaurant.instagram_url ||
+    restaurant.facebook_url;
 
   return (
     // D1: secondary_color provides a per-restaurant page background tint at ~4% opacity
@@ -828,19 +864,43 @@ export function RestaurantPublicPage({
           )}
         </div>
 
-        {/* ── Contact icons ── */}
+        {/* ── Contact quick actions ── */}
         {hasContactLinks && (
-          <div className="mt-3 flex gap-3">
+          <div className="mt-3 flex gap-2.5">
+            {restaurant.instagram_url && (
+              <a
+                href={restaurant.instagram_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Follow us on Instagram (opens in new tab)"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-stone-100 active:scale-95"
+                style={{ color: '#C13584', transition: 'transform 150ms' }}
+              >
+                <InstagramIcon className="h-5 w-5" />
+              </a>
+            )}
+            {restaurant.facebook_url && (
+              <a
+                href={restaurant.facebook_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visit us on Facebook (opens in new tab)"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-stone-100 active:scale-95"
+                style={{ color: '#1877F2', transition: 'transform 150ms' }}
+              >
+                <FacebookIcon className="h-5 w-5" />
+              </a>
+            )}
             {restaurant.website_url && (
               <a
                 href={restaurant.website_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Visit our website (opens in new tab)"
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-xl shadow-sm active:scale-95"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-stone-600 shadow-sm ring-1 ring-stone-100 active:scale-95"
                 style={{ transition: 'transform 150ms' }}
               >
-                🌐
+                <Globe className="h-5 w-5" aria-hidden="true" />
               </a>
             )}
             {restaurant.google_maps_url && (
@@ -849,22 +909,10 @@ export function RestaurantPublicPage({
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Get directions (opens in new tab)"
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-xl shadow-sm active:scale-95"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-stone-600 shadow-sm ring-1 ring-stone-100 active:scale-95"
                 style={{ transition: 'transform 150ms' }}
               >
-                🗺️
-              </a>
-            )}
-            {restaurant.instagram_url && (
-              <a
-                href={restaurant.instagram_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Follow us on Instagram (opens in new tab)"
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-xl shadow-sm active:scale-95"
-                style={{ transition: 'transform 150ms' }}
-              >
-                📷
+                <Navigation2 className="h-5 w-5" aria-hidden="true" />
               </a>
             )}
           </div>
