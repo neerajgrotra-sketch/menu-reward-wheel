@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe, Navigation2 } from 'lucide-react';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
+import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -331,6 +332,7 @@ function TodaysRewardCard({
   accentColor: string;
   onDismiss: () => void;
 }) {
+  const { visual } = getGameVisual(promotion.game_type, 36);
   return (
     <div
       className="mx-4 mt-5 overflow-hidden rounded-3xl bg-white shadow-xl"
@@ -349,14 +351,14 @@ function TodaysRewardCard({
               {promotion.name}
             </h3>
           </div>
-          <span className="text-3xl leading-none" aria-hidden="true">🎁</span>
+          {visual}
         </div>
 
         {rewards.length > 0 && (
           <ul className="mt-3 space-y-1.5" aria-label="Available rewards">
             {rewards.map((r) => (
               <li key={r.id} className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-                <span aria-hidden="true">🎁</span>
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} aria-hidden="true" />
                 {r.label}
               </li>
             ))}
@@ -402,6 +404,7 @@ function RewardWidget({
   playUrl: string;
   accentColor: string;
 }) {
+  const widgetVisual = getGameVisual(promotion.game_type, 26);
   const [expanded, setExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -461,14 +464,13 @@ function RewardWidget({
         type="button"
         onClick={openSheet}
         aria-label="View today's reward"
-        className="fixed right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full text-xl shadow-xl"
+        className="fixed right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full shadow-xl"
         style={{
           backgroundColor: accentColor,
-          color: '#fff',
           bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
         }}
       >
-        🎯
+        {widgetVisual.visual}
       </button>
 
       {/* Bottom sheet */}
@@ -523,7 +525,7 @@ function RewardWidget({
                 <ul className="mt-3 space-y-2" aria-label="Available rewards">
                   {rewards.map((r) => (
                     <li key={r.id} className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-                      <span aria-hidden="true">🎁</span>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} aria-hidden="true" />
                       {r.label}
                     </li>
                   ))}
@@ -586,6 +588,7 @@ function FacebookIcon({ className }: { className?: string }) {
 // ─── Reward Banner ────────────────────────────────────────────────────────────
 
 function RewardBanner({
+  promotion,
   playUrl,
   accentColor,
 }: {
@@ -593,26 +596,22 @@ function RewardBanner({
   playUrl: string;
   accentColor: string;
 }) {
+  const { visual, headline, subline } = getGameVisual(promotion.game_type, 20);
   return (
     <div
       className="flex items-center gap-1.5 px-2.5 py-2"
       style={{ backgroundColor: accentColor }}
     >
-      {/* Wheel icon — slow spin, respects prefers-reduced-motion via globals.css */}
-      <span
-        className="spinbite-banner-icon-spin shrink-0 text-base leading-none"
-        aria-hidden="true"
-      >
-        🎡
-      </span>
+      {/* Game-specific visual — matches the exact asset in GameSelectionSection + game screen */}
+      <div className="shrink-0">{visual}</div>
 
-      {/* Two-line text stack — whitespace-nowrap on each line prevents wrap at 320px */}
+      {/* Two-line text stack — whitespace-nowrap prevents wrap at 320px */}
       <div className="min-w-0 flex-1 overflow-hidden">
-        <p className="whitespace-nowrap text-xs font-black leading-tight text-white">Play &amp; Win</p>
-        <p className="whitespace-nowrap text-[10px] font-semibold leading-tight text-white/80">Rewards today</p>
+        <p className="whitespace-nowrap text-xs font-black leading-tight text-white">{headline}</p>
+        <p className="whitespace-nowrap text-[10px] font-semibold leading-tight text-white/80">{subline}</p>
       </div>
 
-      {/* CTA pill — "Play" kept short so it never clips */}
+      {/* CTA pill */}
       <a
         href={playUrl}
         className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-black text-white active:scale-95"

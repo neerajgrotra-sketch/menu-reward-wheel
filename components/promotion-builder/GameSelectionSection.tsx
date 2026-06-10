@@ -1,6 +1,7 @@
 'use client';
 
 import { getAvailableGameContracts } from '@/lib/games/registry';
+import { MiniPrizeWheel, MiniMysteryBox, MiniScratchCard, MiniOpenDoor } from '@/components/game-visuals/GameVisual';
 
 export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
 
@@ -10,54 +11,29 @@ export type GameSelectionSectionProps = {
   onChange: (gameType: BuilderGameType) => void;
 };
 
-function MiniPrizeWheel() {
-  return (
-    <div className="relative flex h-16 w-16 shrink-0 items-center justify-center">
-      <style jsx>{`@keyframes spinPause{0%{transform:rotate(0deg)}55%{transform:rotate(760deg)}70%{transform:rotate(760deg)}100%{transform:rotate(1080deg)}}`}</style>
-      <div className="absolute -right-1 top-1/2 z-20 -translate-y-1/2 text-lg">◀</div>
-      <div
-        className="h-16 w-16 rounded-full border-4 border-white shadow-lg"
-        style={{
-          animation: 'spinPause 3.2s cubic-bezier(.18,.8,.25,1) infinite',
-          background:
-            'conic-gradient(#FF6B00 0deg 45deg,#FFD166 45deg 90deg,#00C853 90deg 135deg,#E63939 135deg 180deg,#FF8A00 180deg 225deg,#FFF0C2 225deg 270deg,#2DD4BF 270deg 315deg,#F97316 315deg 360deg)',
-        }}
-      />
-      <div className="absolute z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#1F1F1F] text-[10px] font-black text-white shadow">
-        SPIN
-      </div>
-    </div>
-  );
-}
-
-function MiniMysteryBox() {
-  return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-white text-4xl shadow-inner">
-      🎁
-    </div>
-  );
-}
-
-function MiniScratchCard() {
-  return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 text-4xl shadow-inner">
-      🪙
-    </div>
-  );
-}
-
-function MiniOpenDoor() {
-  return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-slate-100 via-stone-100 to-slate-200 text-4xl shadow-inner">
-      🚪
-    </div>
-  );
-}
-
 function MiniRewardReels() {
   return (
-    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-200 via-orange-100 to-amber-300 text-4xl shadow-inner">
-      🎰
+    <div
+      className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl shadow-inner"
+      style={{ background: 'linear-gradient(135deg,#fde68a,#fed7aa,#fbbf24)' }}
+      aria-hidden="true"
+    >
+      {/* Slot machine reels — three vertical bars */}
+      <div className="flex gap-0.5">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex h-8 w-2 flex-col overflow-hidden rounded bg-white/60">
+            {[0, 1, 2].map((j) => (
+              <div
+                key={j}
+                className="flex flex-1 items-center justify-center rounded"
+                style={{
+                  background: ['#FF6B00','#E63939','#00C853','#FFD166','#2DD4BF','#F97316'][(i * 3 + j) % 6],
+                }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -108,13 +84,13 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
 
         const icon =
           game.type === 'wheel'
-            ? <MiniPrizeWheel />
+            ? <MiniPrizeWheel size={64} />
             : game.type === 'mystery_box'
-            ? <MiniMysteryBox />
+            ? <MiniMysteryBox size={64} />
             : game.type === 'scratch_card'
-            ? <MiniScratchCard />
+            ? <MiniScratchCard size={64} />
             : game.type === 'open_the_door'
-            ? <MiniOpenDoor />
+            ? <MiniOpenDoor size={64} />
             : <MiniRewardReels />;
 
         return (
