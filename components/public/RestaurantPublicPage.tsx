@@ -96,14 +96,18 @@ function ItemPlaceholder() {
   );
 }
 
-// Featured card — horizontal scroll strip; all items here are featured so no badge needed
+// Featured card — horizontal scroll strip
 function FeaturedCard({
   item,
   brandColor,
+  accentColor,
+  isRewardItem,
   onTap,
 }: {
   item: PublicMenuItem;
   brandColor: string;
+  accentColor?: string;
+  isRewardItem?: boolean;
   onTap: () => void;
 }) {
   return (
@@ -123,6 +127,14 @@ function FeaturedCard({
           />
         ) : (
           <ItemPlaceholder />
+        )}
+        {isRewardItem && accentColor && (
+          <span
+            className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
+            style={{ backgroundColor: accentColor }}
+          >
+            🎁 Win
+          </span>
         )}
       </div>
       <div className="p-3">
@@ -146,11 +158,13 @@ function MenuItemCard({
   item,
   brandColor,
   accentColor,
+  isRewardItem,
   onTap,
 }: {
   item: PublicMenuItem;
   brandColor: string;
   accentColor: string;
+  isRewardItem?: boolean;
   onTap: () => void;
 }) {
   return (
@@ -182,6 +196,14 @@ function MenuItemCard({
             style={{ backgroundColor: accentColor }}
           >
             ★ Featured
+          </span>
+        )}
+        {isRewardItem && (
+          <span
+            className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
+            style={{ backgroundColor: accentColor }}
+          >
+            🎁 Win This
           </span>
         )}
       </div>
@@ -583,6 +605,68 @@ function RewardWidget({
   );
 }
 
+// ─── Reward Banner ────────────────────────────────────────────────────────────
+
+function RewardBanner({
+  promotion,
+  playUrl,
+  accentColor,
+}: {
+  promotion: PublicPromotion;
+  playUrl: string;
+  accentColor: string;
+}) {
+  const [iconHovering, setIconHovering] = useState(false);
+
+  const icon =
+    promotion.game_type === 'spin_wheel' ? '🎡'
+    : promotion.game_type === 'scratch_card' ? '🎫'
+    : '🎁';
+
+  function handleIconTouchStart() {
+    setIconHovering(true);
+    setTimeout(() => setIconHovering(false), 1200);
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 px-4 py-3"
+      style={{ backgroundColor: accentColor }}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="spinbite-banner-icon-pulse shrink-0">
+          <span
+            className={iconHovering ? 'spinbite-banner-icon-spin-fast' : 'spinbite-banner-icon-spin'}
+            style={{ fontSize: '1.75rem', lineHeight: '1' }}
+            onMouseEnter={() => setIconHovering(true)}
+            onMouseLeave={() => setIconHovering(false)}
+            onTouchStart={handleIconTouchStart}
+          >
+            {icon}
+          </span>
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black text-white">Rewards Available Today</p>
+          <p className="text-xs font-semibold text-white/80">Play &amp; Win While You Dine</p>
+        </div>
+      </div>
+      <a
+        href={playUrl}
+        className="shrink-0 rounded-xl px-3 py-2 text-xs font-black text-white active:scale-95"
+        style={{
+          backgroundColor: 'rgba(255,255,255,0.20)',
+          backdropFilter: 'blur(4px)',
+          WebkitBackdropFilter: 'blur(4px)',
+          transition: 'transform 150ms, background-color 150ms',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Play Now →
+      </a>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function RestaurantPublicPage({
@@ -590,11 +674,13 @@ export function RestaurantPublicPage({
   sections,
   promotion,
   promotionRewards,
+  rewardItemIds,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
   promotion?: PublicPromotion | null;
   promotionRewards?: PublicReward[];
+  rewardItemIds?: Set<string>;
 }) {
   const brandColor = brandPrimary(restaurant);
   // D2: accent_color for badges/featured treatment; falls back to brand_color then amber
@@ -603,7 +689,15 @@ export function RestaurantPublicPage({
 
   const hasPromotion = !!promotion;
   const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
+  const storageKey = promotion?.id ? `promotion-dismissed-${promotion.id}` : null;
   const [rewardCardDismissed, setRewardCardDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      if (localStorage.getItem(storageKey) === '1') setRewardCardDismissed(true);
+    } catch {}
+  }, [storageKey]);
 
   const featuredItems = sections
     .flatMap((s) => s.items)
@@ -719,9 +813,19 @@ export function RestaurantPublicPage({
         )}
       </div>
 
+      {/* ── Reward Banner (menu_and_promotion mode) ── */}
+      {hasPromotion && (
+        <RewardBanner
+          promotion={promotion!}
+          playUrl={playUrl}
+          accentColor={accentColor}
+        />
+      )}
+
       {/* ── Info card ── */}
       {/* A2: logo moved here as absolute -top-10 so it straddles the hero/card boundary cleanly */}
-      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl">
+      {/* -mt-8 removed when banner is present so the card butts up against the banner instead of the hero */}
+      <div className={`relative ${hasPromotion ? '' : '-mt-8'} rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl`}>
         {restaurant.logo_url && (
           <div className="absolute -top-10 left-5 h-20 w-20 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-stone-100">
             <img
@@ -847,7 +951,12 @@ export function RestaurantPublicPage({
           rewards={promotionRewards ?? []}
           playUrl={playUrl}
           accentColor={accentColor}
-          onDismiss={() => setRewardCardDismissed(true)}
+          onDismiss={() => {
+            setRewardCardDismissed(true);
+            if (storageKey) {
+              try { localStorage.setItem(storageKey, '1'); } catch {}
+            }
+          }}
         />
       )}
 
@@ -864,6 +973,8 @@ export function RestaurantPublicPage({
                 key={item.id}
                 item={item}
                 brandColor={brandColor}
+                accentColor={accentColor}
+                isRewardItem={rewardItemIds?.has(item.id)}
                 onTap={() => openSheet(item)}
               />
             ))}
@@ -967,6 +1078,7 @@ export function RestaurantPublicPage({
                       item={item}
                       brandColor={brandColor}
                       accentColor={accentColor}
+                      isRewardItem={rewardItemIds?.has(item.id)}
                       onTap={() => openSheet(item)}
                     />
                   ))}
@@ -988,8 +1100,8 @@ export function RestaurantPublicPage({
         />
       )}
 
-      {/* ── Floating Reward Widget (appears after card is dismissed) ── */}
-      {hasPromotion && rewardCardDismissed && (
+      {/* ── Floating Reward Widget ── */}
+      {hasPromotion && (
         <RewardWidget
           promotion={promotion!}
           rewards={promotionRewards ?? []}

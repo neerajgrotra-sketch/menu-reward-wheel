@@ -74,6 +74,7 @@ export type PublicPromotion = {
   id: string;
   name: string;
   slug: string;
+  game_type?: string | null;
 };
 
 export type PublicReward = {
@@ -97,27 +98,28 @@ async function fetchPromotionForCard(
   supabase: ReturnType<typeof makeServiceClient>,
   restaurant: PublicRestaurant,
   now: Date,
-): Promise<[PublicPromotion | null, PublicReward[]]> {
+): Promise<[PublicPromotion | null, PublicReward[], Set<string>]> {
   const promoResult = await supabase
     .from('promotions')
-    .select('id,name,slug,status,starts_at,ends_at')
+    .select('id,name,slug,status,starts_at,ends_at,promotion_game_assignments(game_type)')
     .eq('restaurant_id', restaurant.id)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(20);
 
-  if (promoResult.error || !promoResult.data?.length) return [null, []];
+  if (promoResult.error || !promoResult.data?.length) return [null, [], new Set()];
 
-  type PromoRow = { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null };
+  type PromoRow = { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null; promotion_game_assignments?: Array<{ game_type: string }> | null };
   const live = (promoResult.data as PromoRow[]).find((p) => {
     if (p.starts_at && now < new Date(p.starts_at)) return false;
     if (p.ends_at && now > new Date(p.ends_at)) return false;
     return true;
   });
 
-  if (!live) return [null, []];
+  if (!live) return [null, [], new Set()];
 
-  const promotion: PublicPromotion = { id: live.id, name: live.name, slug: live.slug };
+  const gameType = live.promotion_game_assignments?.[0]?.game_type ?? null;
+  const promotion: PublicPromotion = { id: live.id, name: live.name, slug: live.slug, game_type: gameType };
 
   const rewardsResult = await supabase
     .from('promotion_rewards')
@@ -125,12 +127,13 @@ async function fetchPromotionForCard(
     .eq('promotion_id', live.id)
     .order('display_order', { ascending: true });
 
-  if (rewardsResult.error || !rewardsResult.data?.length) return [promotion, []];
+  if (rewardsResult.error || !rewardsResult.data?.length) return [promotion, [], new Set()];
 
   type RewardRow = { id: string; custom_name?: string | null; reward_type?: string | null; reward_value?: number | null; menu_item_id?: string | null; display_order: number };
   const rawRewards = rewardsResult.data as RewardRow[];
 
   const menuItemIds = rawRewards.map((r) => r.menu_item_id).filter((id): id is string => !!id);
+  const rewardItemIds = new Set(menuItemIds);
   let menuNamesById: Record<string, string> = {};
 
   if (menuItemIds.length > 0) {
@@ -149,7 +152,7 @@ async function fetchPromotionForCard(
     return { id: r.id, label };
   });
 
-  return [promotion, promotionRewards];
+  return [promotion, promotionRewards, rewardItemIds];
 }
 
 function isPromotionLive(promotion: Promotion, now: Date) {
@@ -236,12 +239,12 @@ export default async function PermanentRestaurantQrPage({
   // ── menu_only / menu_and_promotion → public menu experience ─────────────────
 
   if (mode === 'menu_only' || mode === 'menu_and_promotion') {
-    const promotionFetch: Promise<[PublicPromotion | null, PublicReward[]]> =
+    const promotionFetch: Promise<[PublicPromotion | null, PublicReward[], Set<string>]> =
       mode === 'menu_and_promotion'
         ? fetchPromotionForCard(supabase, restaurant, now)
-        : Promise.resolve([null, []]);
+        : Promise.resolve([null, [], new Set<string>()]);
 
-    const [menusResult, itemsResult, [activePromotion, promotionRewards]] = await Promise.all([
+    const [menusResult, itemsResult, [activePromotion, promotionRewards, rewardItemIds]] = await Promise.all([
       supabase
         .from('menus')
         .select('id,name,display_order')
@@ -277,6 +280,7 @@ export default async function PermanentRestaurantQrPage({
         sections={sections}
         promotion={activePromotion}
         promotionRewards={promotionRewards}
+        rewardItemIds={rewardItemIds}
       />
     );
   }
