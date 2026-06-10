@@ -115,7 +115,7 @@ function FeaturedCard({
     <button
       type="button"
       onClick={onTap}
-      className="w-40 shrink-0 overflow-hidden rounded-2xl bg-white shadow-md active:scale-95"
+      className="w-48 shrink-0 snap-start overflow-hidden rounded-2xl bg-white shadow-md active:scale-95"
       style={{ transition: 'transform 150ms' }}
     >
       <div className="relative h-28 w-full overflow-hidden bg-stone-100">
@@ -518,8 +518,12 @@ function RewardWidget({
         type="button"
         onClick={openSheet}
         aria-label="View today's reward"
-        className="fixed bottom-6 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-2xl"
-        style={{ backgroundColor: accentColor, color: '#fff' }}
+        className="fixed right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full text-xl shadow-xl"
+        style={{
+          backgroundColor: accentColor,
+          color: '#fff',
+          bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
+        }}
       >
         🎁
       </button>
@@ -710,9 +714,8 @@ export function RestaurantPublicPage({
   const featuredItems = sections
     .flatMap((s) => s.items)
     .filter((item) => item.is_featured)
-    .slice(0, 6);
+    .slice(0, 3);
 
-  const menuRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
   const [selectedItem, setSelectedItem] = useState<PublicMenuItem | null>(null);
@@ -979,7 +982,8 @@ export function RestaurantPublicPage({
           <h2 className="px-4 text-xl font-black" style={{ color: brandColor }}>
             <span className="mr-2" aria-hidden="true">⭐</span>Featured Dishes
           </h2>
-          <div className="mt-3 flex gap-4 overflow-x-auto px-4 pb-4">
+          <div className="mt-3 flex gap-4 overflow-x-auto px-4 pb-4 snap-x snap-mandatory"
+            style={{ WebkitOverflowScrolling: 'touch' }}>
             {featuredItems.map((item) => (
               <FeaturedCard
                 key={item.id}
@@ -994,23 +998,8 @@ export function RestaurantPublicPage({
         </div>
       )}
 
-      {/* ── Browse Menu CTA ── */}
-      {sections.length > 0 && (
-        <div className="mx-4 mt-6">
-          <button
-            type="button"
-            onClick={() => menuRef.current?.scrollIntoView({ behavior: 'smooth' })}
-            className="w-full rounded-2xl py-4 text-lg font-black text-white shadow-lg active:scale-95"
-            style={{ backgroundColor: brandColor, transition: 'transform 150ms' }}
-          >
-            {/* C6: decorative arrow is hidden from assistive technology */}
-            Browse Menu <span aria-hidden="true">↓</span>
-          </button>
-        </div>
-      )}
-
       {/* ── Menu ── */}
-      <div ref={menuRef} className="mt-8 pb-24">
+      <div className="mt-8 pb-24">
 
         {/* Empty state */}
         {sections.length === 0 && (
