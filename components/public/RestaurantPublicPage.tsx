@@ -97,63 +97,6 @@ function ItemPlaceholder() {
   );
 }
 
-// Featured card — horizontal scroll strip
-function FeaturedCard({
-  item,
-  brandColor,
-  accentColor,
-  isRewardItem,
-  onTap,
-}: {
-  item: PublicMenuItem;
-  brandColor: string;
-  accentColor?: string;
-  isRewardItem?: boolean;
-  onTap: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onTap}
-      className="w-48 shrink-0 snap-start overflow-hidden rounded-2xl bg-white shadow-md active:scale-95"
-      style={{ transition: 'transform 150ms' }}
-    >
-      <div className="relative h-28 w-full overflow-hidden bg-stone-100">
-        {item.image_url ? (
-          // A5: eager load — featured strip is above the fold
-          <img
-            src={item.image_url}
-            alt={item.name}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <ItemPlaceholder />
-        )}
-        {isRewardItem && accentColor && (
-          <span
-            className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
-            style={{ backgroundColor: accentColor }}
-          >
-            🎁 Win
-          </span>
-        )}
-      </div>
-      <div className="p-3">
-        <p className="line-clamp-2 text-left text-sm font-black leading-tight text-stone-800">
-          {item.name}
-        </p>
-        {item.description && (
-          // C7: stone-500 (4.6:1) replaces stone-400 (2.4:1 — fails WCAG AA)
-          <p className="mt-1 line-clamp-2 text-left text-xs text-stone-500">{item.description}</p>
-        )}
-        <div className="mt-2">
-          <PriceBadge price={item.price} color={brandColor} />
-        </div>
-      </div>
-    </button>
-  );
-}
-
 // Menu item card — 2-column grid
 function MenuItemCard({
   item,
@@ -977,15 +920,13 @@ export function RestaurantPublicPage({
 
       {/* ── Featured items ── */}
       {featuredItems.length > 0 && (
-        <div className="mt-8">
-          {/* D4: brand color on section heading */}
-          <h2 className="px-4 text-xl font-black" style={{ color: brandColor }}>
+        <div className="mt-8 px-4">
+          <h2 className="text-xl font-black" style={{ color: brandColor }}>
             <span className="mr-2" aria-hidden="true">⭐</span>Featured Dishes
           </h2>
-          <div className="mt-3 flex gap-4 overflow-x-auto px-4 pb-4 snap-x snap-mandatory"
-            style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
             {featuredItems.map((item) => (
-              <FeaturedCard
+              <MenuItemCard
                 key={item.id}
                 item={item}
                 brandColor={brandColor}
