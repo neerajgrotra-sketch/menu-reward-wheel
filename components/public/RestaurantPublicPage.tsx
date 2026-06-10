@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe, Navigation2 } from 'lucide-react';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
-import { getGameVisual } from '@/components/game-visuals/GameVisual';
+import { getGameVisual, type GameType } from '@/components/game-visuals/GameVisual';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -585,6 +585,58 @@ function FacebookIcon({ className }: { className?: string }) {
   );
 }
 
+// ─── Reward Banner helpers ────────────────────────────────────────────────────
+
+function getBannerCopy(gameType: GameType): string {
+  if (gameType === 'mystery_box') return 'Open to Win';
+  if (gameType === 'scratch_card') return 'Scratch to Win';
+  if (!gameType || gameType === 'wheel') return 'Spin to Win';
+  return 'Play to Win';
+}
+
+function ConfettiBurst() {
+  const [flying, setFlying] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setFlying(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  const pieces = [
+    { dx: -22, dy: -12, color: '#FFD166', rotate: 35 },
+    { dx: 14, dy: -16, color: '#00C853', rotate: -20 },
+    { dx: 24, dy: -4,  color: '#E63939', rotate: 15 },
+    { dx: -14, dy: 14, color: '#2DD4BF', rotate: 45 },
+    { dx: 20,  dy: 12, color: '#FF6B00', rotate: -35 },
+    { dx: -24, dy: 2,  color: '#FFF0C2', rotate: 60 },
+    { dx: 6,   dy: -20, color: '#F97316', rotate: -10 },
+    { dx: -6,  dy: 18,  color: '#FFD166', rotate: 25 },
+  ];
+
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <div
+          key={i}
+          style={{
+            position: 'absolute',
+            width: 5,
+            height: 5,
+            left: '50%',
+            top: '50%',
+            backgroundColor: p.color,
+            borderRadius: 1,
+            transition: flying ? 'transform 320ms ease-out, opacity 320ms ease-out' : 'none',
+            transform: flying
+              ? `translate(calc(-50% + ${p.dx}px), calc(-50% + ${p.dy}px)) rotate(${p.rotate}deg)`
+              : 'translate(-50%, -50%)',
+            opacity: flying ? 0 : 1,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Reward Banner ────────────────────────────────────────────────────────────
 
 function RewardBanner({
@@ -596,36 +648,43 @@ function RewardBanner({
   playUrl: string;
   accentColor: string;
 }) {
-  const { visual, headline, subline } = getGameVisual(promotion.game_type, 20);
+  const [boosted, setBoosted] = useState(false);
+  const [confettiActive, setConfettiActive] = useState(false);
+  const reducedMotionRef = useRef(false);
+
+  useEffect(() => {
+    reducedMotionRef.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }, []);
+
+  // Visual size increased ~20%: 20 → 24
+  const { visual } = getGameVisual(promotion.game_type, 24, boosted);
+  const ctaCopy = getBannerCopy(promotion.game_type);
+
+  function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (reducedMotionRef.current) return; // let native navigation proceed immediately
+    e.preventDefault();
+    setBoosted(true);
+    setConfettiActive(true);
+    const delay = 150 + Math.floor(Math.random() * 101); // 150–250 ms
+    setTimeout(() => {
+      window.location.href = playUrl;
+    }, delay);
+  }
+
   return (
-    <div
-      className="flex items-center gap-1.5 px-2.5 py-2"
-      style={{ backgroundColor: accentColor }}
+    <a
+      href={playUrl}
+      onClick={handleClick}
+      className="relative flex items-center gap-2 px-2.5 py-2.5 active:brightness-90"
+      style={{ backgroundColor: accentColor, transition: 'filter 120ms' }}
+      aria-label={ctaCopy}
     >
-      {/* Game-specific visual — matches the exact asset in GameSelectionSection + game screen */}
       <div className="shrink-0">{visual}</div>
-
-      {/* Two-line text stack — whitespace-nowrap prevents wrap at 320px */}
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <p className="whitespace-nowrap text-xs font-black leading-tight text-white">{headline}</p>
-        <p className="whitespace-nowrap text-[10px] font-semibold leading-tight text-white/80">{subline}</p>
-      </div>
-
-      {/* CTA pill */}
-      <a
-        href={playUrl}
-        className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-black text-white active:scale-95"
-        style={{
-          backgroundColor: 'rgba(255,255,255,0.22)',
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)',
-          transition: 'transform 150ms, background-color 150ms',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        Play
-      </a>
-    </div>
+      <p className="whitespace-nowrap text-sm font-black leading-tight text-white">
+        {ctaCopy}
+      </p>
+      {confettiActive && <ConfettiBurst />}
+    </a>
   );
 }
 

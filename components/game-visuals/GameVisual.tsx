@@ -14,7 +14,7 @@ export type GameType =
 // Same 8-segment conic-gradient palette as RewardWheel.tsx game screen.
 // Used in: GameSelectionSection, RewardBanner, RewardWidget, TodaysRewardCard.
 
-export function MiniPrizeWheel({ size = 24 }: { size?: number }) {
+export function MiniPrizeWheel({ size = 24, boosted = false }: { size?: number; boosted?: boolean }) {
   const hubSize = Math.round(size * 0.42);
   const showLabel = size >= 40;
   const labelSize = Math.max(6, Math.round(size * 0.14));
@@ -48,7 +48,9 @@ export function MiniPrizeWheel({ size = 24 }: { size?: number }) {
       <div
         className="mini-wheel-disc absolute inset-0 rounded-full border-2 border-white shadow-md"
         style={{
-          animation: 'miniWheelSpin 3.2s cubic-bezier(.18,.8,.25,1) infinite',
+          animation: boosted
+            ? 'miniWheelSpin 0.28s linear infinite'
+            : 'miniWheelSpin 3.2s cubic-bezier(.18,.8,.25,1) infinite',
           background:
             'conic-gradient(#FF6B00 0deg 45deg,#FFD166 45deg 90deg,#00C853 90deg 135deg,#E63939 135deg 180deg,#FF8A00 180deg 225deg,#FFF0C2 225deg 270deg,#2DD4BF 270deg 315deg,#F97316 315deg 360deg)',
         }}
@@ -214,7 +216,7 @@ export type GameVisualData = {
   subline: string;
 };
 
-export function getGameVisual(gameType: GameType, size = 24): GameVisualData {
+export function getGameVisual(gameType: GameType, size = 24, boosted = false): GameVisualData {
   switch (gameType) {
     case 'mystery_box':
       return {
@@ -236,7 +238,7 @@ export function getGameVisual(gameType: GameType, size = 24): GameVisualData {
       };
     default: // 'wheel' and any unrecognised type
       return {
-        visual: <MiniPrizeWheel size={size} />,
+        visual: <MiniPrizeWheel size={size} boosted={boosted} />,
         headline: 'Spin & Win',
         subline: 'Rewards today',
       };
