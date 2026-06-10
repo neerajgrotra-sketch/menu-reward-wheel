@@ -604,7 +604,6 @@ function RewardWidget({
 // ─── Reward Banner ────────────────────────────────────────────────────────────
 
 function RewardBanner({
-  promotion,
   playUrl,
   accentColor,
 }: {
@@ -612,43 +611,18 @@ function RewardBanner({
   playUrl: string;
   accentColor: string;
 }) {
-  const [iconHovering, setIconHovering] = useState(false);
-
-  const icon =
-    promotion.game_type === 'spin_wheel' ? '🎡'
-    : promotion.game_type === 'scratch_card' ? '🎫'
-    : '🎁';
-
-  function handleIconTouchStart() {
-    setIconHovering(true);
-    setTimeout(() => setIconHovering(false), 1200);
-  }
-
   return (
     <div
-      className="flex items-center justify-between gap-3 px-4 py-3"
+      className="flex items-center justify-between gap-3 px-4 py-2.5"
       style={{ backgroundColor: accentColor }}
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="spinbite-banner-icon-pulse shrink-0">
-          <span
-            className={iconHovering ? 'spinbite-banner-icon-spin-fast' : 'spinbite-banner-icon-spin'}
-            style={{ fontSize: '1.75rem', lineHeight: '1' }}
-            onMouseEnter={() => setIconHovering(true)}
-            onMouseLeave={() => setIconHovering(false)}
-            onTouchStart={handleIconTouchStart}
-          >
-            {icon}
-          </span>
-        </span>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-black text-white">Rewards Available Today</p>
-          <p className="text-xs font-semibold text-white/80">Play &amp; Win While You Dine</p>
-        </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="shrink-0 text-xl leading-none" aria-hidden="true">🎁</span>
+        <p className="truncate text-sm font-black text-white">Win Rewards While You Dine</p>
       </div>
       <a
         href={playUrl}
-        className="shrink-0 rounded-xl px-3 py-2 text-xs font-black text-white active:scale-95"
+        className="shrink-0 rounded-xl px-3 py-1.5 text-xs font-black text-white active:scale-95"
         style={{
           backgroundColor: 'rgba(255,255,255,0.20)',
           backdropFilter: 'blur(4px)',
@@ -779,8 +753,7 @@ export function RestaurantPublicPage({
   const hasContactLinks =
     restaurant.website_url ||
     restaurant.google_maps_url ||
-    restaurant.instagram_url ||
-    restaurant.facebook_url;
+    restaurant.instagram_url;
 
   return (
     // D1: secondary_color provides a per-restaurant page background tint at ~4% opacity
@@ -854,6 +827,48 @@ export function RestaurantPublicPage({
             </a>
           )}
         </div>
+
+        {/* ── Contact icons ── */}
+        {hasContactLinks && (
+          <div className="mt-3 flex gap-3">
+            {restaurant.website_url && (
+              <a
+                href={restaurant.website_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Visit our website (opens in new tab)"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-xl shadow-sm active:scale-95"
+                style={{ transition: 'transform 150ms' }}
+              >
+                🌐
+              </a>
+            )}
+            {restaurant.google_maps_url && (
+              <a
+                href={restaurant.google_maps_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Get directions (opens in new tab)"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-xl shadow-sm active:scale-95"
+                style={{ transition: 'transform 150ms' }}
+              >
+                🗺️
+              </a>
+            )}
+            {restaurant.instagram_url && (
+              <a
+                href={restaurant.instagram_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Follow us on Instagram (opens in new tab)"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-xl shadow-sm active:scale-95"
+                style={{ transition: 'transform 150ms' }}
+              >
+                📷
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Hours ── */}
@@ -879,57 +894,6 @@ export function RestaurantPublicPage({
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* ── Contact links ── */}
-      {hasContactLinks && (
-        <div className="mt-4 flex gap-3 overflow-x-auto px-4 pb-1">
-          {restaurant.website_url && (
-            <a
-              href={restaurant.website_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
-            >
-              🌐 Website
-              {/* C5: sr-only text for screen readers announcing new-tab behavior */}
-              <span className="sr-only"> (opens in new tab)</span>
-            </a>
-          )}
-          {restaurant.google_maps_url && (
-            <a
-              href={restaurant.google_maps_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
-            >
-              🗺️ Directions
-              <span className="sr-only"> (opens in new tab)</span>
-            </a>
-          )}
-          {restaurant.instagram_url && (
-            <a
-              href={restaurant.instagram_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
-            >
-              📸 Instagram
-              <span className="sr-only"> (opens in new tab)</span>
-            </a>
-          )}
-          {restaurant.facebook_url && (
-            <a
-              href={restaurant.facebook_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 rounded-2xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-md"
-            >
-              👥 Facebook
-              <span className="sr-only"> (opens in new tab)</span>
-            </a>
-          )}
         </div>
       )}
 
