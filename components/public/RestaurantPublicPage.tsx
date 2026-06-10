@@ -595,25 +595,36 @@ function RewardBanner({
 }) {
   return (
     <div
-      className="flex items-center justify-between gap-3 px-4 py-2.5"
+      className="flex items-center gap-1.5 px-2.5 py-2"
       style={{ backgroundColor: accentColor }}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="spinbite-banner-icon-spin shrink-0 text-xl leading-none" aria-hidden="true">🎯</span>
-        <p className="truncate text-sm font-black text-white">Win Rewards While You Dine</p>
+      {/* Wheel icon — slow spin, respects prefers-reduced-motion via globals.css */}
+      <span
+        className="spinbite-banner-icon-spin shrink-0 text-base leading-none"
+        aria-hidden="true"
+      >
+        🎡
+      </span>
+
+      {/* Two-line text stack — whitespace-nowrap on each line prevents wrap at 320px */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <p className="whitespace-nowrap text-xs font-black leading-tight text-white">Play &amp; Win</p>
+        <p className="whitespace-nowrap text-[10px] font-semibold leading-tight text-white/80">Rewards today</p>
       </div>
+
+      {/* CTA pill — "Play" kept short so it never clips */}
       <a
         href={playUrl}
-        className="shrink-0 rounded-xl px-3 py-1.5 text-xs font-black text-white active:scale-95"
+        className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-black text-white active:scale-95"
         style={{
-          backgroundColor: 'rgba(255,255,255,0.20)',
+          backgroundColor: 'rgba(255,255,255,0.22)',
           backdropFilter: 'blur(4px)',
           WebkitBackdropFilter: 'blur(4px)',
           transition: 'transform 150ms, background-color 150ms',
           whiteSpace: 'nowrap',
         }}
       >
-        Play Now →
+        Play
       </a>
     </div>
   );
