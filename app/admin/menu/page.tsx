@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
 import { MenuItemImageUploader } from '@/components/admin/restaurants/MenuItemImageUploader';
+import { BottomSheet, SheetTab } from '@/components/admin/BottomSheet';
 
 type Restaurant = {
   id: string;
@@ -43,6 +44,9 @@ const fallbackCopy = {
   no_menus_copy: 'Create the first category for this restaurant location.',
 };
 
+// Extend this array in Phase 3 to add Promotions, AI, Analytics tabs.
+const SHEET_TABS: SheetTab[] = [{ id: 'details', label: 'Details' }];
+
 function parseCadPrice(value: string) {
   const cleaned = value.replace('$', '').replace(',', '').trim();
   if (!cleaned) return null;
@@ -71,13 +75,19 @@ export default function MenuPage() {
   // Set of expanded category IDs.
   const [expandedMenuIds, setExpandedMenuIds] = useState<Set<string>>(new Set());
   const [newMenu, setNewMenu] = useState('');
-  // Category settings panel — tracks which category has the ⚙ panel open.
+  // Category settings panel.
   const [settingsOpenMenuId, setSettingsOpenMenuId] = useState<string | null>(null);
   const [renamingMenuId, setRenamingMenuId] = useState<string | null>(null);
   const [editingMenuName, setEditingMenuName] = useState('');
   // Per-category add-item form state keyed by menu ID.
   const [newItemByMenuId, setNewItemByMenuId] = useState<Record<string, { name: string; price: string }>>({});
-  // Item editor state — tracks which item is open for editing and which category it belongs to.
+
+  // ── Bottom sheet state ──────────────────────────────────────────────
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeSheetTab, setActiveSheetTab] = useState('details');
+  const closeSheetTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Item editor fields (live in state so they survive while the sheet animates closed).
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingItemMenuId, setEditingItemMenuId] = useState<string | null>(null);
   const [editingItemName, setEditingItemName] = useState('');
@@ -87,6 +97,7 @@ export default function MenuPage() {
   const [editingItemAvailable, setEditingItemAvailable] = useState(true);
   const [editingItemTags, setEditingItemTags] = useState('');
   const [editingItemDisplayOrder, setEditingItemDisplayOrder] = useState('0');
+
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -94,9 +105,17 @@ export default function MenuPage() {
 
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
+  // Live item snapshot used inside the sheet (image URL, latest display values).
+  // Recomputed whenever itemsByMenuId updates (e.g. after image upload).
+  const editingItem = useMemo(
+    () =>
+      editingItemMenuId
+        ? (itemsByMenuId[editingItemMenuId] || []).find((i) => i.id === editingItemId) ?? null
+        : null,
+    [editingItemMenuId, editingItemId, itemsByMenuId]
+  );
+
   // Loads all menus and all their items in parallel.
-  // expandAll=true: sets every category as expanded (used on initial load and new category creation).
-  // expandAll=false: preserves whatever the user has collapsed/expanded (used on item mutations).
   async function loadMenus(restaurantId: string, expandAll = false) {
     const [menuResult, itemResult] = await Promise.all([
       supabase.from('menus').select('id,name,menu_type').eq('restaurant_id', restaurantId),
@@ -132,6 +151,7 @@ export default function MenuPage() {
   }
 
   // Refreshes items for a single category without touching the rest of the state.
+  // Also refreshes the image URL visible inside an open sheet.
   async function reloadItemsForMenu(menuId: string) {
     if (!restaurant) return;
     const result = await supabase
@@ -174,7 +194,6 @@ export default function MenuPage() {
 
   useEffect(() => {
     if (!selectedRestaurantId) return;
-    // Reset all category state when switching restaurants.
     setExpandedMenuIds(new Set());
     setSettingsOpenMenuId(null);
     setRenamingMenuId(null);
@@ -182,9 +201,40 @@ export default function MenuPage() {
     setNewItemByMenuId({});
     setNewMenu('');
     setError('');
-    // expandAll=true: open every category on initial restaurant load.
     loadMenus(selectedRestaurantId, true);
   }, [selectedRestaurantId]);
+
+  // ── Sheet helpers ──────────────────────────────────────────────────
+
+  function closeSheet() {
+    setSheetOpen(false);
+    // Delay clearing editor state until the close animation completes so the
+    // sheet content doesn't flash empty during the slide-down transition.
+    clearTimeout(closeSheetTimeoutRef.current);
+    closeSheetTimeoutRef.current = setTimeout(() => {
+      setEditingItemId(null);
+      setEditingItemMenuId(null);
+    }, 350);
+  }
+
+  function startEditItem(item: MenuItem, menuId: string) {
+    // Cancel any in-flight close timeout so opening a new item immediately
+    // after closing another doesn't clear the freshly-loaded state.
+    clearTimeout(closeSheetTimeoutRef.current);
+    setEditingItemId(item.id);
+    setEditingItemMenuId(menuId);
+    setEditingItemName(item.name);
+    setEditingItemPrice(item.price != null ? String(item.price) : '');
+    setEditingItemDescription(item.description || '');
+    setEditingItemFeatured(item.is_featured);
+    setEditingItemAvailable(item.available);
+    setEditingItemTags((item.tags || []).join(', '));
+    setEditingItemDisplayOrder(String(item.display_order ?? 0));
+    setActiveSheetTab('details');
+    setSheetOpen(true);
+  }
+
+  // ── Data mutations ─────────────────────────────────────────────────
 
   async function addMenu() {
     if (!newMenu.trim() || !restaurant) return;
@@ -200,7 +250,6 @@ export default function MenuPage() {
     const newMenuId = result.data?.id as string | undefined;
     setNewMenu('');
     await loadMenus(restaurant.id);
-    // Expand the new category immediately so the owner can start adding items.
     if (newMenuId) {
       setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(newMenuId)));
     }
@@ -209,8 +258,7 @@ export default function MenuPage() {
   }
 
   function toggleMenu(menuId: string) {
-    // Do not collapse a category that has an item currently being edited.
-    if (expandedMenuIds.has(menuId) && editingItemMenuId !== menuId) {
+    if (expandedMenuIds.has(menuId)) {
       setExpandedMenuIds((prev) => {
         const next = new Set(prev);
         next.delete(menuId);
@@ -270,18 +318,6 @@ export default function MenuPage() {
     setTimeout(() => setNotice(''), 1500);
   }
 
-  function startEditItem(item: MenuItem, menuId: string) {
-    setEditingItemId(item.id);
-    setEditingItemMenuId(menuId);
-    setEditingItemName(item.name);
-    setEditingItemPrice(item.price != null ? String(item.price) : '');
-    setEditingItemDescription(item.description || '');
-    setEditingItemFeatured(item.is_featured);
-    setEditingItemAvailable(item.available);
-    setEditingItemTags((item.tags || []).join(', '));
-    setEditingItemDisplayOrder(String(item.display_order ?? 0));
-  }
-
   async function saveItem(itemId: string) {
     if (!restaurant || !editingItemMenuId || !editingItemName.trim()) return;
     const menuId = editingItemMenuId;
@@ -300,8 +336,7 @@ export default function MenuPage() {
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId);
     if (result.error) { setError(result.error.message); return; }
-    setEditingItemId(null);
-    setEditingItemMenuId(null);
+    closeSheet();
     await reloadItemsForMenu(menuId);
     setNotice('Item updated');
     setTimeout(() => setNotice(''), 1500);
@@ -317,10 +352,7 @@ export default function MenuPage() {
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId);
     if (result.error) { setError(result.error.message); return; }
-    if (editingItemId === item.id) {
-      setEditingItemId(null);
-      setEditingItemMenuId(null);
-    }
+    if (editingItemId === item.id) closeSheet();
     await loadMenus(restaurant.id);
     setNotice('Item deleted');
     setTimeout(() => setNotice(''), 1500);
@@ -351,10 +383,7 @@ export default function MenuPage() {
       return next;
     });
     if (settingsOpenMenuId === menu.id) setSettingsOpenMenuId(null);
-    if (editingItemMenuId === menu.id) {
-      setEditingItemId(null);
-      setEditingItemMenuId(null);
-    }
+    if (editingItemMenuId === menu.id) closeSheet();
     await loadMenus(restaurant.id);
     setNotice('Category deleted');
     setTimeout(() => setNotice(''), 1500);
@@ -363,467 +392,463 @@ export default function MenuPage() {
   if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6">Loading categories...</main>;
 
   return (
-    <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
-      <section className="mx-auto max-w-5xl">
+    <>
+      <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
+        <section className="mx-auto max-w-5xl">
 
-        {/* Header */}
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
-            <p className="mt-1 text-sm font-bold text-stone-500">Menu builder</p>
-          </div>
-          <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">
-            Dashboard
-          </a>
-        </div>
-
-        {/* Hero banner */}
-        <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
-          <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">{copy.eyebrow}</p>
-          <h2 className="mt-3 text-4xl font-black leading-tight">{copy.headline}</h2>
-          <p className="mt-3 text-sm font-semibold text-white/85">{copy.subheadline}</p>
-        </div>
-
-        {/* Restaurant selector — location context lives here only, not repeated per category */}
-        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
-          <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_location_label}</p>
-          <select
-            value={selectedRestaurantId}
-            onChange={(e) => setSelectedRestaurantId(e.target.value)}
-            className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]"
-          >
-            {restaurants.map((r) => (
-              <option key={r.id} value={r.id}>{locationLabel(r)}</option>
-            ))}
-          </select>
-          {restaurant && (
-            <div className="mt-4 rounded-2xl bg-orange-50 p-4">
-              <p className="text-xl font-black">{restaurant.name}</p>
-              <p className="mt-1 text-sm font-bold text-stone-600">{restaurantAddress(restaurant)}</p>
-              <p className="mt-1 text-xs font-bold text-stone-500">/{restaurant.slug}</p>
+          {/* Header */}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
+              <p className="mt-1 text-sm font-bold text-stone-500">Menu builder</p>
             </div>
+            <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">
+              Dashboard
+            </a>
+          </div>
+
+          {/* Hero banner */}
+          <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200">
+            <p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">{copy.eyebrow}</p>
+            <h2 className="mt-3 text-4xl font-black leading-tight">{copy.headline}</h2>
+            <p className="mt-3 text-sm font-semibold text-white/85">{copy.subheadline}</p>
+          </div>
+
+          {/* Restaurant selector */}
+          <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_location_label}</p>
+            <select
+              value={selectedRestaurantId}
+              onChange={(e) => setSelectedRestaurantId(e.target.value)}
+              className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]"
+            >
+              {restaurants.map((r) => (
+                <option key={r.id} value={r.id}>{locationLabel(r)}</option>
+              ))}
+            </select>
+            {restaurant && (
+              <div className="mt-4 rounded-2xl bg-orange-50 p-4">
+                <p className="text-xl font-black">{restaurant.name}</p>
+                <p className="mt-1 text-sm font-bold text-stone-600">{restaurantAddress(restaurant)}</p>
+                <p className="mt-1 text-xs font-bold text-stone-500">/{restaurant.slug}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Create category */}
+          <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
+            <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.create_menu_label}</p>
+            <div className="mt-3 flex gap-2">
+              <input
+                value={newMenu}
+                onChange={(e) => setNewMenu(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addMenu()}
+                placeholder="Breakfast, Lunch, Dinner..."
+                className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]"
+              />
+              <button onClick={addMenu} className="rounded-2xl bg-green-600 px-5 py-3 text-xl font-black text-white">
+                +
+              </button>
+            </div>
+          </div>
+
+          {/* Notices */}
+          {notice && (
+            <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>
           )}
-        </div>
-
-        {/* Create category */}
-        <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
-          <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.create_menu_label}</p>
-          <div className="mt-3 flex gap-2">
-            <input
-              value={newMenu}
-              onChange={(e) => setNewMenu(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addMenu()}
-              placeholder="Breakfast, Lunch, Dinner..."
-              className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]"
-            />
-            <button onClick={addMenu} className="rounded-2xl bg-green-600 px-5 py-3 text-xl font-black text-white">
-              +
-            </button>
-          </div>
-        </div>
-
-        {/* Notices */}
-        {notice && (
-          <p className="mt-5 rounded-2xl bg-green-50 p-4 text-sm font-bold text-green-700">{notice}</p>
-        )}
-        {error && (
-          <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>
-        )}
-
-        {/* Category list */}
-        <div className="mt-5 space-y-4">
-          {menus.length === 0 && (
-            <div className="rounded-3xl bg-white p-6 shadow-xl">
-              <p className="text-2xl font-black">{copy.no_menus_title}</p>
-              <p className="mt-2 text-sm font-semibold text-stone-600">
-                {copy.no_menus_copy.replace(
-                  'this restaurant location',
-                  restaurant ? `${restaurant.name} — ${restaurantAddress(restaurant)}` : 'this restaurant location'
-                )}
-              </p>
-            </div>
+          {error && (
+            <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>
           )}
 
-          {menus.map((menu) => {
-            const isExpanded = expandedMenuIds.has(menu.id);
-            const isSettingsOpen = settingsOpenMenuId === menu.id;
-            const isRenaming = renamingMenuId === menu.id;
-            const menuItems = itemsByMenuId[menu.id] || [];
-            const newItem = newItemByMenuId[menu.id] || { name: '', price: '' };
+          {/* Category list */}
+          <div className="mt-5 space-y-4">
+            {menus.length === 0 && (
+              <div className="rounded-3xl bg-white p-6 shadow-xl">
+                <p className="text-2xl font-black">{copy.no_menus_title}</p>
+                <p className="mt-2 text-sm font-semibold text-stone-600">
+                  {copy.no_menus_copy.replace(
+                    'this restaurant location',
+                    restaurant ? `${restaurant.name} — ${restaurantAddress(restaurant)}` : 'this restaurant location'
+                  )}
+                </p>
+              </div>
+            )}
 
-            return (
-              <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
+            {menus.map((menu) => {
+              const isExpanded = expandedMenuIds.has(menu.id);
+              const isSettingsOpen = settingsOpenMenuId === menu.id;
+              const isRenaming = renamingMenuId === menu.id;
+              const menuItems = itemsByMenuId[menu.id] || [];
+              const newItem = newItemByMenuId[menu.id] || { name: '', price: '' };
 
-                {/* Category header row */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => toggleMenu(menu.id)}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
-                  >
-                    <div className="min-w-0">
-                      <h3 className="text-3xl font-black">{menu.name}</h3>
-                      <p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p>
-                    </div>
-                    <span className="shrink-0 text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span>
-                  </button>
+              return (
+                <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
 
-                  {/* Category settings toggle — secondary action */}
-                  <button
-                    onClick={() => toggleSettings(menu.id)}
-                    aria-label="Category settings"
-                    title="Category settings"
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-black transition-colors ${
-                      isSettingsOpen
-                        ? 'bg-[#FF6B00] text-white'
-                        : 'bg-stone-100 text-stone-500 hover:bg-orange-50 hover:text-[#FF6B00]'
-                    }`}
-                  >
-                    ⚙
-                  </button>
-                </div>
+                  {/* Category header */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleMenu(menu.id)}
+                      className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
+                    >
+                      <div className="min-w-0">
+                        <h3 className="text-3xl font-black">{menu.name}</h3>
+                        <p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p>
+                      </div>
+                      <span className="shrink-0 text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span>
+                    </button>
 
-                {/* Category settings panel — rename + delete */}
-                {isSettingsOpen && (
-                  <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50 p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-stone-400">Category Settings</p>
-
-                    <div className="mt-3 space-y-2">
-                      {!isRenaming ? (
-                        <button
-                          onClick={() => startRenameMenu(menu)}
-                          className="flex w-full items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-sm transition-colors hover:bg-orange-50 hover:text-[#FF6B00]"
-                        >
-                          ✏️ Rename Category
-                        </button>
-                      ) : (
-                        <div className="space-y-2">
-                          <p className="text-xs font-black uppercase tracking-wide text-stone-400">Category Name</p>
-                          <input
-                            value={editingMenuName}
-                            onChange={(e) => setEditingMenuName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && saveMenuName(menu.id)}
-                            className="w-full rounded-xl border border-stone-200 px-4 py-3 text-xl font-black outline-none focus:border-[#FF6B00]"
-                            autoFocus
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              onClick={() => saveMenuName(menu.id)}
-                              className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={() => setRenamingMenuId(null)}
-                              className="rounded-xl bg-stone-100 px-4 py-3 text-sm font-black text-stone-600"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => deleteMenu(menu)}
-                        className="flex w-full items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-red-600 shadow-sm transition-colors hover:bg-red-50"
-                      >
-                        🗑 Delete Category
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => toggleSettings(menu.id)}
+                      aria-label="Category settings"
+                      title="Category settings"
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-black transition-colors ${
+                        isSettingsOpen
+                          ? 'bg-[#FF6B00] text-white'
+                          : 'bg-stone-100 text-stone-500 hover:bg-orange-50 hover:text-[#FF6B00]'
+                      }`}
+                    >
+                      ⚙
+                    </button>
                   </div>
-                )}
 
-                {/* Expanded content: items + add item — no Edit Category mode required */}
-                {isExpanded && (
-                  <div className="mt-4 space-y-2">
-
-                    {/* Items list */}
-                    {menuItems.length === 0 && (
-                      <p className="rounded-2xl bg-[#FFF8F0] px-4 py-3 text-sm font-semibold text-stone-500">
-                        No items in this category yet. Add the first item below.
-                      </p>
-                    )}
-
-                    {menuItems.map((item) => (
-                      <div key={item.id}>
-                        {editingItemId === item.id ? (
-                          /* ── Rich item editor ── */
-                          <div className="rounded-2xl bg-[#FFF8F0] p-4">
-                            <div className="space-y-4">
-
-                              {/* Name + Price */}
-                              <div className="grid grid-cols-[1fr_110px] gap-3">
-                                <div>
-                                  <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Name</p>
-                                  <input
-                                    value={editingItemName}
-                                    onChange={(e) => setEditingItemName(e.target.value)}
-                                    className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 font-bold outline-none focus:border-[#FF6B00]"
-                                    autoFocus
-                                  />
-                                </div>
-                                <div>
-                                  <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Price</p>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
-                                    <input
-                                      value={editingItemPrice}
-                                      onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-                                      placeholder="0.00"
-                                      inputMode="decimal"
-                                      className="w-full rounded-xl border border-stone-200 bg-white py-2 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Description */}
-                              <div>
-                                <div className="mb-1 flex items-center justify-between">
-                                  <p className="text-xs font-black uppercase tracking-wide text-stone-400">Description</p>
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      disabled={aiGenerating || !editingItemName.trim()}
-                                      onClick={async () => {
-                                        setAiGenerating(true);
-                                        try {
-                                          const res = await fetch('/api/admin/generate-description', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ itemName: editingItemName, tags: editingItemTags }),
-                                          });
-                                          const data = await res.json();
-                                          if (!res.ok) throw new Error(data.error || 'Generation failed');
-                                          setEditingItemDescription(data.description);
-                                        } catch (err: any) {
-                                          setError(err.message || 'AI generation failed');
-                                        } finally {
-                                          setAiGenerating(false);
-                                        }
-                                      }}
-                                      className="flex items-center gap-1 rounded-lg bg-[#FF6B00] px-2 py-0.5 text-xs font-black text-white transition-opacity hover:opacity-80 disabled:opacity-40"
-                                    >
-                                      {aiGenerating ? (
-                                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                                      ) : (
-                                        '✨'
-                                      )}
-                                      {aiGenerating ? 'Generating…' : 'Generate'}
-                                    </button>
-                                    <span
-                                      className={`text-xs font-bold ${
-                                        editingItemDescription.length > 300 ? 'text-amber-600' : 'text-stone-400'
-                                      }`}
-                                    >
-                                      {editingItemDescription.length}/300
-                                    </span>
-                                  </div>
-                                </div>
-                                <textarea
-                                  value={editingItemDescription}
-                                  onChange={(e) => setEditingItemDescription(e.target.value)}
-                                  placeholder="Describe this dish…"
-                                  rows={3}
-                                  className="w-full resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#FF6B00]"
-                                />
-                              </div>
-
-                              {/* Image */}
-                              {userId && (
-                                <MenuItemImageUploader
-                                  currentUrl={menuItems.find((i) => i.id === item.id)?.image_url}
-                                  itemId={item.id}
-                                  restaurantId={restaurant!.id}
-                                  ownerId={userId}
-                                  supabase={supabase}
-                                  onSaved={() => reloadItemsForMenu(menu.id)}
-                                />
-                              )}
-
-                              {/* Featured + Available toggles */}
-                              <div className="grid grid-cols-2 gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingItemFeatured(!editingItemFeatured)}
-                                  className={`rounded-xl p-3 text-sm font-black transition-colors ${
-                                    editingItemFeatured
-                                      ? 'bg-amber-100 text-amber-700'
-                                      : 'bg-stone-100 text-stone-500'
-                                  }`}
-                                >
-                                  {editingItemFeatured ? '⭐ Featured' : 'Not Featured'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingItemAvailable(!editingItemAvailable)}
-                                  className={`rounded-xl p-3 text-sm font-black transition-colors ${
-                                    editingItemAvailable
-                                      ? 'bg-green-100 text-green-700'
-                                      : 'bg-red-100 text-red-600'
-                                  }`}
-                                >
-                                  {editingItemAvailable ? '✓ Available' : '✗ Unavailable'}
-                                </button>
-                              </div>
-
-                              {/* Tags */}
-                              <div>
-                                <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Tags</p>
-                                <input
-                                  value={editingItemTags}
-                                  onChange={(e) => setEditingItemTags(e.target.value)}
-                                  placeholder="Vegetarian, Vegan, Gluten Free, Spicy…"
-                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#FF6B00]"
-                                />
-                                <p className="mt-1 text-xs text-stone-400">Comma-separated</p>
-                              </div>
-
-                              {/* Display order */}
-                              <div>
-                                <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">
-                                  Display Order
-                                </p>
-                                <input
-                                  type="number"
-                                  value={editingItemDisplayOrder}
-                                  onChange={(e) => setEditingItemDisplayOrder(e.target.value)}
-                                  min="0"
-                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 font-semibold outline-none focus:border-[#FF6B00]"
-                                />
-                                <p className="mt-1 text-xs text-stone-400">
-                                  Lower numbers appear first. Items with the same order appear by creation date.
-                                </p>
-                              </div>
-
-                              {/* Save / Cancel */}
-                              <div className="grid grid-cols-2 gap-2">
-                                <button
-                                  onClick={() => saveItem(item.id)}
-                                  className="rounded-xl bg-green-600 px-3 py-3 text-sm font-black text-white"
-                                >
-                                  Save Item
-                                </button>
-                                <button
-                                  onClick={() => setEditingItemId(null)}
-                                  className="rounded-xl bg-stone-100 px-3 py-3 text-sm font-black text-stone-600"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-
-                              {/* Delete — destructive, below primary actions */}
+                  {/* Category settings panel */}
+                  {isSettingsOpen && (
+                    <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50 p-4">
+                      <p className="text-xs font-black uppercase tracking-wide text-stone-400">Category Settings</p>
+                      <div className="mt-3 space-y-2">
+                        {!isRenaming ? (
+                          <button
+                            onClick={() => startRenameMenu(menu)}
+                            className="flex w-full items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-sm transition-colors hover:bg-orange-50 hover:text-[#FF6B00]"
+                          >
+                            ✏️ Rename Category
+                          </button>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-xs font-black uppercase tracking-wide text-stone-400">Category Name</p>
+                            <input
+                              value={editingMenuName}
+                              onChange={(e) => setEditingMenuName(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && saveMenuName(menu.id)}
+                              className="w-full rounded-xl border border-stone-200 px-4 py-3 text-xl font-black outline-none focus:border-[#FF6B00]"
+                              autoFocus
+                            />
+                            <div className="grid grid-cols-2 gap-2">
                               <button
-                                onClick={() => deleteItem(item, menu.id)}
-                                className="w-full rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-500 transition-colors hover:bg-red-100"
+                                onClick={() => saveMenuName(menu.id)}
+                                className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white"
                               >
-                                Delete Item
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setRenamingMenuId(null)}
+                                className="rounded-xl bg-stone-100 px-4 py-3 text-sm font-black text-stone-600"
+                              >
+                                Cancel
                               </button>
                             </div>
                           </div>
-                        ) : (
-                          /* ── Item card — tap to edit ── */
-                          <div className="group flex items-stretch overflow-hidden rounded-2xl bg-white shadow-sm transition-all hover:shadow-md">
-                            <button
-                              onClick={() => startEditItem(item, menu.id)}
-                              className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 p-3 text-left transition-colors hover:bg-orange-50"
-                            >
-                              {item.image_url && (
-                                <img
-                                  src={item.image_url}
-                                  alt={item.name}
-                                  className="h-16 w-16 shrink-0 rounded-xl object-cover"
-                                />
-                              )}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <p className="font-black">{item.name}</p>
-                                  {item.is_featured && (
-                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
-                                      Featured
-                                    </span>
-                                  )}
-                                  {!item.available && (
-                                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
-                                      Unavailable
-                                    </span>
-                                  )}
-                                </div>
-                                {item.description && (
-                                  <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">{item.description}</p>
-                                )}
-                                <p className="mt-1 text-sm font-bold text-stone-500">
-                                  {item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}
-                                </p>
-                              </div>
-                              {/* Chevron affordance — communicates this card is tappable */}
-                              <span className="shrink-0 self-center text-xl font-black text-stone-300 transition-colors group-hover:text-[#FF6B00]">
-                                ›
-                              </span>
-                            </button>
-
-                            {/* Delete — separate from the tap-to-edit area */}
-                            <button
-                              onClick={() => deleteItem(item, menu.id)}
-                              aria-label={`Delete ${item.name}`}
-                              className="flex items-center border-l border-stone-100 px-3 text-stone-300 transition-colors hover:bg-red-50 hover:text-red-500"
-                            >
-                              ✕
-                            </button>
-                          </div>
                         )}
+                        <button
+                          onClick={() => deleteMenu(menu)}
+                          className="flex w-full items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-red-600 shadow-sm transition-colors hover:bg-red-50"
+                        >
+                          🗑 Delete Category
+                        </button>
                       </div>
-                    ))}
+                    </div>
+                  )}
 
-                    {/* Add item form — always visible in expanded category */}
-                    <div className="rounded-2xl border-2 border-dashed border-stone-200 p-4">
-                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">+ Add Item</p>
-                      <div className="grid grid-cols-[1fr_110px_48px] gap-2">
-                        <input
-                          value={newItem.name}
-                          onChange={(e) =>
-                            setNewItemByMenuId((prev) => ({
-                              ...prev,
-                              [menu.id]: { ...newItem, name: e.target.value },
-                            }))
-                          }
-                          onKeyDown={(e) => e.key === 'Enter' && addItem(menu.id)}
-                          placeholder="Item name"
-                          className="min-w-0 rounded-xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]"
-                        />
-                        <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                  {/* Expanded content */}
+                  {isExpanded && (
+                    <div className="mt-4 space-y-2">
+
+                      {menuItems.length === 0 && (
+                        <p className="rounded-2xl bg-[#FFF8F0] px-4 py-3 text-sm font-semibold text-stone-500">
+                          No items in this category yet. Add the first item below.
+                        </p>
+                      )}
+
+                      {/* ── Item cards — tap any card to open the bottom sheet editor ── */}
+                      {menuItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="group flex items-stretch overflow-hidden rounded-2xl bg-white shadow-sm transition-all hover:shadow-md"
+                        >
+                          <button
+                            onClick={() => startEditItem(item, menu.id)}
+                            className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 p-3 text-left transition-colors hover:bg-orange-50 active:bg-orange-100"
+                          >
+                            {item.image_url && (
+                              <img
+                                src={item.image_url}
+                                alt={item.name}
+                                className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <p className="font-black">{item.name}</p>
+                                {item.is_featured && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
+                                    Featured
+                                  </span>
+                                )}
+                                {!item.available && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
+                                    Unavailable
+                                  </span>
+                                )}
+                              </div>
+                              {item.description && (
+                                <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">{item.description}</p>
+                              )}
+                              <p className="mt-1 text-sm font-bold text-stone-500">
+                                {item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}
+                              </p>
+                            </div>
+                            {/* Chevron communicates the card is tappable */}
+                            <span className="shrink-0 self-center text-xl font-black text-stone-300 transition-colors group-hover:text-[#FF6B00]">
+                              ›
+                            </span>
+                          </button>
+
+                          {/* Quick-delete — separate tap target so it doesn't trigger the sheet */}
+                          <button
+                            onClick={() => deleteItem(item, menu.id)}
+                            aria-label={`Delete ${item.name}`}
+                            className="flex items-center border-l border-stone-100 px-3 text-stone-300 transition-colors hover:bg-red-50 hover:text-red-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+
+                      {/* Add item form */}
+                      <div className="rounded-2xl border-2 border-dashed border-stone-200 p-4">
+                        <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">+ Add Item</p>
+                        <div className="grid grid-cols-[1fr_110px_48px] gap-2">
                           <input
-                            value={newItem.price}
+                            value={newItem.name}
                             onChange={(e) =>
                               setNewItemByMenuId((prev) => ({
                                 ...prev,
-                                [menu.id]: { ...newItem, price: e.target.value.replace(/[^0-9.]/g, '') },
+                                [menu.id]: { ...newItem, name: e.target.value },
                               }))
                             }
                             onKeyDown={(e) => e.key === 'Enter' && addItem(menu.id)}
-                            placeholder="0.00"
-                            inputMode="decimal"
-                            className="w-full rounded-xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
+                            placeholder="Item name"
+                            className="min-w-0 rounded-xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]"
                           />
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                            <input
+                              value={newItem.price}
+                              onChange={(e) =>
+                                setNewItemByMenuId((prev) => ({
+                                  ...prev,
+                                  [menu.id]: { ...newItem, price: e.target.value.replace(/[^0-9.]/g, '') },
+                                }))
+                              }
+                              onKeyDown={(e) => e.key === 'Enter' && addItem(menu.id)}
+                              placeholder="0.00"
+                              inputMode="decimal"
+                              className="w-full rounded-xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
+                            />
+                          </div>
+                          <button
+                            onClick={() => addItem(menu.id)}
+                            className="rounded-xl bg-[#FF6B00] text-xl font-black text-white"
+                          >
+                            +
+                          </button>
                         </div>
-                        <button
-                          onClick={() => addItem(menu.id)}
-                          className="rounded-xl bg-[#FF6B00] text-xl font-black text-white"
-                        >
-                          +
-                        </button>
+                        <p className="mt-2 text-xs font-bold text-stone-400">
+                          CAD · Name required · Price optional
+                        </p>
                       </div>
-                      <p className="mt-2 text-xs font-bold text-stone-400">
-                        CAD · Name required · Price optional
-                      </p>
                     </div>
-                  </div>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </section>
-    </main>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </main>
+
+      {/* ── Bottom sheet item editor ─────────────────────────────────── */}
+      <BottomSheet
+        open={sheetOpen}
+        onClose={closeSheet}
+        title={editingItemName || 'Edit Item'}
+        tabs={SHEET_TABS}
+        activeTab={activeSheetTab}
+        onTabChange={setActiveSheetTab}
+      >
+        {editingItemId && editingItemMenuId && (
+          <div className="space-y-5 pb-8">
+
+            {/* Name + Price */}
+            <div className="grid grid-cols-[1fr_110px] gap-3">
+              <div>
+                <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Name</p>
+                <input
+                  value={editingItemName}
+                  onChange={(e) => setEditingItemName(e.target.value)}
+                  className="w-full rounded-xl border border-stone-200 px-3 py-2.5 font-bold outline-none focus:border-[#FF6B00]"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Price</p>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                  <input
+                    value={editingItemPrice}
+                    onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="0.00"
+                    inputMode="decimal"
+                    className="w-full rounded-xl border border-stone-200 py-2.5 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-black uppercase tracking-wide text-stone-400">Description</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={aiGenerating || !editingItemName.trim()}
+                    onClick={async () => {
+                      setAiGenerating(true);
+                      try {
+                        const res = await fetch('/api/admin/generate-description', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ itemName: editingItemName, tags: editingItemTags }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.error || 'Generation failed');
+                        setEditingItemDescription(data.description);
+                      } catch (err: any) {
+                        setError(err.message || 'AI generation failed');
+                      } finally {
+                        setAiGenerating(false);
+                      }
+                    }}
+                    className="flex items-center gap-1 rounded-lg bg-[#FF6B00] px-2 py-0.5 text-xs font-black text-white transition-opacity hover:opacity-80 disabled:opacity-40"
+                  >
+                    {aiGenerating ? (
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    ) : '✨'}
+                    {aiGenerating ? 'Generating…' : 'Generate'}
+                  </button>
+                  <span className={`text-xs font-bold ${editingItemDescription.length > 300 ? 'text-amber-600' : 'text-stone-400'}`}>
+                    {editingItemDescription.length}/300
+                  </span>
+                </div>
+              </div>
+              <textarea
+                value={editingItemDescription}
+                onChange={(e) => setEditingItemDescription(e.target.value)}
+                placeholder="Describe this dish…"
+                rows={3}
+                className="w-full resize-none rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+              />
+            </div>
+
+            {/* Image */}
+            {userId && (
+              <MenuItemImageUploader
+                currentUrl={editingItem?.image_url}
+                itemId={editingItemId}
+                restaurantId={restaurant!.id}
+                ownerId={userId}
+                supabase={supabase}
+                onSaved={() => reloadItemsForMenu(editingItemMenuId)}
+              />
+            )}
+
+            {/* Featured + Available */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setEditingItemFeatured(!editingItemFeatured)}
+                className={`rounded-xl p-3 text-sm font-black transition-colors ${
+                  editingItemFeatured ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-500'
+                }`}
+              >
+                {editingItemFeatured ? '⭐ Featured' : 'Not Featured'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingItemAvailable(!editingItemAvailable)}
+                className={`rounded-xl p-3 text-sm font-black transition-colors ${
+                  editingItemAvailable ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                }`}
+              >
+                {editingItemAvailable ? '✓ Available' : '✗ Unavailable'}
+              </button>
+            </div>
+
+            {/* Tags */}
+            <div>
+              <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Tags</p>
+              <input
+                value={editingItemTags}
+                onChange={(e) => setEditingItemTags(e.target.value)}
+                placeholder="Vegetarian, Vegan, Gluten Free, Spicy…"
+                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+              />
+              <p className="mt-1 text-xs text-stone-400">Comma-separated</p>
+            </div>
+
+            {/* Display order */}
+            <div>
+              <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Display Order</p>
+              <input
+                type="number"
+                value={editingItemDisplayOrder}
+                onChange={(e) => setEditingItemDisplayOrder(e.target.value)}
+                min="0"
+                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 font-semibold outline-none focus:border-[#FF6B00]"
+              />
+              <p className="mt-1 text-xs text-stone-400">
+                Lower numbers appear first. Items with the same order appear by creation date.
+              </p>
+            </div>
+
+            {/* Save / Cancel */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => saveItem(editingItemId)}
+                className="rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white active:opacity-80"
+              >
+                Save Item
+              </button>
+              <button
+                onClick={closeSheet}
+                className="rounded-xl bg-stone-100 px-3 py-3.5 text-sm font-black text-stone-600 active:bg-stone-200"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {/* Delete — destructive, always below primary actions */}
+            {editingItem && (
+              <button
+                onClick={() => editingItem && editingItemMenuId && deleteItem(editingItem, editingItemMenuId)}
+                className="w-full rounded-xl bg-red-50 px-3 py-2.5 text-xs font-black text-red-500 transition-colors hover:bg-red-100 active:bg-red-200"
+              >
+                Delete Item
+              </button>
+            )}
+          </div>
+        )}
+      </BottomSheet>
+    </>
   );
 }
