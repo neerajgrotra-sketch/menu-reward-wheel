@@ -66,9 +66,11 @@ export default function MenuPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
   const [menus, setMenus] = useState<Menu[]>([]);
-  const [items, setItems] = useState<MenuItem[]>([]);
+  // Items keyed by menu ID so multiple sections can be expanded simultaneously.
+  const [itemsByMenuId, setItemsByMenuId] = useState<Record<string, MenuItem[]>>({});
+  // Set of expanded section IDs — allows all sections to be open at once.
+  const [expandedMenuIds, setExpandedMenuIds] = useState<Set<string>>(new Set());
   const [newMenu, setNewMenu] = useState('');
-  const [expandedMenuId, setExpandedMenuId] = useState<string | null>(null);
   const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
   const [renamingMenuId, setRenamingMenuId] = useState<string | null>(null);
   const [editingMenuName, setEditingMenuName] = useState('');
@@ -89,30 +91,47 @@ export default function MenuPage() {
 
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
-  async function loadMenus(restaurantId: string) {
-    const menuResult = await supabase
-      .from('menus')
-      .select('id,name,menu_type')
-      .eq('restaurant_id', restaurantId);
+  // Loads all menus and all their items in parallel.
+  // expandAll=true: sets every section as expanded (used on initial load and new section creation).
+  // expandAll=false: preserves whatever the user has collapsed/expanded (used on item mutations).
+  async function loadMenus(restaurantId: string, expandAll = false) {
+    const [menuResult, itemResult] = await Promise.all([
+      supabase.from('menus').select('id,name,menu_type').eq('restaurant_id', restaurantId),
+      supabase
+        .from('menu_items')
+        .select('id,name,price,description,image_url,is_featured,available,tags,display_order,menu_id')
+        .eq('restaurant_id', restaurantId)
+        .order('display_order', { ascending: true }),
+    ]);
+
     if (menuResult.error) { setError(menuResult.error.message); return; }
-    const itemResult = await supabase
-      .from('menu_items')
-      .select('id,menu_id')
-      .eq('restaurant_id', restaurantId);
     if (itemResult.error) { setError(itemResult.error.message); return; }
-    const counts = new Map<string, number>();
-    (itemResult.data || []).forEach((item: any) =>
-      counts.set(item.menu_id, (counts.get(item.menu_id) || 0) + 1)
-    );
-    setMenus(
-      (menuResult.data || []).map((menu: any) => ({
-        ...menu,
-        item_count: counts.get(menu.id) || 0,
-      }))
-    );
+
+    const allItems = (itemResult.data || []) as Array<MenuItem & { menu_id: string }>;
+
+    // Group items by menu_id so each section has its own list ready.
+    const grouped: Record<string, MenuItem[]> = {};
+    allItems.forEach((item) => {
+      if (!grouped[item.menu_id]) grouped[item.menu_id] = [];
+      grouped[item.menu_id].push(item);
+    });
+
+    const loadedMenus = (menuResult.data || []).map((menu: any) => ({
+      ...menu,
+      item_count: (grouped[menu.id] || []).length,
+    }));
+
+    setMenus(loadedMenus);
+    setItemsByMenuId(grouped);
+
+    if (expandAll) {
+      setExpandedMenuIds(new Set(loadedMenus.map((m: Menu) => m.id)));
+    }
   }
 
-  async function loadItems(menuId: string) {
+  // Refreshes items for a single section without touching the rest of the state.
+  // Used after saveItem and image upload so the section doesn't re-collapse.
+  async function reloadItemsForMenu(menuId: string) {
     if (!restaurant) return;
     const result = await supabase
       .from('menu_items')
@@ -120,8 +139,11 @@ export default function MenuPage() {
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId)
       .order('display_order', { ascending: true });
-    if (result.error) { setError(result.error.message); setItems([]); return; }
-    setItems((result.data || []) as MenuItem[]);
+    if (result.error) { setError(result.error.message); return; }
+    setItemsByMenuId((prev) => ({
+      ...prev,
+      [menuId]: (result.data || []) as MenuItem[],
+    }));
   }
 
   useEffect(() => {
@@ -151,13 +173,15 @@ export default function MenuPage() {
 
   useEffect(() => {
     if (!selectedRestaurantId) return;
-    setExpandedMenuId(null);
+    // Reset all section state when switching restaurants.
+    setExpandedMenuIds(new Set());
     setEditingMenuId(null);
     setRenamingMenuId(null);
-    setItems([]);
+    setItemsByMenuId({});
     setNewMenu('');
     setError('');
-    loadMenus(selectedRestaurantId);
+    // expandAll=true: open every section on initial restaurant load.
+    loadMenus(selectedRestaurantId, true);
   }, [selectedRestaurantId]);
 
   async function addMenu() {
@@ -165,40 +189,48 @@ export default function MenuPage() {
     setError('');
     const slug =
       newMenu.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
-    const result = await supabase.from('menus').insert({
-      name: newMenu.trim(),
-      menu_type: newMenu.trim().toLowerCase(),
-      restaurant_id: restaurant.id,
-      slug,
-    });
+    // Select the new row's id so we can expand it immediately.
+    const result = await supabase
+      .from('menus')
+      .insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), restaurant_id: restaurant.id, slug })
+      .select('id')
+      .single();
     if (result.error) { setError(result.error.message); return; }
+    const newMenuId = result.data?.id as string | undefined;
     setNewMenu('');
+    // Reload without expandAll so user-collapsed sections stay collapsed.
     await loadMenus(restaurant.id);
+    // Explicitly expand the new section so the owner can start adding items immediately.
+    if (newMenuId) {
+      setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(newMenuId)));
+    }
     setNotice(`Section created for ${restaurant.name} — ${restaurantAddress(restaurant)}`);
     setTimeout(() => setNotice(''), 1800);
   }
 
-  async function toggleMenu(menuId: string) {
-    if (expandedMenuId === menuId && editingMenuId !== menuId) {
-      setExpandedMenuId(null);
-      setItems([]);
+  function toggleMenu(menuId: string) {
+    // Do not collapse a section that is currently being edited.
+    if (expandedMenuIds.has(menuId) && editingMenuId !== menuId) {
+      setExpandedMenuIds((prev) => {
+        const next = new Set(prev);
+        next.delete(menuId);
+        return next;
+      });
       return;
     }
-    setItems([]);
-    setExpandedMenuId(menuId);
-    await loadItems(menuId);
+    setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(menuId)));
   }
 
   async function openEditor(menu: Menu) {
-    setItems([]);
-    setExpandedMenuId(menu.id);
+    // Ensure the section is expanded when entering edit mode.
+    setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(menu.id)));
     setEditingMenuId(menu.id);
     setRenamingMenuId(null);
     setEditingMenuName(menu.name);
     setNewItemName('');
     setNewItemPrice('');
     setEditingItemId(null);
-    await loadItems(menu.id);
+    // Items are already loaded via loadMenus — no extra fetch needed.
   }
 
   function startRenameMenu(menu: Menu) {
@@ -218,6 +250,7 @@ export default function MenuPage() {
       .eq('restaurant_id', restaurant.id);
     if (result.error) { setError(result.error.message); return; }
     setRenamingMenuId(null);
+    // Preserve expanded state on rename — only refresh menu metadata.
     await loadMenus(restaurant.id);
     setNotice('Section name saved');
     setTimeout(() => setNotice(''), 1500);
@@ -243,7 +276,7 @@ export default function MenuPage() {
     if (result.error) { setError(result.error.message); return; }
     setNewItemName('');
     setNewItemPrice('');
-    await loadItems(editingMenuId);
+    // Reload all menus to update item counts; expandAll=false preserves collapse state.
     await loadMenus(restaurant.id);
     setNotice('Item added');
     setTimeout(() => setNotice(''), 1500);
@@ -281,7 +314,8 @@ export default function MenuPage() {
       .eq('menu_id', editingMenuId);
     if (result.error) { setError(result.error.message); return; }
     setEditingItemId(null);
-    await loadItems(editingMenuId);
+    // Only reload items for this section — no full menu refresh needed.
+    await reloadItemsForMenu(editingMenuId);
     setNotice('Item updated');
     setTimeout(() => setNotice(''), 1500);
   }
@@ -296,7 +330,7 @@ export default function MenuPage() {
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', editingMenuId);
     if (result.error) { setError(result.error.message); return; }
-    await loadItems(editingMenuId);
+    // Reload all menus to update item counts; expandAll=false preserves collapse state.
     await loadMenus(restaurant.id);
     setNotice('Item deleted');
     setTimeout(() => setNotice(''), 1500);
@@ -321,11 +355,15 @@ export default function MenuPage() {
       .eq('id', menu.id)
       .eq('restaurant_id', restaurant.id);
     if (menuDelete.error) { setError(menuDelete.error.message); return; }
-    if (expandedMenuId === menu.id) {
-      setExpandedMenuId(null);
+    // Clean up state for the deleted section.
+    setExpandedMenuIds((prev) => {
+      const next = new Set(prev);
+      next.delete(menu.id);
+      return next;
+    });
+    if (editingMenuId === menu.id) {
       setEditingMenuId(null);
       setRenamingMenuId(null);
-      setItems([]);
     }
     await loadMenus(restaurant.id);
     setNotice('Section deleted');
@@ -356,7 +394,7 @@ export default function MenuPage() {
           <p className="mt-3 text-sm font-semibold text-white/85">{copy.subheadline}</p>
         </div>
 
-        {/* Restaurant selector */}
+        {/* Restaurant selector — location context lives here only, not repeated per section */}
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_location_label}</p>
           <select
@@ -416,14 +454,15 @@ export default function MenuPage() {
           )}
 
           {menus.map((menu) => {
-            const isExpanded = expandedMenuId === menu.id;
+            const isExpanded = expandedMenuIds.has(menu.id);
             const isEditing = editingMenuId === menu.id;
             const isRenaming = renamingMenuId === menu.id;
+            const menuItems = itemsByMenuId[menu.id] || [];
 
             return (
               <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
 
-                {/* Section header */}
+                {/* Section header — tapping toggles collapse/expand */}
                 <button
                   onClick={() => toggleMenu(menu.id)}
                   className="flex w-full items-center justify-between gap-4 text-left"
@@ -435,9 +474,7 @@ export default function MenuPage() {
                   <span className="text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span>
                 </button>
 
-                <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-bold text-stone-600">
-                  Location: {restaurant?.name} — {restaurantAddress(restaurant)}
-                </div>
+                {/* Location/address context removed — shown once in the restaurant selector above */}
 
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <button
@@ -457,12 +494,12 @@ export default function MenuPage() {
                 {/* Browse view (expanded, not editing) */}
                 {isExpanded && !isEditing && (
                   <div className="mt-4 space-y-2 rounded-3xl bg-[#FFF8F0] p-4">
-                    {items.length === 0 && (
+                    {menuItems.length === 0 && (
                       <p className="text-sm font-semibold text-stone-500">
                         No items in this section yet. Tap Edit Section to add items.
                       </p>
                     )}
-                    {items.map((item) => (
+                    {menuItems.map((item) => (
                       <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">
                         <div className="flex items-start gap-3">
                           {item.image_url && (
@@ -586,11 +623,11 @@ export default function MenuPage() {
 
                     {/* Item list */}
                     <div className="mt-4 space-y-2">
-                      {items.length === 0 && (
+                      {menuItems.length === 0 && (
                         <p className="text-sm font-semibold text-stone-500">No items in this section yet.</p>
                       )}
 
-                      {items.map((item) => (
+                      {menuItems.map((item) => (
                         <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">
                           {editingItemId === item.id ? (
                             /* ── Rich item editor ── */
@@ -682,12 +719,12 @@ export default function MenuPage() {
                               {/* Image */}
                               {userId && (
                                 <MenuItemImageUploader
-                                  currentUrl={items.find((i) => i.id === item.id)?.image_url}
+                                  currentUrl={menuItems.find((i) => i.id === item.id)?.image_url}
                                   itemId={item.id}
                                   restaurantId={restaurant!.id}
                                   ownerId={userId}
                                   supabase={supabase}
-                                  onSaved={() => loadItems(editingMenuId!)}
+                                  onSaved={() => reloadItemsForMenu(editingMenuId!)}
                                 />
                               )}
 
