@@ -33,14 +33,14 @@ type MenuItem = {
 };
 
 const fallbackCopy = {
-  eyebrow: 'Sections',
-  headline: 'Build your menu sections.',
+  eyebrow: 'Categories',
+  headline: 'Build your menu categories.',
   subheadline:
-    'Sections are tied to one restaurant location. Select the exact location before creating or editing items.',
+    'Categories are tied to one restaurant location. Select the exact location before creating or editing items.',
   select_location_label: 'Step 1: Select Restaurant Location',
-  create_menu_label: 'Step 2: Create Section',
-  no_menus_title: 'No sections for this location yet',
-  no_menus_copy: 'Create the first section for this restaurant location.',
+  create_menu_label: 'Step 2: Create Category',
+  no_menus_title: 'No categories for this location yet',
+  no_menus_copy: 'Create the first category for this restaurant location.',
 };
 
 function parseCadPrice(value: string) {
@@ -66,17 +66,20 @@ export default function MenuPage() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
   const [menus, setMenus] = useState<Menu[]>([]);
-  // Items keyed by menu ID so multiple sections can be expanded simultaneously.
+  // Items keyed by menu ID so multiple categories can be expanded simultaneously.
   const [itemsByMenuId, setItemsByMenuId] = useState<Record<string, MenuItem[]>>({});
-  // Set of expanded section IDs — allows all sections to be open at once.
+  // Set of expanded category IDs.
   const [expandedMenuIds, setExpandedMenuIds] = useState<Set<string>>(new Set());
   const [newMenu, setNewMenu] = useState('');
-  const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  // Category settings panel — tracks which category has the ⚙ panel open.
+  const [settingsOpenMenuId, setSettingsOpenMenuId] = useState<string | null>(null);
   const [renamingMenuId, setRenamingMenuId] = useState<string | null>(null);
   const [editingMenuName, setEditingMenuName] = useState('');
-  const [newItemName, setNewItemName] = useState('');
-  const [newItemPrice, setNewItemPrice] = useState('');
+  // Per-category add-item form state keyed by menu ID.
+  const [newItemByMenuId, setNewItemByMenuId] = useState<Record<string, { name: string; price: string }>>({});
+  // Item editor state — tracks which item is open for editing and which category it belongs to.
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemMenuId, setEditingItemMenuId] = useState<string | null>(null);
   const [editingItemName, setEditingItemName] = useState('');
   const [editingItemPrice, setEditingItemPrice] = useState('');
   const [editingItemDescription, setEditingItemDescription] = useState('');
@@ -92,7 +95,7 @@ export default function MenuPage() {
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
   // Loads all menus and all their items in parallel.
-  // expandAll=true: sets every section as expanded (used on initial load and new section creation).
+  // expandAll=true: sets every category as expanded (used on initial load and new category creation).
   // expandAll=false: preserves whatever the user has collapsed/expanded (used on item mutations).
   async function loadMenus(restaurantId: string, expandAll = false) {
     const [menuResult, itemResult] = await Promise.all([
@@ -109,7 +112,6 @@ export default function MenuPage() {
 
     const allItems = (itemResult.data || []) as Array<MenuItem & { menu_id: string }>;
 
-    // Group items by menu_id so each section has its own list ready.
     const grouped: Record<string, MenuItem[]> = {};
     allItems.forEach((item) => {
       if (!grouped[item.menu_id]) grouped[item.menu_id] = [];
@@ -129,8 +131,7 @@ export default function MenuPage() {
     }
   }
 
-  // Refreshes items for a single section without touching the rest of the state.
-  // Used after saveItem and image upload so the section doesn't re-collapse.
+  // Refreshes items for a single category without touching the rest of the state.
   async function reloadItemsForMenu(menuId: string) {
     if (!restaurant) return;
     const result = await supabase
@@ -173,14 +174,15 @@ export default function MenuPage() {
 
   useEffect(() => {
     if (!selectedRestaurantId) return;
-    // Reset all section state when switching restaurants.
+    // Reset all category state when switching restaurants.
     setExpandedMenuIds(new Set());
-    setEditingMenuId(null);
+    setSettingsOpenMenuId(null);
     setRenamingMenuId(null);
     setItemsByMenuId({});
+    setNewItemByMenuId({});
     setNewMenu('');
     setError('');
-    // expandAll=true: open every section on initial restaurant load.
+    // expandAll=true: open every category on initial restaurant load.
     loadMenus(selectedRestaurantId, true);
   }, [selectedRestaurantId]);
 
@@ -189,7 +191,6 @@ export default function MenuPage() {
     setError('');
     const slug =
       newMenu.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
-    // Select the new row's id so we can expand it immediately.
     const result = await supabase
       .from('menus')
       .insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), restaurant_id: restaurant.id, slug })
@@ -198,39 +199,36 @@ export default function MenuPage() {
     if (result.error) { setError(result.error.message); return; }
     const newMenuId = result.data?.id as string | undefined;
     setNewMenu('');
-    // Reload without expandAll so user-collapsed sections stay collapsed.
     await loadMenus(restaurant.id);
-    // Explicitly expand the new section so the owner can start adding items immediately.
+    // Expand the new category immediately so the owner can start adding items.
     if (newMenuId) {
       setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(newMenuId)));
     }
-    setNotice(`Section created for ${restaurant.name} — ${restaurantAddress(restaurant)}`);
+    setNotice(`Category created for ${restaurant.name} — ${restaurantAddress(restaurant)}`);
     setTimeout(() => setNotice(''), 1800);
   }
 
   function toggleMenu(menuId: string) {
-    // Do not collapse a section that is currently being edited.
-    if (expandedMenuIds.has(menuId) && editingMenuId !== menuId) {
+    // Do not collapse a category that has an item currently being edited.
+    if (expandedMenuIds.has(menuId) && editingItemMenuId !== menuId) {
       setExpandedMenuIds((prev) => {
         const next = new Set(prev);
         next.delete(menuId);
         return next;
       });
+      if (settingsOpenMenuId === menuId) setSettingsOpenMenuId(null);
       return;
     }
     setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(menuId)));
   }
 
-  async function openEditor(menu: Menu) {
-    // Ensure the section is expanded when entering edit mode.
-    setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(menu.id)));
-    setEditingMenuId(menu.id);
-    setRenamingMenuId(null);
-    setEditingMenuName(menu.name);
-    setNewItemName('');
-    setNewItemPrice('');
-    setEditingItemId(null);
-    // Items are already loaded via loadMenus — no extra fetch needed.
+  function toggleSettings(menuId: string) {
+    if (settingsOpenMenuId === menuId) {
+      setSettingsOpenMenuId(null);
+      setRenamingMenuId(null);
+    } else {
+      setSettingsOpenMenuId(menuId);
+    }
   }
 
   function startRenameMenu(menu: Menu) {
@@ -241,8 +239,7 @@ export default function MenuPage() {
   async function saveMenuName(menuId: string) {
     if (!restaurant || !editingMenuName.trim()) return;
     const newSlug =
-      editingMenuName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
-      'section';
+      editingMenuName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
     const result = await supabase
       .from('menus')
       .update({ name: editingMenuName.trim(), menu_type: editingMenuName.trim().toLowerCase(), slug: newSlug })
@@ -250,40 +247,32 @@ export default function MenuPage() {
       .eq('restaurant_id', restaurant.id);
     if (result.error) { setError(result.error.message); return; }
     setRenamingMenuId(null);
-    // Preserve expanded state on rename — only refresh menu metadata.
+    setSettingsOpenMenuId(null);
     await loadMenus(restaurant.id);
-    setNotice('Section name saved');
+    setNotice('Category name saved');
     setTimeout(() => setNotice(''), 1500);
   }
 
-  function finishEditing() {
-    setEditingMenuId(null);
-    setRenamingMenuId(null);
-    setEditingItemId(null);
-    setNotice('Section saved');
-    setTimeout(() => setNotice(''), 1500);
-  }
-
-  async function addItem() {
-    if (!newItemName.trim() || !editingMenuId || !restaurant) return;
+  async function addItem(menuId: string) {
+    const itemForm = newItemByMenuId[menuId];
+    if (!itemForm?.name.trim() || !restaurant) return;
     setError('');
     const result = await supabase.from('menu_items').insert({
-      name: newItemName.trim(),
-      price: parseCadPrice(newItemPrice),
-      menu_id: editingMenuId,
+      name: itemForm.name.trim(),
+      price: parseCadPrice(itemForm.price || ''),
+      menu_id: menuId,
       restaurant_id: restaurant.id,
     });
     if (result.error) { setError(result.error.message); return; }
-    setNewItemName('');
-    setNewItemPrice('');
-    // Reload all menus to update item counts; expandAll=false preserves collapse state.
+    setNewItemByMenuId((prev) => ({ ...prev, [menuId]: { name: '', price: '' } }));
     await loadMenus(restaurant.id);
     setNotice('Item added');
     setTimeout(() => setNotice(''), 1500);
   }
 
-  function startEditItem(item: MenuItem) {
+  function startEditItem(item: MenuItem, menuId: string) {
     setEditingItemId(item.id);
+    setEditingItemMenuId(menuId);
     setEditingItemName(item.name);
     setEditingItemPrice(item.price != null ? String(item.price) : '');
     setEditingItemDescription(item.description || '');
@@ -294,7 +283,8 @@ export default function MenuPage() {
   }
 
   async function saveItem(itemId: string) {
-    if (!restaurant || !editingMenuId || !editingItemName.trim()) return;
+    if (!restaurant || !editingItemMenuId || !editingItemName.trim()) return;
+    const menuId = editingItemMenuId;
     const result = await supabase
       .from('menu_items')
       .update({
@@ -303,34 +293,34 @@ export default function MenuPage() {
         description: editingItemDescription.trim() || null,
         is_featured: editingItemFeatured,
         available: editingItemAvailable,
-        tags: editingItemTags
-          .split(',')
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags: editingItemTags.split(',').map((t) => t.trim()).filter(Boolean),
         display_order: parseInt(editingItemDisplayOrder, 10) || 0,
       })
       .eq('id', itemId)
       .eq('restaurant_id', restaurant.id)
-      .eq('menu_id', editingMenuId);
+      .eq('menu_id', menuId);
     if (result.error) { setError(result.error.message); return; }
     setEditingItemId(null);
-    // Only reload items for this section — no full menu refresh needed.
-    await reloadItemsForMenu(editingMenuId);
+    setEditingItemMenuId(null);
+    await reloadItemsForMenu(menuId);
     setNotice('Item updated');
     setTimeout(() => setNotice(''), 1500);
   }
 
-  async function deleteItem(item: MenuItem) {
-    if (!restaurant || !editingMenuId) return;
-    if (!window.confirm(`Delete ${item.name} from this section?`)) return;
+  async function deleteItem(item: MenuItem, menuId: string) {
+    if (!restaurant) return;
+    if (!window.confirm(`Delete ${item.name} from this category?`)) return;
     const result = await supabase
       .from('menu_items')
       .delete()
       .eq('id', item.id)
       .eq('restaurant_id', restaurant.id)
-      .eq('menu_id', editingMenuId);
+      .eq('menu_id', menuId);
     if (result.error) { setError(result.error.message); return; }
-    // Reload all menus to update item counts; expandAll=false preserves collapse state.
+    if (editingItemId === item.id) {
+      setEditingItemId(null);
+      setEditingItemMenuId(null);
+    }
     await loadMenus(restaurant.id);
     setNotice('Item deleted');
     setTimeout(() => setNotice(''), 1500);
@@ -339,7 +329,7 @@ export default function MenuPage() {
   async function deleteMenu(menu: Menu) {
     if (!restaurant) return;
     const ok = window.confirm(
-      `Delete the entire ${menu.name} section for ${restaurant.name} at ${restaurantAddress(restaurant)}? This will also delete all items in that section.`
+      `Delete the entire ${menu.name} category for ${restaurant.name} at ${restaurantAddress(restaurant)}? This will also delete all items in that category.`
     );
     if (!ok) return;
     setError('');
@@ -355,22 +345,22 @@ export default function MenuPage() {
       .eq('id', menu.id)
       .eq('restaurant_id', restaurant.id);
     if (menuDelete.error) { setError(menuDelete.error.message); return; }
-    // Clean up state for the deleted section.
     setExpandedMenuIds((prev) => {
       const next = new Set(prev);
       next.delete(menu.id);
       return next;
     });
-    if (editingMenuId === menu.id) {
-      setEditingMenuId(null);
-      setRenamingMenuId(null);
+    if (settingsOpenMenuId === menu.id) setSettingsOpenMenuId(null);
+    if (editingItemMenuId === menu.id) {
+      setEditingItemId(null);
+      setEditingItemMenuId(null);
     }
     await loadMenus(restaurant.id);
-    setNotice('Section deleted');
+    setNotice('Category deleted');
     setTimeout(() => setNotice(''), 1500);
   }
 
-  if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6">Loading sections...</main>;
+  if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6">Loading categories...</main>;
 
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
@@ -394,7 +384,7 @@ export default function MenuPage() {
           <p className="mt-3 text-sm font-semibold text-white/85">{copy.subheadline}</p>
         </div>
 
-        {/* Restaurant selector — location context lives here only, not repeated per section */}
+        {/* Restaurant selector — location context lives here only, not repeated per category */}
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_location_label}</p>
           <select
@@ -415,13 +405,14 @@ export default function MenuPage() {
           )}
         </div>
 
-        {/* Create section */}
+        {/* Create category */}
         <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
           <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.create_menu_label}</p>
           <div className="mt-3 flex gap-2">
             <input
               value={newMenu}
               onChange={(e) => setNewMenu(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addMenu()}
               placeholder="Breakfast, Lunch, Dinner..."
               className="min-w-0 flex-1 rounded-2xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]"
             />
@@ -439,7 +430,7 @@ export default function MenuPage() {
           <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>
         )}
 
-        {/* Section list */}
+        {/* Category list */}
         <div className="mt-5 space-y-4">
           {menus.length === 0 && (
             <div className="rounded-3xl bg-white p-6 shadow-xl">
@@ -455,182 +446,108 @@ export default function MenuPage() {
 
           {menus.map((menu) => {
             const isExpanded = expandedMenuIds.has(menu.id);
-            const isEditing = editingMenuId === menu.id;
+            const isSettingsOpen = settingsOpenMenuId === menu.id;
             const isRenaming = renamingMenuId === menu.id;
             const menuItems = itemsByMenuId[menu.id] || [];
+            const newItem = newItemByMenuId[menu.id] || { name: '', price: '' };
 
             return (
               <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
 
-                {/* Section header — tapping toggles collapse/expand */}
-                <button
-                  onClick={() => toggleMenu(menu.id)}
-                  className="flex w-full items-center justify-between gap-4 text-left"
-                >
-                  <div>
-                    <h3 className="text-3xl font-black">{menu.name}</h3>
-                    <p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p>
-                  </div>
-                  <span className="text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span>
-                </button>
-
-                {/* Location/address context removed — shown once in the restaurant selector above */}
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
+                {/* Category header row */}
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => openEditor(menu)}
-                    className="rounded-2xl bg-orange-50 px-4 py-3 text-sm font-black text-[#FF6B00]"
+                    onClick={() => toggleMenu(menu.id)}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
                   >
-                    ✏️ Edit Section
+                    <div className="min-w-0">
+                      <h3 className="text-3xl font-black">{menu.name}</h3>
+                      <p className="mt-1 text-sm font-bold text-stone-500">{menu.item_count || 0} items</p>
+                    </div>
+                    <span className="shrink-0 text-2xl font-black text-stone-400">{isExpanded ? '▲' : '▼'}</span>
                   </button>
+
+                  {/* Category settings toggle — secondary action */}
                   <button
-                    onClick={() => deleteMenu(menu)}
-                    className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600"
+                    onClick={() => toggleSettings(menu.id)}
+                    aria-label="Category settings"
+                    title="Category settings"
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-black transition-colors ${
+                      isSettingsOpen
+                        ? 'bg-[#FF6B00] text-white'
+                        : 'bg-stone-100 text-stone-500 hover:bg-orange-50 hover:text-[#FF6B00]'
+                    }`}
                   >
-                    Delete Section
+                    ⚙
                   </button>
                 </div>
 
-                {/* Browse view (expanded, not editing) */}
-                {isExpanded && !isEditing && (
-                  <div className="mt-4 space-y-2 rounded-3xl bg-[#FFF8F0] p-4">
-                    {menuItems.length === 0 && (
-                      <p className="text-sm font-semibold text-stone-500">
-                        No items in this section yet. Tap Edit Section to add items.
-                      </p>
-                    )}
-                    {menuItems.map((item) => (
-                      <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">
-                        <div className="flex items-start gap-3">
-                          {item.image_url && (
-                            <img
-                              src={item.image_url}
-                              alt={item.name}
-                              className="h-16 w-16 shrink-0 rounded-xl object-cover"
-                            />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <p className="font-black">{item.name}</p>
-                              {item.is_featured && (
-                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
-                                  Featured
-                                </span>
-                              )}
-                              {!item.available && (
-                                <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
-                                  Unavailable
-                                </span>
-                              )}
-                            </div>
-                            {item.description && (
-                              <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">{item.description}</p>
-                            )}
-                            <p className="mt-1 text-sm font-bold text-stone-500">
-                              {item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {/* Category settings panel — rename + delete */}
+                {isSettingsOpen && (
+                  <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50 p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-stone-400">Category Settings</p>
 
-                {/* Editor view */}
-                {isEditing && (
-                  <div className="mt-5 rounded-3xl bg-[#FFF8F0] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-xl font-black">Edit Section</h4>
-                      <button
-                        onClick={finishEditing}
-                        className="rounded-full bg-green-600 px-4 py-2 text-sm font-black text-white"
-                      >
-                        Done
-                      </button>
-                    </div>
-
-                    {/* Section rename */}
-                    <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm">
+                    <div className="mt-3 space-y-2">
                       {!isRenaming ? (
-                        <div className="flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-black uppercase tracking-wide text-stone-400">Section name</p>
-                            <p className="text-2xl font-black">{menu.name}</p>
-                          </div>
-                          <button
-                            onClick={() => startRenameMenu(menu)}
-                            aria-label="Edit section name"
-                            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-50 text-xl shadow-sm"
-                          >
-                            ✏️
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => startRenameMenu(menu)}
+                          className="flex w-full items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-stone-700 shadow-sm transition-colors hover:bg-orange-50 hover:text-[#FF6B00]"
+                        >
+                          ✏️ Rename Category
+                        </button>
                       ) : (
-                        <div className="space-y-3">
-                          <p className="text-xs font-black uppercase tracking-wide text-stone-400">Rename section</p>
+                        <div className="space-y-2">
+                          <p className="text-xs font-black uppercase tracking-wide text-stone-400">Category Name</p>
                           <input
                             value={editingMenuName}
                             onChange={(e) => setEditingMenuName(e.target.value)}
-                            className="w-full rounded-2xl border border-stone-200 px-4 py-3 text-xl font-black outline-none focus:border-[#FF6B00]"
+                            onKeyDown={(e) => e.key === 'Enter' && saveMenuName(menu.id)}
+                            className="w-full rounded-xl border border-stone-200 px-4 py-3 text-xl font-black outline-none focus:border-[#FF6B00]"
+                            autoFocus
                           />
                           <div className="grid grid-cols-2 gap-2">
                             <button
                               onClick={() => saveMenuName(menu.id)}
-                              className="rounded-2xl bg-green-600 px-4 py-3 text-sm font-black text-white"
+                              className="rounded-xl bg-green-600 px-4 py-3 text-sm font-black text-white"
                             >
                               Save
                             </button>
                             <button
                               onClick={() => setRenamingMenuId(null)}
-                              className="rounded-2xl bg-stone-100 px-4 py-3 text-sm font-black text-stone-600"
+                              className="rounded-xl bg-stone-100 px-4 py-3 text-sm font-black text-stone-600"
                             >
                               Cancel
                             </button>
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    {/* Add item */}
-                    <p className="mt-5 text-sm font-black uppercase text-[#FF6B00]">Add item</p>
-                    <div className="mt-2 grid grid-cols-[1fr_110px_48px] gap-2">
-                      <input
-                        value={newItemName}
-                        onChange={(e) => setNewItemName(e.target.value)}
-                        placeholder="Item name"
-                        className="min-w-0 rounded-2xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]"
-                      />
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
-                        <input
-                          value={newItemPrice}
-                          onChange={(e) => setNewItemPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-                          placeholder="0.00"
-                          inputMode="decimal"
-                          className="w-full rounded-2xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
-                        />
-                      </div>
                       <button
-                        onClick={addItem}
-                        className="rounded-2xl bg-[#FF6B00] text-xl font-black text-white"
+                        onClick={() => deleteMenu(menu)}
+                        className="flex w-full items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-red-600 shadow-sm transition-colors hover:bg-red-50"
                       >
-                        +
+                        🗑 Delete Category
                       </button>
                     </div>
-                    <p className="mt-2 text-xs font-bold text-stone-500">
-                      Currency: CAD for MVP. Name is required; price is optional.
-                    </p>
+                  </div>
+                )}
 
-                    {/* Item list */}
-                    <div className="mt-4 space-y-2">
-                      {menuItems.length === 0 && (
-                        <p className="text-sm font-semibold text-stone-500">No items in this section yet.</p>
-                      )}
+                {/* Expanded content: items + add item — no Edit Category mode required */}
+                {isExpanded && (
+                  <div className="mt-4 space-y-2">
 
-                      {menuItems.map((item) => (
-                        <div key={item.id} className="rounded-2xl bg-white p-3 shadow-sm">
-                          {editingItemId === item.id ? (
-                            /* ── Rich item editor ── */
+                    {/* Items list */}
+                    {menuItems.length === 0 && (
+                      <p className="rounded-2xl bg-[#FFF8F0] px-4 py-3 text-sm font-semibold text-stone-500">
+                        No items in this category yet. Add the first item below.
+                      </p>
+                    )}
+
+                    {menuItems.map((item) => (
+                      <div key={item.id}>
+                        {editingItemId === item.id ? (
+                          /* ── Rich item editor ── */
+                          <div className="rounded-2xl bg-[#FFF8F0] p-4">
                             <div className="space-y-4">
 
                               {/* Name + Price */}
@@ -640,23 +557,20 @@ export default function MenuPage() {
                                   <input
                                     value={editingItemName}
                                     onChange={(e) => setEditingItemName(e.target.value)}
-                                    className="w-full rounded-xl border border-stone-200 px-3 py-2 font-bold outline-none focus:border-[#FF6B00]"
+                                    className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 font-bold outline-none focus:border-[#FF6B00]"
+                                    autoFocus
                                   />
                                 </div>
                                 <div>
                                   <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Price</p>
                                   <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">
-                                      $
-                                    </span>
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
                                     <input
                                       value={editingItemPrice}
-                                      onChange={(e) =>
-                                        setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))
-                                      }
+                                      onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))}
                                       placeholder="0.00"
                                       inputMode="decimal"
-                                      className="w-full rounded-xl border border-stone-200 py-2 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
+                                      className="w-full rounded-xl border border-stone-200 bg-white py-2 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
                                     />
                                   </div>
                                 </div>
@@ -665,9 +579,7 @@ export default function MenuPage() {
                               {/* Description */}
                               <div>
                                 <div className="mb-1 flex items-center justify-between">
-                                  <p className="text-xs font-black uppercase tracking-wide text-stone-400">
-                                    Description
-                                  </p>
+                                  <p className="text-xs font-black uppercase tracking-wide text-stone-400">Description</p>
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
@@ -712,7 +624,7 @@ export default function MenuPage() {
                                   onChange={(e) => setEditingItemDescription(e.target.value)}
                                   placeholder="Describe this dish…"
                                   rows={3}
-                                  className="w-full resize-none rounded-xl border border-stone-200 px-3 py-2 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+                                  className="w-full resize-none rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#FF6B00]"
                                 />
                               </div>
 
@@ -724,7 +636,7 @@ export default function MenuPage() {
                                   restaurantId={restaurant!.id}
                                   ownerId={userId}
                                   supabase={supabase}
-                                  onSaved={() => reloadItemsForMenu(editingMenuId!)}
+                                  onSaved={() => reloadItemsForMenu(menu.id)}
                                 />
                               )}
 
@@ -761,7 +673,7 @@ export default function MenuPage() {
                                   value={editingItemTags}
                                   onChange={(e) => setEditingItemTags(e.target.value)}
                                   placeholder="Vegetarian, Vegan, Gluten Free, Spicy…"
-                                  className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#FF6B00]"
                                 />
                                 <p className="mt-1 text-xs text-stone-400">Comma-separated</p>
                               </div>
@@ -776,7 +688,7 @@ export default function MenuPage() {
                                   value={editingItemDisplayOrder}
                                   onChange={(e) => setEditingItemDisplayOrder(e.target.value)}
                                   min="0"
-                                  className="w-full rounded-xl border border-stone-200 px-3 py-2 font-semibold outline-none focus:border-[#FF6B00]"
+                                  className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 font-semibold outline-none focus:border-[#FF6B00]"
                                 />
                                 <p className="mt-1 text-xs text-stone-400">
                                   Lower numbers appear first. Items with the same order appear by creation date.
@@ -798,10 +710,23 @@ export default function MenuPage() {
                                   Cancel
                                 </button>
                               </div>
+
+                              {/* Delete — destructive, below primary actions */}
+                              <button
+                                onClick={() => deleteItem(item, menu.id)}
+                                className="w-full rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-500 transition-colors hover:bg-red-100"
+                              >
+                                Delete Item
+                              </button>
                             </div>
-                          ) : (
-                            /* ── Item card ── */
-                            <div className="flex items-start gap-3">
+                          </div>
+                        ) : (
+                          /* ── Item card — tap to edit ── */
+                          <div className="group flex items-stretch overflow-hidden rounded-2xl bg-white shadow-sm transition-all hover:shadow-md">
+                            <button
+                              onClick={() => startEditItem(item, menu.id)}
+                              className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 p-3 text-left transition-colors hover:bg-orange-50"
+                            >
                               {item.image_url && (
                                 <img
                                   src={item.image_url}
@@ -810,52 +735,87 @@ export default function MenuPage() {
                                 />
                               )}
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0">
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      <p className="font-black">{item.name}</p>
-                                      {item.is_featured && (
-                                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
-                                          Featured
-                                        </span>
-                                      )}
-                                      {!item.available && (
-                                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
-                                          Unavailable
-                                        </span>
-                                      )}
-                                    </div>
-                                    {item.description && (
-                                      <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">
-                                        {item.description}
-                                      </p>
-                                    )}
-                                    <p className="mt-1 text-sm font-bold text-stone-500">
-                                      {item.price != null
-                                        ? `$${Number(item.price).toFixed(2)} CAD`
-                                        : 'No price'}
-                                    </p>
-                                  </div>
-                                  <div className="flex shrink-0 gap-2">
-                                    <button
-                                      onClick={() => startEditItem(item)}
-                                      className="rounded-full bg-orange-50 px-3 py-2 text-xs font-black text-[#FF6B00]"
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      onClick={() => deleteItem(item)}
-                                      className="rounded-full bg-red-50 px-3 py-2 text-xs font-black text-red-600"
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <p className="font-black">{item.name}</p>
+                                  {item.is_featured && (
+                                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
+                                      Featured
+                                    </span>
+                                  )}
+                                  {!item.available && (
+                                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
+                                      Unavailable
+                                    </span>
+                                  )}
                                 </div>
+                                {item.description && (
+                                  <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">{item.description}</p>
+                                )}
+                                <p className="mt-1 text-sm font-bold text-stone-500">
+                                  {item.price != null ? `$${Number(item.price).toFixed(2)} CAD` : 'No price'}
+                                </p>
                               </div>
-                            </div>
-                          )}
+                              {/* Chevron affordance — communicates this card is tappable */}
+                              <span className="shrink-0 self-center text-xl font-black text-stone-300 transition-colors group-hover:text-[#FF6B00]">
+                                ›
+                              </span>
+                            </button>
+
+                            {/* Delete — separate from the tap-to-edit area */}
+                            <button
+                              onClick={() => deleteItem(item, menu.id)}
+                              aria-label={`Delete ${item.name}`}
+                              className="flex items-center border-l border-stone-100 px-3 text-stone-300 transition-colors hover:bg-red-50 hover:text-red-500"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Add item form — always visible in expanded category */}
+                    <div className="rounded-2xl border-2 border-dashed border-stone-200 p-4">
+                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">+ Add Item</p>
+                      <div className="grid grid-cols-[1fr_110px_48px] gap-2">
+                        <input
+                          value={newItem.name}
+                          onChange={(e) =>
+                            setNewItemByMenuId((prev) => ({
+                              ...prev,
+                              [menu.id]: { ...newItem, name: e.target.value },
+                            }))
+                          }
+                          onKeyDown={(e) => e.key === 'Enter' && addItem(menu.id)}
+                          placeholder="Item name"
+                          className="min-w-0 rounded-xl border border-stone-200 px-3 py-3 font-semibold outline-none focus:border-[#FF6B00]"
+                        />
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                          <input
+                            value={newItem.price}
+                            onChange={(e) =>
+                              setNewItemByMenuId((prev) => ({
+                                ...prev,
+                                [menu.id]: { ...newItem, price: e.target.value.replace(/[^0-9.]/g, '') },
+                              }))
+                            }
+                            onKeyDown={(e) => e.key === 'Enter' && addItem(menu.id)}
+                            placeholder="0.00"
+                            inputMode="decimal"
+                            className="w-full rounded-xl border border-stone-200 py-3 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
+                          />
                         </div>
-                      ))}
+                        <button
+                          onClick={() => addItem(menu.id)}
+                          className="rounded-xl bg-[#FF6B00] text-xl font-black text-white"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <p className="mt-2 text-xs font-bold text-stone-400">
+                        CAD · Name required · Price optional
+                      </p>
                     </div>
                   </div>
                 )}
