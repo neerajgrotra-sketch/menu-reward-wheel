@@ -553,18 +553,24 @@ function fireFullScreenConfetti() {
   }, 180);
 }
 
-function getEntryHeadline(gameType: GameType): string {
-  if (gameType === 'mystery_box') return 'Open for a Reward';
-  if (gameType === 'scratch_card') return 'Scratch to Win';
+// Change 2: count-based headline uses real promotion data
+function getDynamicHeadline(gameType: GameType, rewardCount: number): string {
+  if (gameType === 'mystery_box') {
+    return rewardCount >= 2 ? `${rewardCount} Mystery Prizes` : 'Open for a Reward';
+  }
+  if (gameType === 'scratch_card') return 'Scratch & Win';
   if (gameType === 'open_the_door') return 'Pick Your Prize';
-  return 'Win Free Food';
+  // wheel (default) — show real prize count
+  if (rewardCount >= 2) return `${rewardCount} Rewards Available`;
+  if (rewardCount === 1) return '1 Reward Up for Grabs';
+  return 'Spin for Prizes';
 }
 
 function getEntrySubline(gameType: GameType): string {
-  if (gameType === 'mystery_box') return 'Tap to reveal your mystery prize';
+  if (gameType === 'mystery_box') return 'Tap to reveal your reward';
   if (gameType === 'scratch_card') return 'Tap to scratch your card';
   if (gameType === 'open_the_door') return 'Tap to choose your door';
-  return 'Tap anywhere to play';
+  return 'Tap the wheel to spin';
 }
 
 function GameEntryCard({
@@ -585,17 +591,16 @@ function GameEntryCard({
     reducedMotionRef.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
-  const { visual: gameVisual } = getGameVisual(promotion.game_type, 100, boosted);
-  const headline = getEntryHeadline(promotion.game_type);
+  // Change 1: 140px — wheel occupies ~55% of card width, visually dominant
+  const { visual: gameVisual } = getGameVisual(promotion.game_type, 140, boosted);
+  const headline = getDynamicHeadline(promotion.game_type, rewards.length);
   const subline = getEntrySubline(promotion.game_type);
-  const previewRewards = rewards.slice(0, 3);
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     if (reducedMotionRef.current) return;
     e.preventDefault();
     setBoosted(true);
     fireFullScreenConfetti();
-    // Navigate after confetti reaches peak spread (~500ms)
     const delay = 480 + Math.floor(Math.random() * 120);
     setTimeout(() => {
       window.location.href = playUrl;
@@ -606,57 +611,47 @@ function GameEntryCard({
     <a
       href={playUrl}
       onClick={handleClick}
-      className="mx-4 mt-5 block overflow-hidden rounded-3xl shadow-xl active:scale-[0.98]"
+      // Change 5: -mt-4 overlaps the info card bottom for visual integration
+      className="relative z-10 mx-4 -mt-4 block overflow-hidden rounded-3xl shadow-2xl active:scale-[0.98]"
       style={{
-        background: `linear-gradient(135deg, ${accentColor} 0%, ${darken(accentColor, 28)} 100%)`,
+        background: `linear-gradient(160deg, ${accentColor} 0%, ${darken(accentColor, 35)} 100%)`,
         transition: 'transform 150ms',
       }}
       aria-label={`${headline} — ${subline}`}
     >
-      <div className="flex items-center gap-5 p-5">
-        {/* 100px game visual — the dominant hero element */}
-        <div
-          className="shrink-0"
-          style={{ filter: 'drop-shadow(0 6px 16px rgba(0,0,0,0.30))' }}
-        >
-          {gameVisual}
-        </div>
+      {/* Radial spotlight — simulates a game console lighting the wheel */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 72% 58% at 50% 40%, rgba(255,255,255,0.20) 0%, transparent 70%)',
+        }}
+        aria-hidden="true"
+      />
 
-        {/* Text column */}
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-black uppercase tracking-[0.12em] text-white/70">
-            Today&apos;s Game
-          </p>
-          <h3 className="mt-0.5 text-[1.35rem] font-black leading-tight text-white">
-            {headline}
-          </h3>
-          <p className="mt-1 text-sm font-semibold text-white/80">
-            {subline}
-          </p>
-          {previewRewards.length > 0 && (
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
-              {previewRewards.map((r) => (
-                <span
-                  key={r.id}
-                  className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-bold text-white"
-                >
-                  {r.label}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* Change 3: Today Only badge — urgency without spam */}
+      <div className="flex justify-center pt-5">
+        <span className="rounded-full bg-white/20 px-3.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-white">
+          Today Only
+        </span>
+      </div>
 
-        {/* Chevron — visual affordance that card is tappable */}
-        <div className="shrink-0 text-white/50" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">
-            <path
-              fillRule="evenodd"
-              d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-        </div>
+      {/* Change 1: Wheel centered and dominant — 140px, deep drop shadow */}
+      <div
+        className="flex justify-center pt-5"
+        style={{ filter: 'drop-shadow(0 10px 30px rgba(0,0,0,0.50))' }}
+      >
+        {gameVisual}
+      </div>
+
+      {/* Text sits below the wheel — secondary hierarchy */}
+      <div className="px-6 pb-6 pt-5 text-center">
+        <h3 className="text-2xl font-black leading-tight text-white">
+          {headline}
+        </h3>
+        <p className="mt-1.5 text-sm font-semibold text-white/75">
+          {subline}
+        </p>
       </div>
     </a>
   );
@@ -803,7 +798,8 @@ export function RestaurantPublicPage({
 
       {/* ── Info card ── */}
       {/* A2: logo straddles hero/card boundary via absolute -top-10 */}
-      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl">
+      {/* Change 5: pb-3 (was pb-6) — game card overlaps this bottom edge by ~16px */}
+      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-3 pt-5 shadow-xl">
         {restaurant.logo_url && (
           <div className="absolute -top-10 left-5 h-20 w-20 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-stone-100">
             <img
