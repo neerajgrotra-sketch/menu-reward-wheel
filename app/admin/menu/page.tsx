@@ -696,7 +696,6 @@ export default function MenuPage() {
                   value={editingItemName}
                   onChange={(e) => setEditingItemName(e.target.value)}
                   className="w-full rounded-xl border border-stone-200 px-3 py-2.5 font-bold outline-none focus:border-[#FF6B00]"
-                  autoFocus
                 />
               </div>
               <div>
