@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Globe, Navigation2 } from 'lucide-react';
+import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 import { getGameVisual, type GameType } from '@/components/game-visuals/GameVisual';
 
@@ -317,80 +318,6 @@ function ItemDetailSheet({
   );
 }
 
-// ─── Today's Reward Card ─────────────────────────────────────────────────────
-
-function TodaysRewardCard({
-  promotion,
-  rewards,
-  playUrl,
-  accentColor,
-  onDismiss,
-}: {
-  promotion: PublicPromotion;
-  rewards: PublicReward[];
-  playUrl: string;
-  accentColor: string;
-  onDismiss: () => void;
-}) {
-  const { visual } = getGameVisual(promotion.game_type, 36);
-  return (
-    <div
-      className="mx-4 mt-5 overflow-hidden rounded-3xl bg-white shadow-xl"
-      style={{ borderTop: `4px solid ${accentColor}` }}
-    >
-      <div className="p-5">
-        <div className="flex items-start gap-4">
-          <div className="flex-1">
-            <p
-              className="text-xs font-black uppercase tracking-widest"
-              style={{ color: accentColor }}
-            >
-              Today&apos;s Reward
-            </p>
-            <h3 className="mt-1 text-lg font-black leading-tight text-stone-900">
-              {promotion.name}
-            </h3>
-          </div>
-          {visual}
-        </div>
-
-        {rewards.length > 0 && (
-          <ul className="mt-3 space-y-1.5" aria-label="Available rewards">
-            {rewards.map((r) => (
-              <li key={r.id} className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} aria-hidden="true" />
-                {r.label}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <p className="mt-3 text-xs text-stone-500">
-          Play today&apos;s game and you could win one of the above.
-        </p>
-
-        <div className="mt-4 flex gap-3">
-          <a
-            href={playUrl}
-            className="flex-1 rounded-2xl py-3.5 text-center text-sm font-black text-white shadow-sm active:scale-95"
-            style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
-          >
-            Play Now
-          </a>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className="flex-1 rounded-2xl border border-stone-200 bg-white py-3.5 text-center text-sm font-black text-stone-500 active:scale-95"
-            style={{ transition: 'transform 150ms' }}
-          >
-            Maybe Later
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Floating Reward Widget ───────────────────────────────────────────────────
 
 function RewardWidget({
@@ -404,7 +331,7 @@ function RewardWidget({
   playUrl: string;
   accentColor: string;
 }) {
-  const widgetVisual = getGameVisual(promotion.game_type, 26);
+  const widgetVisual = getGameVisual(promotion.game_type, 28);
   const [expanded, setExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
@@ -464,7 +391,7 @@ function RewardWidget({
         type="button"
         onClick={openSheet}
         aria-label="View today's reward"
-        className="fixed right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full shadow-xl"
+        className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full shadow-xl"
         style={{
           backgroundColor: accentColor,
           bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
@@ -585,87 +512,96 @@ function FacebookIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── Reward Banner helpers ────────────────────────────────────────────────────
+// ─── Game Entry Card ──────────────────────────────────────────────────────────
+// The wheel IS the CTA. The entire card is one tap target. No separate button.
 
-function getBannerCopy(gameType: GameType): string {
-  if (gameType === 'mystery_box') return 'Open to Win';
-  if (gameType === 'scratch_card') return 'Scratch to Win';
-  if (!gameType || gameType === 'wheel') return 'Spin to Win';
-  return 'Play to Win';
+function fireFullScreenConfetti() {
+  const colors = ['#FF6B00', '#FFD166', '#00C853', '#E63939', '#2DD4BF', '#FFF0C2', '#F97316'];
+  // Left volley
+  confetti({
+    particleCount: 90,
+    spread: 80,
+    origin: { x: 0.2, y: 0 },
+    colors,
+    gravity: 1.3,
+    scalar: 1.1,
+    ticks: 220,
+  });
+  // Right volley — slight stagger so confetti cascades across the screen
+  setTimeout(() => {
+    confetti({
+      particleCount: 90,
+      spread: 80,
+      origin: { x: 0.8, y: 0 },
+      colors,
+      gravity: 1.3,
+      scalar: 1.1,
+      ticks: 220,
+    });
+  }, 80);
+  // Centre volley — fills the gap
+  setTimeout(() => {
+    confetti({
+      particleCount: 60,
+      spread: 100,
+      origin: { x: 0.5, y: 0 },
+      colors,
+      gravity: 1.1,
+      scalar: 0.9,
+      ticks: 200,
+    });
+  }, 180);
 }
 
-function ConfettiBurst() {
-  const [flying, setFlying] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setFlying(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  const pieces = [
-    { dx: -22, dy: -12, color: '#FFD166', rotate: 35 },
-    { dx: 14, dy: -16, color: '#00C853', rotate: -20 },
-    { dx: 24, dy: -4,  color: '#E63939', rotate: 15 },
-    { dx: -14, dy: 14, color: '#2DD4BF', rotate: 45 },
-    { dx: 20,  dy: 12, color: '#FF6B00', rotate: -35 },
-    { dx: -24, dy: 2,  color: '#FFF0C2', rotate: 60 },
-    { dx: 6,   dy: -20, color: '#F97316', rotate: -10 },
-    { dx: -6,  dy: 18,  color: '#FFD166', rotate: 25 },
-  ];
-
-  return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-      {pieces.map((p, i) => (
-        <div
-          key={i}
-          style={{
-            position: 'absolute',
-            width: 5,
-            height: 5,
-            left: '50%',
-            top: '50%',
-            backgroundColor: p.color,
-            borderRadius: 1,
-            transition: flying ? 'transform 320ms ease-out, opacity 320ms ease-out' : 'none',
-            transform: flying
-              ? `translate(calc(-50% + ${p.dx}px), calc(-50% + ${p.dy}px)) rotate(${p.rotate}deg)`
-              : 'translate(-50%, -50%)',
-            opacity: flying ? 0 : 1,
-          }}
-        />
-      ))}
-    </div>
-  );
+// Change 2: count-based headline uses real promotion data
+function getDynamicHeadline(gameType: GameType, rewardCount: number): string {
+  if (gameType === 'mystery_box') {
+    return rewardCount >= 2 ? `${rewardCount} Mystery Prizes` : 'Open for a Reward';
+  }
+  if (gameType === 'scratch_card') return 'Scratch & Win';
+  if (gameType === 'open_the_door') return 'Pick Your Prize';
+  // wheel (default) — show real prize count
+  if (rewardCount >= 2) return `${rewardCount} Rewards Available`;
+  if (rewardCount === 1) return '1 Reward Up for Grabs';
+  return 'Spin for Prizes';
 }
 
-// ─── Reward Banner ────────────────────────────────────────────────────────────
+function getEntrySubline(gameType: GameType): string {
+  if (gameType === 'mystery_box') return 'Tap to reveal your reward';
+  if (gameType === 'scratch_card') return 'Tap to scratch your card';
+  if (gameType === 'open_the_door') return 'Tap to choose your door';
+  return 'Tap the wheel to spin';
+}
 
-function RewardBanner({
+function GameEntryCard({
   promotion,
+  rewards,
   playUrl,
   accentColor,
 }: {
   promotion: PublicPromotion;
+  rewards: PublicReward[];
   playUrl: string;
   accentColor: string;
 }) {
-  const [boosted, setBoosted] = useState(false);
-  const [confettiActive, setConfettiActive] = useState(false);
   const reducedMotionRef = useRef(false);
+  const [boosted, setBoosted] = useState(false);
 
   useEffect(() => {
     reducedMotionRef.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }, []);
 
-  // Visual size increased ~20%: 20 → 24
-  const { visual } = getGameVisual(promotion.game_type, 24, boosted);
-  const ctaCopy = getBannerCopy(promotion.game_type);
+  // Change 1: 140px — wheel occupies ~55% of card width, visually dominant
+  const { visual: gameVisual } = getGameVisual(promotion.game_type, 140, boosted);
+  const headline = getDynamicHeadline(promotion.game_type, rewards.length);
+  const subline = getEntrySubline(promotion.game_type);
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
-    if (reducedMotionRef.current) return; // let native navigation proceed immediately
+    if (reducedMotionRef.current) return;
     e.preventDefault();
     setBoosted(true);
-    setConfettiActive(true);
-    const delay = 150 + Math.floor(Math.random() * 101); // 150–250 ms
+    fireFullScreenConfetti();
+    const delay = 480 + Math.floor(Math.random() * 120);
     setTimeout(() => {
       window.location.href = playUrl;
     }, delay);
@@ -675,15 +611,48 @@ function RewardBanner({
     <a
       href={playUrl}
       onClick={handleClick}
-      className="relative flex items-center gap-2 px-2.5 py-2.5 active:brightness-90"
-      style={{ backgroundColor: accentColor, transition: 'filter 120ms' }}
-      aria-label={ctaCopy}
+      // Change 5: -mt-4 overlaps the info card bottom for visual integration
+      className="relative z-10 mx-4 -mt-4 block overflow-hidden rounded-3xl shadow-2xl active:scale-[0.98]"
+      style={{
+        background: `linear-gradient(160deg, ${accentColor} 0%, ${darken(accentColor, 35)} 100%)`,
+        transition: 'transform 150ms',
+      }}
+      aria-label={`${headline} — ${subline}`}
     >
-      <div className="shrink-0">{visual}</div>
-      <p className="whitespace-nowrap text-sm font-black leading-tight text-white">
-        {ctaCopy}
-      </p>
-      {confettiActive && <ConfettiBurst />}
+      {/* Radial spotlight — simulates a game console lighting the wheel */}
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 72% 58% at 50% 40%, rgba(255,255,255,0.20) 0%, transparent 70%)',
+        }}
+        aria-hidden="true"
+      />
+
+      {/* Change 3: Today Only badge — urgency without spam */}
+      <div className="flex justify-center pt-5">
+        <span className="rounded-full bg-white/20 px-3.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-white">
+          Today Only
+        </span>
+      </div>
+
+      {/* Change 1: Wheel centered and dominant — 140px, deep drop shadow */}
+      <div
+        className="flex justify-center pt-5"
+        style={{ filter: 'drop-shadow(0 10px 30px rgba(0,0,0,0.50))' }}
+      >
+        {gameVisual}
+      </div>
+
+      {/* Text sits below the wheel — secondary hierarchy */}
+      <div className="px-6 pb-6 pt-5 text-center">
+        <h3 className="text-2xl font-black leading-tight text-white">
+          {headline}
+        </h3>
+        <p className="mt-1.5 text-sm font-semibold text-white/75">
+          {subline}
+        </p>
+      </div>
     </a>
   );
 }
@@ -710,18 +679,9 @@ export function RestaurantPublicPage({
 
   const hasPromotion = !!promotion;
   const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
-  const storageKey = promotion?.id ? `promotion-dismissed-${promotion.id}` : null;
-  const [rewardCardDismissed, setRewardCardDismissed] = useState(false);
   const cappedRewardItemIds = rewardItemIds
     ? new Set(Array.from(rewardItemIds).slice(0, 3))
     : undefined;
-
-  useEffect(() => {
-    if (!storageKey) return;
-    try {
-      if (localStorage.getItem(storageKey) === '1') setRewardCardDismissed(true);
-    } catch {}
-  }, [storageKey]);
 
   const featuredItems = sections
     .flatMap((s) => s.items)
@@ -838,7 +798,8 @@ export function RestaurantPublicPage({
 
       {/* ── Info card ── */}
       {/* A2: logo straddles hero/card boundary via absolute -top-10 */}
-      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-xl">
+      {/* Change 5: pb-3 (was pb-6) — game card overlaps this bottom edge by ~16px */}
+      <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-3 pt-5 shadow-xl">
         {restaurant.logo_url && (
           <div className="absolute -top-10 left-5 h-20 w-20 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-stone-100">
             <img
@@ -849,25 +810,9 @@ export function RestaurantPublicPage({
           </div>
         )}
 
-        {/* Compact reward banner — top-right of card, alongside the logo */}
-        {hasPromotion && (
-          <div className="flex items-center gap-3">
-            {restaurant.logo_url && <div className="w-20 shrink-0" />}
-            <div className="min-w-0 flex-1 overflow-hidden rounded-xl shadow-sm">
-              <RewardBanner
-                promotion={promotion!}
-                playUrl={playUrl}
-                accentColor={accentColor}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* A3: no paddingLeft — logo is above, not beside, the name */}
+        {/* A3: logo is above the name, not beside it */}
         <h1
-          className={`text-3xl font-black leading-tight${
-            restaurant.logo_url && !hasPromotion ? ' mt-12' : hasPromotion ? ' mt-3' : ''
-          }`}
+          className={`text-3xl font-black leading-tight${restaurant.logo_url ? ' mt-12' : ''}`}
           style={{ color: brandColor }}
         >
           {restaurant.name}
@@ -950,6 +895,16 @@ export function RestaurantPublicPage({
         )}
       </div>
 
+      {/* ── Game Entry Card ── */}
+      {hasPromotion && (
+        <GameEntryCard
+          promotion={promotion!}
+          rewards={promotionRewards ?? []}
+          playUrl={playUrl}
+          accentColor={accentColor}
+        />
+      )}
+
       {/* ── Hours ── */}
       {parsedHours && !allDaysClosed && (
         <div className="mx-4 mt-4 rounded-3xl bg-white px-5 py-4 shadow-md">
@@ -974,22 +929,6 @@ export function RestaurantPublicPage({
             })}
           </div>
         </div>
-      )}
-
-      {/* ── Today's Reward Card (menu_and_promotion mode) ── */}
-      {hasPromotion && !rewardCardDismissed && (
-        <TodaysRewardCard
-          promotion={promotion!}
-          rewards={promotionRewards ?? []}
-          playUrl={playUrl}
-          accentColor={accentColor}
-          onDismiss={() => {
-            setRewardCardDismissed(true);
-            if (storageKey) {
-              try { localStorage.setItem(storageKey, '1'); } catch {}
-            }
-          }}
-        />
       )}
 
       {/* ── Featured items ── */}
