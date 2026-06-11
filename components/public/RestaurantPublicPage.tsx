@@ -512,148 +512,177 @@ function FacebookIcon({ className }: { className?: string }) {
   );
 }
 
-// ─── Game Entry Card ──────────────────────────────────────────────────────────
-// The wheel IS the CTA. The entire card is one tap target. No separate button.
+// ─── Confetti ─────────────────────────────────────────────────────────────────
+// Full-screen celebration: 170+ particles from top, falls ~1.2–1.8 s.
 
 function fireFullScreenConfetti() {
-  const colors = ['#FF6B00', '#FFD166', '#00C853', '#E63939', '#2DD4BF', '#FFF0C2', '#F97316'];
-  // Left volley
-  confetti({
-    particleCount: 90,
-    spread: 80,
-    origin: { x: 0.2, y: 0 },
-    colors,
-    gravity: 1.3,
-    scalar: 1.1,
-    ticks: 220,
-  });
-  // Right volley — slight stagger so confetti cascades across the screen
+  const colors = ['#FF6B00', '#FFD166', '#00C853', '#E63939', '#2DD4BF', '#FFFFFF', '#F97316'];
+  // Volley 1 — left, immediate
+  confetti({ particleCount: 45, spread: 85, origin: { x: 0.2, y: 0 }, colors, gravity: 1.2, scalar: 1.2, ticks: 90, startVelocity: 35 });
+  // Volley 2 — right, +100 ms stagger
   setTimeout(() => {
-    confetti({
-      particleCount: 90,
-      spread: 80,
-      origin: { x: 0.8, y: 0 },
-      colors,
-      gravity: 1.3,
-      scalar: 1.1,
-      ticks: 220,
-    });
-  }, 80);
-  // Centre volley — fills the gap
+    confetti({ particleCount: 45, spread: 85, origin: { x: 0.8, y: 0 }, colors, gravity: 1.2, scalar: 1.2, ticks: 90, startVelocity: 35 });
+  }, 100);
+  // Volley 3 — centre, +200 ms fills the gap
   setTimeout(() => {
-    confetti({
-      particleCount: 60,
-      spread: 100,
-      origin: { x: 0.5, y: 0 },
-      colors,
-      gravity: 1.1,
-      scalar: 0.9,
-      ticks: 200,
-    });
-  }, 180);
+    confetti({ particleCount: 40, spread: 110, origin: { x: 0.5, y: 0 }, colors, gravity: 1.0, scalar: 1.0, ticks: 90, startVelocity: 30 });
+  }, 200);
+  // Volley 4 — quarter points, +350 ms extra coverage
+  setTimeout(() => {
+    confetti({ particleCount: 20, spread: 70, origin: { x: 0.35, y: 0 }, colors, gravity: 1.3, scalar: 1.1, ticks: 80, startVelocity: 32 });
+    confetti({ particleCount: 20, spread: 70, origin: { x: 0.65, y: 0 }, colors, gravity: 1.3, scalar: 1.1, ticks: 80, startVelocity: 32 });
+  }, 350);
 }
 
-// Change 2: count-based headline uses real promotion data
-function getDynamicHeadline(gameType: GameType, rewardCount: number): string {
-  if (gameType === 'mystery_box') {
-    return rewardCount >= 2 ? `${rewardCount} Mystery Prizes` : 'Open for a Reward';
-  }
-  if (gameType === 'scratch_card') return 'Scratch & Win';
-  if (gameType === 'open_the_door') return 'Pick Your Prize';
-  // wheel (default) — show real prize count
-  if (rewardCount >= 2) return `${rewardCount} Rewards Available`;
-  if (rewardCount === 1) return '1 Reward Up for Grabs';
-  return 'Spin for Prizes';
-}
+// ─── Game Entry Modal ─────────────────────────────────────────────────────────
+// Compact first-load popup. Shows once per promotion per browser via localStorage.
 
-function getEntrySubline(gameType: GameType): string {
-  if (gameType === 'mystery_box') return 'Tap to reveal your reward';
-  if (gameType === 'scratch_card') return 'Tap to scratch your card';
-  if (gameType === 'open_the_door') return 'Tap to choose your door';
-  return 'Tap the wheel to spin';
-}
-
-function GameEntryCard({
+function GameEntryModal({
   promotion,
-  rewards,
   playUrl,
   accentColor,
+  onClose,
 }: {
   promotion: PublicPromotion;
-  rewards: PublicReward[];
   playUrl: string;
   accentColor: string;
+  onClose: () => void;
 }) {
   const reducedMotionRef = useRef(false);
   const [boosted, setBoosted] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const notNowRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     reducedMotionRef.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    requestAnimationFrame(() => { requestAnimationFrame(() => setVisible(true)); });
   }, []);
 
-  // Change 1: 140px — wheel occupies ~55% of card width, visually dominant
-  const { visual: gameVisual } = getGameVisual(promotion.game_type, 140, boosted);
-  const headline = getDynamicHeadline(promotion.game_type, rewards.length);
-  const subline = getEntrySubline(promotion.game_type);
+  useEffect(() => {
+    if (visible) notNowRef.current?.focus();
+  }, [visible]);
 
-  function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
+  // iOS-safe scroll lock
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  function dismiss() {
+    setVisible(false);
+    const trigger = triggerRef.current;
+    setTimeout(() => { onClose(); trigger?.focus(); triggerRef.current = null; }, 300);
+  }
+
+  function handlePlay(e: React.MouseEvent<HTMLAnchorElement>) {
     if (reducedMotionRef.current) return;
     e.preventDefault();
     setBoosted(true);
     fireFullScreenConfetti();
-    const delay = 480 + Math.floor(Math.random() * 120);
-    setTimeout(() => {
-      window.location.href = playUrl;
-    }, delay);
+    const delay = 700 + Math.floor(Math.random() * 200);
+    setTimeout(() => { window.location.href = playUrl; }, delay);
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') { e.preventDefault(); dismiss(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = e.currentTarget.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  }
+
+  // 72px — clear without dominating the modal
+  const { visual: gameVisual } = getGameVisual(promotion.game_type, 72, boosted);
+
   return (
-    <a
-      href={playUrl}
-      onClick={handleClick}
-      // Change 5: -mt-4 overlaps the info card bottom for visual integration
-      className="relative z-10 mx-4 -mt-4 block overflow-hidden rounded-3xl shadow-2xl active:scale-[0.98]"
-      style={{
-        background: `linear-gradient(160deg, ${accentColor} 0%, ${darken(accentColor, 35)} 100%)`,
-        transition: 'transform 150ms',
-      }}
-      aria-label={`${headline} — ${subline}`}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-5"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="game-modal-title"
+      onKeyDown={handleKeyDown}
     >
-      {/* Radial spotlight — simulates a game console lighting the wheel */}
+      {/* Backdrop */}
       <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(ellipse 72% 58% at 50% 40%, rgba(255,255,255,0.20) 0%, transparent 70%)',
-        }}
+        className="absolute inset-0 bg-black/60"
+        style={{ opacity: visible ? 1 : 0, transition: 'opacity 300ms ease-out' }}
+        onClick={dismiss}
         aria-hidden="true"
       />
 
-      {/* Change 3: Today Only badge — urgency without spam */}
-      <div className="flex justify-center pt-5">
-        <span className="rounded-full bg-white/20 px-3.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-white">
-          Today Only
-        </span>
-      </div>
-
-      {/* Change 1: Wheel centered and dominant — 140px, deep drop shadow */}
+      {/* Modal card */}
       <div
-        className="flex justify-center pt-5"
-        style={{ filter: 'drop-shadow(0 10px 30px rgba(0,0,0,0.50))' }}
+        className="relative w-full max-w-xs overflow-hidden rounded-3xl bg-white shadow-2xl"
+        style={{
+          transform: visible ? 'translateY(0) scale(1)' : 'translateY(32px) scale(0.95)',
+          opacity: visible ? 1 : 0,
+          transition: 'transform 300ms ease-out, opacity 300ms ease-out',
+        }}
+        onClick={(e) => e.stopPropagation()}
       >
-        {gameVisual}
-      </div>
+        {/* Gradient header */}
+        <div
+          className="px-6 pb-6 pt-6 text-center"
+          style={{ background: `linear-gradient(160deg, ${accentColor} 0%, ${darken(accentColor, 35)} 100%)` }}
+        >
+          <span className="inline-block rounded-full bg-white/25 px-4 py-1.5 text-xs font-black uppercase tracking-widest text-white">
+            Winner !!
+          </span>
+          <div
+            className="mt-4 flex justify-center"
+            style={{ filter: 'drop-shadow(0 6px 20px rgba(0,0,0,0.45))' }}
+          >
+            {gameVisual}
+          </div>
+        </div>
 
-      {/* Text sits below the wheel — secondary hierarchy */}
-      <div className="px-6 pb-6 pt-5 text-center">
-        <h3 className="text-2xl font-black leading-tight text-white">
-          {headline}
-        </h3>
-        <p className="mt-1.5 text-sm font-semibold text-white/75">
-          {subline}
-        </p>
+        {/* Body */}
+        <div className="px-6 pb-6 pt-5 text-center">
+          <h2 id="game-modal-title" className="text-2xl font-black text-stone-900">
+            Play To Win
+          </h2>
+          <p className="mt-1.5 text-sm text-stone-500">No Purchase Necessary</p>
+
+          <a
+            href={playUrl}
+            onClick={handlePlay}
+            className="mt-5 flex min-h-[44px] items-center justify-center rounded-2xl text-sm font-black text-white shadow-md active:scale-95"
+            style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
+          >
+            Play Now
+          </a>
+
+          <button
+            ref={notNowRef}
+            type="button"
+            onClick={dismiss}
+            className="mt-3 flex min-h-[44px] w-full items-center justify-center rounded-2xl text-sm font-semibold text-stone-500 active:scale-95"
+            style={{ transition: 'transform 150ms' }}
+          >
+            Not Now
+          </button>
+        </div>
       </div>
-    </a>
+    </div>
   );
 }
 
@@ -692,6 +721,23 @@ export function RestaurantPublicPage({
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
   const [selectedItem, setSelectedItem] = useState<PublicMenuItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
+
+  // null = not yet checked (avoids flash), false = show modal, true = dismissed
+  const [modalDismissed, setModalDismissed] = useState<boolean | null>(null);
+  const promotionId = promotion?.id;
+
+  useEffect(() => {
+    if (!promotionId) { setModalDismissed(true); return; }
+    const key = `game-entry-modal-dismissed-${promotionId}`;
+    setModalDismissed(!!localStorage.getItem(key));
+  }, [promotionId]);
+
+  function handleModalClose() {
+    if (promotionId) {
+      localStorage.setItem(`game-entry-modal-dismissed-${promotionId}`, '1');
+    }
+    setModalDismissed(true);
+  }
 
   // C1: remember which element triggered the sheet so focus returns on close
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -895,16 +941,6 @@ export function RestaurantPublicPage({
         )}
       </div>
 
-      {/* ── Game Entry Card ── */}
-      {hasPromotion && (
-        <GameEntryCard
-          promotion={promotion!}
-          rewards={promotionRewards ?? []}
-          playUrl={playUrl}
-          accentColor={accentColor}
-        />
-      )}
-
       {/* ── Hours ── */}
       {parsedHours && !allDaysClosed && (
         <div className="mx-4 mt-4 rounded-3xl bg-white px-5 py-4 shadow-md">
@@ -1056,12 +1092,24 @@ export function RestaurantPublicPage({
       )}
 
       {/* ── Floating Reward Widget ── */}
+      {/* Widget is always present for re-engagement; modal sits above it (z-50 vs z-40) */}
       {hasPromotion && (
         <RewardWidget
           promotion={promotion!}
           rewards={promotionRewards ?? []}
           playUrl={playUrl}
           accentColor={accentColor}
+        />
+      )}
+
+      {/* ── Game Entry Modal ── */}
+      {/* modalDismissed===false (not null) means localStorage confirmed unseen */}
+      {hasPromotion && modalDismissed === false && (
+        <GameEntryModal
+          promotion={promotion!}
+          playUrl={playUrl}
+          accentColor={accentColor}
+          onClose={handleModalClose}
         />
       )}
     </div>
