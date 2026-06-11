@@ -21,9 +21,18 @@ export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartY = useRef<number | null>(null);
   const dragging = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Avoid SSR mismatch — portals require the DOM.
   useEffect(() => setMounted(true), []);
+
+  // Move focus to the panel div when the sheet opens.
+  // Focusing a non-input element satisfies the dialog accessibility contract
+  // (focus enters the dialog, ESC works, screen readers announce it) without
+  // triggering the iOS/Android soft keyboard.
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
+  }, [open]);
 
   // ESC key dismissal.
   useEffect(() => {
@@ -85,10 +94,14 @@ export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange
         className={`absolute inset-0 bg-black/50 backdrop-blur-sm ${open ? 'pointer-events-auto' : 'pointer-events-none'}`}
       />
 
-      {/* Sheet panel */}
+      {/* Sheet panel — tabIndex={-1} so it can receive programmatic focus
+          without appearing in the natural tab order. outline-none suppresses
+          the focus ring on the panel itself (inputs inside still show theirs). */}
       <div
+        ref={panelRef}
+        tabIndex={-1}
         style={{ transform, transition }}
-        className="relative z-10 flex max-h-[90dvh] flex-col rounded-t-[2rem] bg-white shadow-2xl md:mx-auto md:max-h-[80dvh] md:w-full md:max-w-xl"
+        className="relative z-10 flex max-h-[90dvh] flex-col rounded-t-[2rem] bg-white shadow-2xl outline-none md:mx-auto md:max-h-[80dvh] md:w-full md:max-w-xl"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
