@@ -535,7 +535,8 @@ function fireFullScreenConfetti() {
 }
 
 // ─── Game Entry Modal ─────────────────────────────────────────────────────────
-// Compact first-load popup. Shows once per promotion per browser via localStorage.
+// Compact first-load popup. Shows once per promotion per browser SESSION via sessionStorage.
+// Closing tab / browser clears the session → modal reappears on next visit.
 
 function GameEntryModal({
   promotion,
@@ -722,21 +723,33 @@ export function RestaurantPublicPage({
   const [selectedItem, setSelectedItem] = useState<PublicMenuItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
-  // null = not yet checked (avoids flash), false = show modal, true = dismissed
+  // null = not yet checked (avoids hydration flash), false = show modal, true = dismissed
   const [modalDismissed, setModalDismissed] = useState<boolean | null>(null);
+  // true once the 700–900 ms appearance delay has elapsed; prevents instant pop-in
+  const [modalReady, setModalReady] = useState(false);
   const promotionId = promotion?.id;
 
+  // Step 1: check sessionStorage (per-session, not per-browser)
   useEffect(() => {
     if (!promotionId) { setModalDismissed(true); return; }
     const key = `game-entry-modal-dismissed-${promotionId}`;
-    setModalDismissed(!!localStorage.getItem(key));
+    setModalDismissed(!!sessionStorage.getItem(key));
   }, [promotionId]);
+
+  // Step 2: once storage resolves to "show", wait 700–900 ms so customer sees page first
+  useEffect(() => {
+    if (modalDismissed !== false) return;
+    const delay = 700 + Math.floor(Math.random() * 200);
+    const timer = setTimeout(() => setModalReady(true), delay);
+    return () => clearTimeout(timer);
+  }, [modalDismissed]);
 
   function handleModalClose() {
     if (promotionId) {
-      localStorage.setItem(`game-entry-modal-dismissed-${promotionId}`, '1');
+      sessionStorage.setItem(`game-entry-modal-dismissed-${promotionId}`, '1');
     }
     setModalDismissed(true);
+    setModalReady(false);
   }
 
   // C1: remember which element triggered the sheet so focus returns on close
@@ -1103,8 +1116,8 @@ export function RestaurantPublicPage({
       )}
 
       {/* ── Game Entry Modal ── */}
-      {/* modalDismissed===false (not null) means localStorage confirmed unseen */}
-      {hasPromotion && modalDismissed === false && (
+      {/* modalDismissed===false + modalReady===true: sessionStorage confirmed unseen and delay elapsed */}
+      {hasPromotion && modalDismissed === false && modalReady && (
         <GameEntryModal
           promotion={promotion!}
           playUrl={playUrl}
