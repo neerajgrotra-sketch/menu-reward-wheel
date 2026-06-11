@@ -85,6 +85,7 @@ export default function MenuPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
@@ -630,13 +631,44 @@ export default function MenuPage() {
                                   <p className="text-xs font-black uppercase tracking-wide text-stone-400">
                                     Description
                                   </p>
-                                  <span
-                                    className={`text-xs font-bold ${
-                                      editingItemDescription.length > 300 ? 'text-amber-600' : 'text-stone-400'
-                                    }`}
-                                  >
-                                    {editingItemDescription.length}/300
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      disabled={aiGenerating || !editingItemName.trim()}
+                                      onClick={async () => {
+                                        setAiGenerating(true);
+                                        try {
+                                          const res = await fetch('/api/admin/generate-description', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ itemName: editingItemName, tags: editingItemTags }),
+                                          });
+                                          const data = await res.json();
+                                          if (!res.ok) throw new Error(data.error || 'Generation failed');
+                                          setEditingItemDescription(data.description);
+                                        } catch (err: any) {
+                                          setError(err.message || 'AI generation failed');
+                                        } finally {
+                                          setAiGenerating(false);
+                                        }
+                                      }}
+                                      className="flex items-center gap-1 rounded-lg bg-[#FF6B00] px-2 py-0.5 text-xs font-black text-white transition-opacity hover:opacity-80 disabled:opacity-40"
+                                    >
+                                      {aiGenerating ? (
+                                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                      ) : (
+                                        '✨'
+                                      )}
+                                      {aiGenerating ? 'Generating…' : 'Generate'}
+                                    </button>
+                                    <span
+                                      className={`text-xs font-bold ${
+                                        editingItemDescription.length > 300 ? 'text-amber-600' : 'text-stone-400'
+                                      }`}
+                                    >
+                                      {editingItemDescription.length}/300
+                                    </span>
+                                  </div>
                                 </div>
                                 <textarea
                                   value={editingItemDescription}
