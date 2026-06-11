@@ -20,3 +20,10 @@
 ## Summary
 
 This cleanup removes the last production code dependencies on legacy game slug values for Spin Wheel type detection. Runtime and Super Admin logic now use `game_type` exclusively for the affected flow.
+
+## Post-cleanup state (as of June 2026)
+
+- `game_type` is the canonical identifier throughout the runtime and admin flows
+- `lib/game-pool/gameRegistry.ts` has been **deleted** (registry unification)
+- `open_the_door` added with `game_type = 'open_the_door'` from day one — no slug-based lookup ever added
+- `game.slug` is retained in the DB for display/URL purposes only; it is no longer used for game resolution logic

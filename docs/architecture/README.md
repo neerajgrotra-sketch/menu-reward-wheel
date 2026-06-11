@@ -1,186 +1,345 @@
 # SpinBite Architecture
 
-This document describes the implementation of SpinBite as found in this repository. It is based on code and files present in the project — no assumptions beyond the repository contents are made.
+This document describes the current implementation of SpinBite. It reflects the codebase state as of June 2026 including the Phase 2 menu experience, experience_mode routing, security hardening, and game registry unification.
 
 ## 1. Product Overview
 
-SpinBite is a restaurant QR promotion platform. Restaurants create promotions (with rewards) and publish them. Customers scan a QR code, open a web play page, play a simple game (Spin Wheel, Mystery Box, Scratch Card, or Slot Machine/Reward Reels placeholder), and win coupons. Staff can validate/redeem coupons using server-side records.
+SpinBite is a restaurant QR engagement platform. The product has evolved from a simple QR→Game→Coupon flow into a full restaurant experience platform.
+
+**Current customer journey (Mode 3):**
+```
+QR Scan → /r/[slug] → Restaurant Landing Page
+       → Browse Menu (with floating Reward Widget)
+       → Play Game → Win Coupon → Redemption
+```
+
+**Experience modes** (`restaurants.experience_mode`):
+| Mode | Value | Customer flow |
+|------|-------|---------------|
+| Promotion Only | `promotion_only` | QR → `/play/...` redirect (original flow, unchanged) |
+| Menu Only | `menu_only` | QR → Restaurant landing page + menu, no game |
+| Menu + Promotion | `menu_and_promotion` | QR → Landing → menu → game → coupon |
 
 Key user roles:
-- Restaurant admin: creates promotions and configures rewards.
-- Customer: scans QR, plays, and receives coupons.
-- Staff: validates or redeems coupons in-person.
-- Super admin: (repository includes admin pages and migrations for super-admin games and site content).
+- **Restaurant admin**: configures experience mode, uploads hero/menu images, builds promotions and rewards.
+- **Customer**: scans QR, browses menu, plays game, receives coupon.
+- **Staff**: validates/redeems coupons at point of sale.
+- **Super admin**: manages available games, site content, and platform settings.
 
 ## 2. High-Level User Flows
 
-- Restaurant admin flow
-  - Create promotion using the Promotion Builder UI. Relevant code: [components/promotion-builder/CreatePromotionFlow.tsx](components/promotion-builder/CreatePromotionFlow.tsx#L1).
-  - Select game type using a registry-driven selector at [components/promotion-builder/GameSelectionSection.tsx](components/promotion-builder/GameSelectionSection.tsx#L1).
-  - Save a draft promotion which becomes a database record in `promotions` (see Supabase schema and migrations in `supabase/`).
+### Restaurant Admin Flow
+1. Set `experience_mode` in restaurant profile tabs (Profile / Contact / Settings).
+2. Upload hero image, set description, hours, social links.
+3. Build menu: create sections (`menus` table as "sections"), add items with images/tags/pricing.
+4. Create promotion: select game type, configure rewards (optionally linked to menu items via `promotion_rewards.menu_item_id`).
+5. Launch promotion: sets `status='active'` and `restaurants.current_promotion_id`.
 
-- Customer play flow
-  - Customers access a play URL (QR points to a route like `/play/[restaurantSlug]/[promotionSlug]`). The play UI is implemented at [app/play/[restaurantSlug]/[promotionSlug]/page.tsx](app/play/[restaurantSlug]/[promotionSlug]/page.tsx#L1).
-  - The client requests promotion and reward data from the server via the public API route [app/api/public/promotion-play/route.ts](app/api/public/promotion-play/route.ts#L1). That route resolves the restaurant and promotion, selects the game, loads rewards, and returns the data needed by the client.
-  - The client renders the game PlayComponent for the resolved game and calls `/api/coupons/issue` to persist coupon issuance when a player wins. See [app/api/coupons/issue/route.ts](app/api/coupons/issue/route.ts#L1).
+### Customer Flow — Menu + Promotion (Mode 3)
+1. Scan QR → `GET /r/[restaurantSlug]` (server component).
+2. Server fetches `experience_mode`; for `menu_and_promotion` renders `RestaurantPublicPage`.
+3. `GameEntryModal` appears 700–900ms after load (per-session, `sessionStorage` dismiss key).
+4. Customer browses menu; `"🎁 Win This"` badges mark up to 3 reward-linked items.
+5. `RewardWidget` FAB pulses on scroll; tap opens reward panel bottom sheet.
+6. Tap "Spin Now" → `/play/[restaurantSlug]/[promotionSlug]`.
+7. Client calls `GET /api/public/promotion-play` → resolves session, returns game config + rewards.
+8. Game plays → `pickWeightedReward()` selects reward → `POST /api/coupons/issue` stores coupon.
+9. Coupon displays with `SPIN-XXXXXX` code + confetti burst.
+10. "Browse Menu" link returns customer to `/r/[slug]`.
 
-- Staff validation flow
-  - Coupons are issued and stored server-side (see tables in `supabase/schema.sql` and insert logic in `app/api/coupons/issue/route.ts`). Staff validate coupons against those records (the repo contains admin APIs under `app/api/admin/`).
+### Customer Flow — Promotion Only (Mode 1, unchanged)
+`GET /r/[restaurantSlug]` → immediate `redirect('/play/[slug]/[promo]')`.
 
-- Super admin flow
-  - The repository contains admin routes and migrations for super-admin features (see `supabase/migrations/20260430170000_super_admin_games.sql` and pages under `app/admin/`).
+### Staff Validation Flow
+Coupon code submitted to `/api/admin/validate` or the admin validate UI. Server-side lookup against `coupon_redemptions`.
 
 ## 3. Repository Map
 
-- `app/` — Next.js app routes and pages. Key pages:
-  - `app/play/[restaurantSlug]/[promotionSlug]/page.tsx` — customer play UI and client-side game orchestration.
-  - `app/admin/` — admin UI pages.
-  - `app/api/` — server route handlers (public and admin APIs).
+```
+app/
+├── r/[restaurantSlug]/page.tsx       ← mode-aware server component (entry point)
+├── play/[restaurantSlug]/[promotionSlug]/page.tsx  ← game play client component
+├── admin/
+│   ├── menu/page.tsx                 ← menu builder (833 lines, monolithic client)
+│   ├── promotions/page.tsx           ← promotion list + create
+│   ├── promotions/[id]/builder/page.tsx  ← promotion builder (610 lines)
+│   └── restaurants/page.tsx          ← restaurant profile tabs
+└── api/
+    ├── public/promotion-play/route.ts  ← game session init (service-role)
+    ├── coupons/issue/route.ts          ← coupon persistence
+    ├── admin/generate-description/route.ts  ← AI description via Anthropic SDK
+    └── admin/validate/route.ts
 
-- `components/` — reusable React components and visual building blocks.
-  - `components/promotion-builder/` — promotion creation UI and selector components.
-  - `components/games/` — game UI components and small preview visuals.
-  - `components/game/GameRuntimeRenderer.tsx` — runtime loader for game components: it maps `gameType` to a UI component using `GAME_REGISTRY`.
+components/
+├── public/
+│   └── RestaurantPublicPage.tsx       ← restaurant + menu public page (1131 lines)
+├── promotion-builder/
+│   ├── GameSelectionSection.tsx       ← game type picker
+│   └── CreatePromotionFlow.tsx        ← create wizard
+├── admin/
+│   └── SpinWheelPreview.tsx           ← builder preview (delegates to game contract)
+└── games/                             ← game-specific UI components
 
-- `lib/` — application libraries and domain logic.
-  - `lib/games/` — game contracts and registry.
-    - `lib/games/registry.ts` — central game registry and helper functions: `getAvailableGameContracts()`, `getGameDefinition()`, `getGameContract()`.
-    - `lib/games/types.ts` — `GameContract`, `GameType`, and related type definitions.
-    - Per-game contract files: `lib/games/spin-wheel/contract.ts`, `lib/games/mystery-box/contract.ts`, `lib/games/scratch-card/contract.ts`, `lib/games/reward-reels/contract.ts`.
-  - `lib/supabase/` — Supabase client helpers: `lib/supabase/client.ts` and `lib/supabase/server.ts`.
-  - `lib/rewards.ts` — reward picking, coupon helpers (used by play page).
-  - `lib/game-pool/` — runtime registry/resolution helpers (`gameRegistry`, resolver functions).
+lib/
+├── games/
+│   ├── registry.ts                    ← CANONICAL registry (metadata + runtime)
+│   ├── types.ts                       ← GameType union, GameContract interface
+│   ├── spin-wheel/contract.ts
+│   ├── mystery-box/contract.ts
+│   ├── scratch-card/contract.ts
+│   ├── reward-reels/contract.ts
+│   └── open-the-door/
+│       ├── contract.ts
+│       └── builderPreview.tsx
+├── game-pool/
+│   ├── resolvePromotionGame.ts        ← session game-type resolution
+│   └── types.ts                       ← re-exports GameType from lib/games/types.ts
+│   (gameRegistry.ts DELETED — registry unification complete)
+├── builder/
+│   ├── context.tsx                    ← PromotionBuilderProvider + reducer
+│   └── types.ts                       ← BuilderGameType (narrowed subset)
+├── rewards.ts                         ← pickWeightedReward, createCouponCode
+├── supabase/
+│   ├── client.ts                      ← browser client (anon key)
+│   ├── server.ts                      ← server client (anon key + cookies)
+│   └── database.types.ts              ← auto-generated Supabase types
 
-- `supabase/` — SQL schema and migrations. Key files:
-  - `supabase/schema.sql` — canonical tables: `restaurants`, `menu_items`, `rewards`, `coupons`, and RLS policy snippets.
-  - `supabase/migrations/` — migration scripts, e.g. `20260430170000_super_admin_games.sql`, `..._permanent_location_qr.sql`, `..._enforce_one_live_promotion_per_location.sql`.
+supabase/migrations/                   ← ordered SQL migrations
+types/
+└── reward.ts                          ← legacy RewardType enum
+```
 
-- `types/` — TypeScript domain types such as `types/reward.ts`.
+## 4. Database Inventory
 
-- `tests/` — end-to-end tests (folder present as `tests/e2e/`).
+17 tables in production (from `lib/supabase/database.types.ts`, regenerated 2026-06-08):
 
-## 4. Game Framework
+| Table | Purpose |
+|-------|---------|
+| `restaurants` | Core restaurant entity; `experience_mode`, `hero_image_url`, `brand_color`, `hours`, social links |
+| `restaurant_settings` | Key-value feature flags and per-restaurant settings |
+| `menus` | "Sections" in admin UI (naming mismatch); groups menu items |
+| `menu_sections` | True sub-section hierarchy (exists in DB, **not yet wired to admin builder**) |
+| `menu_items` | Individual menu items with images, tags, `is_featured`, `available`, `ai_metadata` |
+| `promotions` | Promotion records; `game_type`, `placement_mode`, `status`, timing |
+| `promotion_rewards` | Rewards for a promotion; `menu_item_id` FK is the menu↔promotion bridge |
+| `promotion_game_assignments` | Secondary game types for multi-game pool mode |
+| `games` | Super-admin game catalogue entries; `game_type` column (added 2026-06-01) |
+| `play_sessions` | One row per customer+promotion session; tracks `session_token` |
+| `coupon_redemptions` | Issued coupons; `coupon_code` (`SPIN-XXXXXX`), `status`, expiry |
+| `customer_profiles` | Phone + marketing consent (Phase 2); `phone_number_e164` |
+| `profiles` | Auth user profiles for restaurant owners |
+| `campaigns` | Campaign grouping for promotions |
+| `rewards` | Legacy reward definitions (pre-promotion-rewards era) |
+| `guest_sessions` | Legacy guest session tracking |
+| `faqs` / `site_content` / `site_media` | Super-admin managed content |
 
-Core types and registry:
-- `GameType` is defined in [lib/games/types.ts](lib/games/types.ts#L1) and currently includes: `wheel`, `spin_wheel`, `mystery_box`, `scratch_card`, `reward_reels`.
-- `GameContract` (in [lib/games/types.ts](lib/games/types.ts#L1)) defines the interface each game must expose, including `type`, `name`, `icon`, `availability`, `createCard`, `PlayComponent`, `confetti` settings, and optional builder/runtime components.
-- The central registry is [lib/games/registry.ts](lib/games/registry.ts#L1). It exports:
-  - `gameRegistry` — mapping of registered game keys to `GameContract` instances.
-  - `availableGames` — filtered list of game contracts (excludes `availability === 'hidden'` duplicates).
-  - `getAvailableGameContracts()` — returns `availableGames` (used by UI selectors).
-  - `getGameDefinition(gameType)` / `getGameContract(gameType)` — helpers to resolve a concrete `GameContract` from a `gameType` string.
+**Key columns added in Phase 2 (June 2026):**
+- `restaurants.experience_mode` — `'promotion_only' | 'menu_only' | 'menu_and_promotion'`
+- `restaurants.hero_image_url`, `description`, `hours` (JSONB), social link columns, `secondary_color`, `accent_color`
+- `menu_items.image_url`, `is_featured`, `tags` (text[]), `available`, `display_order`, `ai_metadata` (JSONB), `deleted_at`
+- `menus.display_order`, `slug`, `menu_type`
+- `promotions.placement_mode` — `'restaurant' | 'menu' | 'section' | 'item'` (only `'restaurant'` used)
+- `games.game_type` — added migration 20260601000000
 
-Current registered games (exact entries in `gameRegistry`):
-- `wheel` and `spin_wheel` -> `lib/games/spin-wheel/contract.ts`
-- `mystery_box` -> `lib/games/mystery-box/contract.ts`
-- `scratch_card` -> `lib/games/scratch-card/contract.ts`
-- `reward_reels` -> `lib/games/reward-reels/contract.ts` (displays in UI as "Slot Machine" and is marked `availability: 'beta'`).
+## 5. Routing Architecture
 
-Why registry-driven selector?
-- The promotion UI uses `getAvailableGameContracts()` so the selection UI is data driven and does not hard-code game types and copy. See [components/promotion-builder/GameSelectionSection.tsx](components/promotion-builder/GameSelectionSection.tsx#L1).
+### `/r/[restaurantSlug]` — Universal Entry Point
+Server component (`app/r/[restaurantSlug]/page.tsx`). Mode-aware dispatch:
 
-How to add a new game (summary):
-1. Add the new `GameType` (if needed) in [lib/games/types.ts](lib/games/types.ts#L1).
-2. Create a contract file under `lib/games/<your-game>/contract.ts` implementing `GameContract`.
-3. Add the contract to `gameRegistry` in [lib/games/registry.ts](lib/games/registry.ts#L1).
-4. Provide visuals/components under `components/games/` or `lib/games/<your-game>/` for builder/runtime previews.
-5. Verify with `npx tsc --noEmit` and test promotion creation and play flows.
+```
+experience_mode = 'promotion_only'
+  → fetch promotions → redirect('/play/[slug]/[promo]')   [unchanged from original]
 
-Note: `reward_reels` is a placeholder and its `createCard.title` is surfaced as "Slot Machine" in the selection UI; it is marked `beta`/"Coming Soon" and is rendered disabled by the selector.
+experience_mode = 'menu_only' | 'menu_and_promotion'
+  → fetch menus + items [+ promotion if menu_and_promotion]
+  → render <RestaurantPublicPage />
+```
 
-## 5. Promotion Builder Flow
+The `promotion_only` path is an **early return with redirect** — no extra DB queries for existing Mode 1 restaurants.
 
-- Entry point used in the create promotion UI: [components/promotion-builder/CreatePromotionFlow.tsx](components/promotion-builder/CreatePromotionFlow.tsx#L1).
-- Game selection: [components/promotion-builder/GameSelectionSection.tsx](components/promotion-builder/GameSelectionSection.tsx#L1) calls `getAvailableGameContracts()` and renders cards based on `game.createCard` and `game.availability`.
-- The builder is intentionally lightweight: `CreatePromotionFlow` creates a draft promotion record and defers preview/runtime experiences to the promotion builder route.
+### Other Routes
+| Route | Type | Purpose |
+|-------|------|---------|
+| `/play/[restaurantSlug]/[promotionSlug]` | Client component | Game play page |
+| `/admin/menu` | Client component | Menu builder |
+| `/admin/promotions/[id]/builder` | Client component | Promotion builder |
+| `/admin/restaurants` | Client component | Restaurant profile tabs |
+| `/api/public/promotion-play` | GET handler | Game session init |
+| `/api/coupons/issue` | POST handler | Coupon issuance |
+| `/api/admin/generate-description` | POST handler | AI description (Anthropic) |
 
-Relevant builder/state files:
-- The builder uses `BuilderGameType` in `CreatePromotionFlow` and expects `onGameTypeChange` to accept a subset of `GameType` values (`wheel | mystery_box | scratch_card`). See [components/promotion-builder/GameSelectionSection.tsx](components/promotion-builder/GameSelectionSection.tsx#L1).
+## 6. Game Framework
 
-## 6. Customer Play Flow
+### Canonical Registry
+`lib/games/registry.ts` is the **single source of truth** for both game metadata and runtime component lookup. The previously separate `lib/game-pool/gameRegistry.ts` has been **deleted** (registry unification complete).
 
-- Play entry: route `app/play/[restaurantSlug]/[promotionSlug]/page.tsx` loads page state and calls the public API.
-- Server selection and payload: the server route [app/api/public/promotion-play/route.ts](app/api/public/promotion-play/route.ts#L1) uses a Supabase service client to:
-  - Resolve `restaurants` by `slug`.
-  - Load the `promotions` record for the restaurant and promotion slug.
-  - Validate promotion status and time window (starts_at/ends_at).
-  - Call `resolvePromotionGame` in `lib/game-pool/resolvePromotionGame` to determine the `game_type` for this session (fallback to promotion.game_type or `'wheel'`).
-  - Load `promotion_rewards` for the promotion and return a normalized rewards array to the client.
-- Client rendering: `app/play/.../page.tsx` calls `getGameDefinition(promotion.game_type)` to obtain the game contract and renders the contract's `PlayComponent`.
-- Coupon issuance: when a player wins, the client posts to `/api/coupons/issue` (see [app/api/coupons/issue/route.ts](app/api/coupons/issue/route.ts#L1)) which inserts a record into `coupon_redemptions` and returns the stored coupon object.
+### GameType Union (`lib/games/types.ts`)
+```typescript
+type GameType = 'wheel' | 'spin_wheel' | 'mystery_box' | 'scratch_card' | 'reward_reels' | 'open_the_door'
+```
 
-## 7. Coupon and Reward Engine
+### Registered Games
+| Key | Status | Contract | Notes |
+|-----|--------|----------|-------|
+| `wheel` | active | `spin-wheel/contract.ts` | Hidden alias; routes to spin_wheel |
+| `spin_wheel` | active | `spin-wheel/contract.ts` | Primary identifier |
+| `mystery_box` | active | `mystery-box/contract.ts` | |
+| `scratch_card` | active | `scratch-card/contract.ts` | |
+| `reward_reels` | beta | `reward-reels/contract.ts` | "Coming Soon" in builder |
+| `open_the_door` | active | `open-the-door/contract.ts` | Added June 2026; has dedicated `builderPreview.tsx` |
 
-- Rewards are stored in `promotion_rewards`/`rewards` tables (see `supabase/schema.sql` and migrations). The public API returns rewards with `label`, `description`, `terms`, `weight`, and `active`.
-- Reward selection logic: `lib/rewards.ts` exports utilities like `pickWeightedReward` and `createCouponCode` used by the play page to select a winner and generate a code before issuing it to the server.
-- Coupon persistence: The `/api/coupons/issue` route inserts into `coupon_redemptions` and returns the saved record. Staff or admin UIs can query these records for validation and reporting (see `app/api/admin/*` routes).
+### GameContract Interface
+Each game contract exposes:
+- `type`, `name`, `icon`, `availability`
+- `createCard` — builder UI metadata
+- `PlayComponent` — runtime game UI
+- `confetti` — post-win confetti config
+- `resultDelayMs` — delay before showing result
+- `labels` — UI copy
+- `getTargetRotation(rewardIndex)` — game-specific rotation math
+- `components.BuilderPreview` — optional; shown in admin promotion builder preview
 
-## 8. QR Architecture
+### Adding a New Game (Checklist)
+1. Add the new `GameType` literal to `lib/games/types.ts`
+2. Create `lib/games/<your-game>/contract.ts` implementing `GameContract`
+3. Create `lib/games/<your-game>/runtime.tsx` with the `PlayComponent`
+4. Optionally create `lib/games/<your-game>/builderPreview.tsx` for admin preview
+5. Register in `lib/games/registry.ts` (`gameRegistry` map + `validGameTypes` array)
+6. Update `BuilderGameType` in `lib/builder/types.ts` if the game should be selectable in the builder
+7. Update `components/promotion-builder/GameSelectionSection.tsx` (still has explicit type checks)
+8. Add a DB seed row in `games` table with matching `game_type` column value
+9. Run `npx tsc --noEmit` and test create→play→coupon flow end to end
 
-- QR handling is implemented as standard web routes. A QR typically maps to a play URL that includes `restaurantSlug` and `promotionSlug` which the play page uses to fetch the promotion data from `app/api/public/promotion-play/route.ts`.
-- The repository includes migrations and SQL for `permanent_location_qr` and constraints around promotions in `supabase/migrations/` (for example `20260501160000_permanent_location_qr.sql`), implying support for both location-level and promotion-specific QR behavior.
+## 7. Promotion Builder Flow
 
-## 9. Supabase / Data Layer
+Entry: `/admin/promotions` → create → redirect to `/admin/promotions/[id]/builder`.
 
-- Client helpers:
-  - Browser client factory: [lib/supabase/client.ts](lib/supabase/client.ts#L1) — uses `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-  - Server client factory: [lib/supabase/server.ts](lib/supabase/server.ts#L1) — constructs a server-side client using cookies and the publishable key.
+**Builder save pattern** (full delete + re-insert, not incremental):
+```
+UPDATE promotions SET ...
+DELETE FROM promotion_rewards WHERE promotion_id = $1
+INSERT INTO promotion_rewards (...)
+DELETE FROM promotion_game_assignments WHERE promotion_id = $1
+INSERT INTO promotion_game_assignments (...)  ← only if multi-game pool enabled
+UPDATE restaurants SET current_promotion_id = $1  ← on launch only
+```
 
-- SQL schema and migrations:
-  - Canonical schema: [supabase/schema.sql](supabase/schema.sql#L1) — defines `restaurants`, `menu_items`, `rewards`, `coupons`, and RLS policies.
-  - Migrations folder: `supabase/migrations/` contains per-change SQL including `super_admin_games`, `permanent_location_qr`, and others.
+**Multi-game pool:** Primary game always included. Additional games stored in `promotion_game_assignments`. `resolvePromotionGame()` picks a game per session from the pool.
 
-- Important tables visible in schema and migrations:
-  - `restaurants` — id, name, slug, brand_color
-  - `menu_items` — catalog items used by rewards
-  - `rewards` and `promotion_rewards` — reward definitions and association to promotions
-  - `coupons` or `coupon_redemptions` — persisted coupon issuance records (multiple migration files reference coupon tables)
+**`normalizePrimary()` helper:** Maps `'wheel'` ↔ `'spin_wheel'` equivalence.
 
-- Security notes in repo:
-  - `schema.sql` enables Row-Level Security (RLS) on key tables and provides permissive example policies. Review and tighten policies for production.
-  - Server-side routes that need elevated privileges use a Supabase service key (`SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SERVICE_KEY`) — do not store these in client-exposed env vars.
+## 8. Customer Play Flow
 
-## 10. Deployment Architecture
+1. Client: `getPlaySessionToken()` → localStorage UUID per `{rSlug}_{pSlug}`
+2. Client: `getCustomerSessionId()` → global localStorage UUID
+3. `GET /api/public/promotion-play?restaurantSlug=...&promotionSlug=...&sessionToken=...`
+4. Server: `resolvePromotionGame()` — creates/finds `play_sessions` row, selects game from pool
+5. Server: `resolveSessionPlayState()` — determines plays used from `coupon_redemptions` (source of truth)
+6. Client: `pickWeightedReward()` → `game.getTargetRotation()` → animate → after `resultDelayMs` → `issueCoupon()` → `confetti(game.confetti)`
+7. Post-win: `CustomerIdentityScreen` (phone + consent capture) — skipped if `sessionStorage` flag set
 
-- The application is a Next.js app (see `package.json` and `next.config.mjs`) intended for serverless deployment (common with Vercel).
-- Backend data is Supabase. Server routes that need elevated permissions use a service role key environment variable: `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SERVICE_KEY` (used in `app/api/*` routes where service access is required).
-- Environment variables referenced in the repo (names only):
-  - `NEXT_PUBLIC_SUPABASE_URL`
-  - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-  - `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SERVICE_KEY`)
+## 9. Coupon and Reward Engine
 
-## 11. Current Architecture Strengths
+- Reward selection: `pickWeightedReward()` in `lib/rewards.ts` uses weighted random selection
+- Coupon codes: `createCouponCode()` generates `SPIN-XXXXXX` (6 alphanumeric, no ambiguous chars)
+- Persistence: `POST /api/coupons/issue` → inserts into `coupon_redemptions`
+- Menu↔Promotion bridge: `promotion_rewards.menu_item_id` (nullable FK to `menu_items`)
 
-- Contract-driven game architecture (`lib/games/*`) keeps game metadata, visuals, and runtime behavior co-located.
-- Registry-driven UI renders available games dynamically (`getAvailableGameContracts()`), reducing duplication.
-- Clear separation between public play APIs and admin APIs using Next.js route handlers under `app/api/`.
-- SQL migrations and a canonical `schema.sql` are present for reproducible DB state.
+### Reward Label Resolution
+`custom_name` → menu item name (via `menu_item_id` FK lookup) → `'Reward'`
 
-## 12. Current Technical Debt / Risks
+## 10. Menu System
 
-- Missing ESLint config in the repository causes `npm run lint` to prompt for configuration when run in a fresh environment.
-- Some game contracts are placeholders (e.g., `reward_reels` / Slot Machine) with `availability: 'beta'`.
-- Certain builder components still assume a subset of GameType values for selection (`CreatePromotionFlow` expects `wheel | mystery_box | scratch_card`).
-- Policies in `supabase/schema.sql` are permissive example policies — these should be reviewed and hardened for production RLS.
+The admin builder (`app/admin/menu/page.tsx`) uses the `menus` table as "sections". This is a naming mismatch — the UI calls them "Sections" but the underlying table is `menus`.
 
-## 13. How to Add a New Game (Checklist)
+A separate `menu_sections` table exists in the DB (migration `20260606030000`) for a true two-level hierarchy (menu → section → items), but the admin builder **does not yet write to `menu_sections`**. This is the primary menu architecture debt item.
 
-1. Update `GameType` in [lib/games/types.ts](lib/games/types.ts#L1) if adding a new literal.
-2. Create a contract file at `lib/games/<your-game>/contract.ts` implementing `GameContract`.
-3. Add the contract to `gameRegistry` in [lib/games/registry.ts](lib/games/registry.ts#L1).
-4. Add any UI previews to `components/games/` or visuals in `components/promotion-builder/` if needed.
-5. If the game is active, ensure `availability: 'active'` and provide `createCard` metadata for builder display.
-6. Run `npx tsc --noEmit` to validate types.
-7. Test the full flow: create a promotion, ensure the play page resolves the game, and verify coupon issuance.
+Current effective hierarchy:
+```
+menus (called "Sections" in UI)
+└── menu_items (shown within each "section")
+```
 
-## 14. Recommended Next Steps
+Intended hierarchy (partially built):
+```
+menus (top-level: Lunch, Dinner, etc.)
+└── menu_sections (sub-sections: Starters, Mains, etc.)
+    └── menu_items
+```
 
-- Add a Super Admin UI for managing available games (toggle `availability`, manage feature flags).
-- Implement an actual Slot Machine runtime for `reward_reels` and promote from `beta` to `active` when ready.
-- Create additional placeholder games to exercise the registry-driven flow.
-- Harden Supabase RLS policies and ensure service keys are restricted and rotated.
-- Split this document into more granular docs: `database-map.md`, `game-framework.md`, `security-checklist.md`.
+## 11. Public Restaurant Page (`RestaurantPublicPage`)
+
+`components/public/RestaurantPublicPage.tsx` (1131 lines) renders the full customer experience for Mode 2 and Mode 3. Key sub-components:
+
+| Component | Purpose |
+|-----------|---------|
+| `MenuItemCard` | 2-col grid item card with image, price, tags |
+| `ItemDetailSheet` | Bottom sheet; focus trap, iOS scroll lock, Escape key dismiss |
+| `RewardWidget` | Floating action button; pulses, bounces; expands to reward panel |
+| `GameEntryModal` | First-load modal; 700–900ms delay; per-session `sessionStorage` dismiss; fires confetti on "Play Now" |
+
+`isRewardItem` prop on `MenuItemCard`: renders `"🎁 Win This"` badge (capped at first 3 reward items).
+
+## 12. Security Architecture
+
+Three hardening phases applied (migration `20260609000000_phase_a_security_hardening.sql`):
+
+- Fixed open `UPDATE` policies on `restaurants`, `menus`, `promotions`
+- Dropped anonymous `INSERT` on `restaurants`
+- Fixed storage bucket policies (path-scoped to `{uid}/...`)
+- Removed `owner_id IS NULL` loophole from `restaurants` SELECT
+
+**Client pattern:** Public reads use **service-role client** in server components (`makeServiceClient()`) — Supabase RLS bypassed server-side, data filtered in query. Admin writes use **authenticated client** with owner-scoped RLS.
+
+**Storage buckets:**
+- `restaurant-heroes` (10MB, public) — upload path `{uid}/{restaurantId}/hero.{ext}`
+- `menu-item-images` (5MB, public) — upload path `{uid}/{restaurantId}/items/{itemId}/{ts}.{ext}`
+
+## 13. AI Integration
+
+`POST /api/admin/generate-description` — uses Anthropic SDK (Claude) to generate menu item descriptions. Admin clicks "Generate" in menu builder → calls this route → populates description field. Menu item stores `ai_metadata` JSONB field (tracks `description_source`, `description_model`, `description_generated_at`).
+
+## 14. External Dependencies
+
+- **Supabase**: PostgreSQL + RLS + Auth + Storage
+- **Vercel**: Serverless deployment
+- **Anthropic SDK**: AI description generation
+- **canvas-confetti**: 3 usage sites (GameEntryModal, play page win, admin promotion end)
+- **api.qrserver.com**: External QR code image generation — privacy concern; no SLA; candidate for internalization
+
+## 15. Session and Storage Keys
+
+| Key | Storage | Purpose |
+|-----|---------|---------|
+| `spinbite_play_session_{rSlug}_{pSlug}` | localStorage | Play token per promotion |
+| `spinbite_customer_session_id` | localStorage | Global customer identity |
+| `game-entry-modal-dismissed-{promotionId}` | sessionStorage | Modal dismiss per session |
+
+## 16. Current Technical Debt
+
+| Item | Severity | Notes |
+|------|----------|-------|
+| `menus` used as "sections" while `menu_sections` table unused | High | Admin builder must be updated to use true two-level hierarchy |
+| `app/admin/menu/page.tsx` monolith (833 lines) | Medium | Direct Supabase calls, no server actions, currency hardcoded to CAD |
+| `app/admin/promotions/[id]/builder/page.tsx` monolith (610 lines) | Medium | Full delete+re-insert save pattern; no optimistic updates |
+| `BuilderGameType` manually narrowed in `lib/builder/types.ts` | Low | Requires manual update when adding new selectable games |
+| Hardcoded game-type branches in `GameSelectionSection.tsx` | Low | Not fully data-driven from registry |
+| `api.qrserver.com` external dependency | Medium | Privacy risk; no offline support |
+| Legacy `types/reward.ts` — duplicate Reward type definitions | Low | Two different `Reward` type shapes in codebase |
+| `PromotionBuilderClient.tsx` stub returns `<div />` | Low | Dead code, can be removed |
+| `lib/game-pool/types.ts` re-export wrapper | Low | Kept for backward compat; can be inlined |
+| `placement_mode` column exists but only `'restaurant'` is used | Low | Future: menu/section/item-scoped promotions |
+| Wallet buttons (Apple/Google Wallet) are UI stubs | Low | Not implemented; shows UI without function |
+
+## 17. Recommended Next Steps
+
+1. **Wire `menu_sections` to admin builder** — highest-impact menu architecture work; resolves the naming confusion and enables true two-level menus
+2. **Internalize QR generation** — replace `api.qrserver.com` with a self-hosted or library-based solution
+3. **Super Admin game management UI** — toggle `availability`, manage `games` table from UI instead of SQL
+4. **Split admin page monoliths** — `menu/page.tsx` and `promotions/[id]/builder/page.tsx` into composable server actions + smaller components
+5. **Promote `reward_reels`** — implement actual slot machine runtime and change `availability` from `'beta'` to `'active'`
+6. **Loyalty foundation** — `customer_profiles` + play history are already captured; add tier/visit tracking
 
 ---
 
-Document created from repository files. For code references and deeper inspection, see the linked files in the repo tree listed above.
+*Last updated: 2026-06-11. Reflects Phase 2 menu experience, experience_mode routing, registry unification, and security hardening phases A/B/C.*

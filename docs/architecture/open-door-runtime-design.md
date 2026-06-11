@@ -1,5 +1,7 @@
 # Open The Door Runtime Design
 
+> **Status (June 2026):** This game is live. Contract at `lib/games/open-the-door/contract.ts`, runtime at `lib/games/open-the-door/runtime.tsx`, builder preview at `lib/games/open-the-door/builderPreview.tsx`. Design spec below is the reference for the implemented animation system.
+
 ## Overview
 
 The Open The Door runtime is a dedicated experience for the `open_the_door` game type.

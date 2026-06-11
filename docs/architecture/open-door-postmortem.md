@@ -1,5 +1,11 @@
 # Open The Door Postmortem
 
+> **Note (June 2026):** `lib/game-pool/gameRegistry.ts` — listed below as a file touched during this feature — was **subsequently deleted** as part of registry unification work completed after open_the_door shipped. That file no longer exists. `lib/games/registry.ts` is now the single canonical registry. See `registry-unification-report.md`.
+>
+> Two post-ship bugs were also discovered and fixed:
+> - **Selection bug**: `GameSelectionSection.tsx` click handler had an explicit allow-list that excluded `open_the_door`, making the card visible but unclickable. Fixed. See `open-door-selection-bug.md`.
+> - **Preview bug**: `SpinWheelPreview.tsx` fell back to Mystery Box preview for non-wheel games. Fixed by adding `components.BuilderPreview` to the contract. See `open-door-preview-bug.md`.
+
 ## Files Touched
 
 - `lib/games/open-the-door/contract.ts`

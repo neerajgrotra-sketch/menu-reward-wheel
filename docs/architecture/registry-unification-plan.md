@@ -1,5 +1,11 @@
 # Registry Unification Plan
 
+> **STATUS: COMPLETED.** This was a planning document. All steps in Section 5 have been executed.
+> `lib/game-pool/gameRegistry.ts` is **deleted**. `lib/games/registry.ts` is the single canonical registry.
+> See `registry-unification-report.md` for the completion report.
+
+---
+
 ## Objective
 
 Document the current split between game contract metadata and runtime component registry logic, and propose a canonical unification path without changing code.

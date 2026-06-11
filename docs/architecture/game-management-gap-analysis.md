@@ -1,7 +1,13 @@
 # Game Management Gap Analysis
 
-**Date:** June 1, 2026
+**Date:** June 1, 2026 (original) | **Updated:** June 11, 2026
 **Branch:** feature/game-management
+
+> **Status update (June 2026):**
+> - `game_type` column added to `games` table (migration 20260601000000). All known rows populated.
+> - `open_the_door` added to `games` table with `game_type = 'open_the_door'` and `status = 'active'`.
+> - Game names have changed since this doc was written: "Scratch & Win" → **Scratch Card** (`scratch_card`); "Lucky Slot" → **Reward Reels** (`reward_reels`). DB slug `scratch-win` and `lucky-slot` remain.
+> - Most "Missing Capabilities" items below are **still pending** — the gap analysis remains accurate.
 
 ## Existing Functionality
 

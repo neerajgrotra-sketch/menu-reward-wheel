@@ -31,3 +31,14 @@
 - Consider exporting a full runtime component map from `lib/games/registry.ts` if other runtime consumers appear.
 - Consolidate `GameType` imports across the app to use `@/lib/games/types` directly.
 - Remove or refactor remaining `lib/game-pool/*` helpers once their only responsibility is promotion assignment.
+
+## Post-Unification Addition: open_the_door (June 2026)
+
+`open_the_door` was the first game added entirely under the unified registry. Key notes:
+
+- Contract at `lib/games/open-the-door/contract.ts`
+- Dedicated builder preview at `lib/games/open-the-door/builderPreview.tsx` — uses `components.BuilderPreview` field in contract to avoid the "falls back to Mystery Box preview" bug
+- Two bugs surfaced and fixed during integration (see `open-door-selection-bug.md` and `open-door-preview-bug.md`) — both in explicit game-type allow-lists in UI components that weren't data-driven from the registry
+- `open_the_door` is confirmed in the canonical registry and in `lib/games/types.ts` `GameType` union
+
+These bugs confirm that `GameSelectionSection.tsx` and `SpinWheelPreview.tsx` still require manual updates when a new game is added. Full data-driven derivation from contract metadata alone remains a future improvement.

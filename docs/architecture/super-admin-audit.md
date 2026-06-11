@@ -1,8 +1,18 @@
 # Super Admin Architecture Audit
 
 **Date:** June 1, 2026  
-**Status:** Complete discovery and documentation only (no schema modifications)  
+**Updated:** June 11, 2026  
+**Status:** Discovery complete; several items completed post-audit (see update notes below)  
 **Purpose:** Assess existing Super Admin functionality to inform Game Management feature design
+
+> **June 2026 update notes:**
+> - `game_type` column added to `games` table (migration 20260601000000). All rows populated.
+> - `open_the_door` added to `games` table with `game_type = 'open_the_door'`, `status = 'active'`; game is now live.
+> - `lib/game-pool/gameRegistry.ts` **deleted** — registry unification complete.
+> - Super Admin slug checks partially cleaned up (`game-type-cleanup-report.md`) but super-admin still references old game names ("Scratch & Win", "Lucky Slot") — actual names are now "Scratch Card" and "Reward Reels".
+> - Implementation Checklist (Section 9) items remain largely **not yet implemented**.
+> - `games` table now includes `game_type` column — `slug` is retained for admin display only.
+> - Phase 2 menu system added: `restaurant_settings` table now exists (similar to proposed Settings pattern).
 
 ---
 
@@ -46,12 +56,13 @@ All super-admin pages:
   - Sort order (for display priority)
   - Game-specific config (e.g., wheel speed, spin rotations, slowdown)
 
-**Games Currently Configured:**
-- Spin Wheel (active) — `🎯` icon, 6–10 rewards default
-- Scratch & Win (coming_soon) — `✨` icon
-- Mystery Box (coming_soon) — `🎁` icon
-- Pick a Card (coming_soon) — `🃏` icon
-- Lucky Slot (coming_soon) — `🎰` icon
+**Games Currently Configured (as of June 2026):**
+- Spin Wheel (active) — `🎯` icon, `game_type = 'spin_wheel'`
+- **Open The Door** (active) — `game_type = 'open_the_door'` *(added June 2026)*
+- Scratch Card (coming_soon) — `🪙` icon, `game_type = 'scratch_card'` *(DB slug still `scratch-win`, name was "Scratch & Win")*
+- Mystery Box (coming_soon) — `🎁` icon, `game_type = 'mystery_box'`
+- Reward Reels (beta) — `🎰` icon, `game_type = 'reward_reels'` *(DB slug still `lucky-slot`, name was "Lucky Slot")*
+- Pick a Card (coming_soon) — `🃏` icon, `game_type = 'pick_a_card'` — no runtime contract
 
 **User Actions:**
 - View game list (sorted by sort_order, then name)
@@ -137,7 +148,8 @@ All super-admin pages:
 - **Primary Key:** `id` (UUID)
 - **Columns:**
   - `name` (text) — display name
-  - `slug` (text, unique) — identifier for game registry
+  - `slug` (text, unique) — display/URL identifier (legacy; game resolution now uses `game_type`)
+  - `game_type` (text, unique) — **canonical runtime identifier** (added migration 20260601000000)
   - `description` (text) — marketing copy
   - `status` (text, enum: 'active', 'coming_soon', 'disabled')
   - `icon` (text) — emoji or icon identifier

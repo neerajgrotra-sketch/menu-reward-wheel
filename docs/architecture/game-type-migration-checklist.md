@@ -1,13 +1,16 @@
 # Game Type Migration - Code Reference
 
-**Date:** June 1, 2026
+**Date:** June 1, 2026 (original) | **Updated:** June 11, 2026
 **Branch:** feature/game-management
+
+> **Status update (June 2026):** DB migration applied. Registry unification completed Phase 2 work.
+> Items marked ✅ are confirmed complete. Items marked ❌ remain pending.
 
 ## Overview
 
-After the database migration in `supabase/migrations/20260601000000_normalize_game_identifiers.sql` is applied, the following code files need updates to use `game_type` instead of `slug` or hardcoded slug checks.
+After the database migration in `supabase/migrations/20260601000000_normalize_game_identifiers.sql` was applied, the following code files needed updates to use `game_type` instead of `slug` or hardcoded slug checks.
 
-This document lists all known locations that will need refactoring but does **not** implement those changes yet.
+This document records the original list of locations requiring refactoring and their current status.
 
 ## Affected Files
 
@@ -76,23 +79,9 @@ fallbackGameType: (promotion.game_type || 'wheel') as GameType,
 
 ### 5. Game Pool Registry
 
-**File:** [lib/game-pool/gameRegistry.ts](lib/game-pool/gameRegistry.ts)
+**File:** `lib/game-pool/gameRegistry.ts`
 
-**Current code:**
-```typescript
-export const GAME_REGISTRY: Record<GameType, ComponentType<any>> = {
-  wheel: PlaceholderGame,
-  mystery_box: PlaceholderGame,
-  scratch_card: PlaceholderGame,
-  slot_machine: PlaceholderGame,
-  pick_a_door: PlaceholderGame,
-  fortune_cookie: PlaceholderGame,
-};
-```
-
-**Issue:** This legacy registry has entries that don't match the canonical games table game_type values. It should be unified with `lib/games/registry.ts`.
-
-**Phase 2 action:** Replace `lib/game-pool/gameRegistry.ts` with imports from `lib/games/registry.ts` or deprecate it.
+> ✅ **DELETED.** Registry unification is complete. `lib/games/registry.ts` is now the single canonical registry for both game contracts and runtime component lookup. `GameRuntimeRenderer.tsx` uses `getRuntimeGameComponent` from the canonical registry. See `registry-unification-report.md`.
 
 ---
 
@@ -100,20 +89,7 @@ export const GAME_REGISTRY: Record<GameType, ComponentType<any>> = {
 
 **File:** [lib/game-pool/types.ts](lib/game-pool/types.ts)
 
-**Current code:**
-```typescript
-export type GameType =
-  | 'wheel'
-  | 'mystery_box'
-  | 'scratch_card'
-  | 'slot_machine'
-  | 'pick_a_door'
-  | 'fortune_cookie';
-```
-
-**Issue:** This overlaps with `lib/games/types.ts` and has entries that don't exist in the current contract registry. Should be consolidated.
-
-**Phase 2 action:** Deprecate this file in favor of `lib/games/types.ts` GameType union.
+> ✅ **Consolidated.** `lib/game-pool/types.ts` now re-exports `GameType` from `lib/games/types.ts` for backward compatibility. The canonical `GameType` union (including `open_the_door`) lives in `lib/games/types.ts`.
 
 ---
 
@@ -183,17 +159,19 @@ const isSpinWheel = game.slug === 'spin-wheel';
 
 ## Migration Checklist
 
-- [ ] Database migration applied
-- [ ] Update [app/super-admin/games/actions.ts](app/super-admin/games/actions.ts) to use game_type
-- [ ] Update [app/super-admin/games/GameLabCard.tsx](app/super-admin/games/GameLabCard.tsx) slug check
-- [ ] Verify [app/api/public/promotion-play/route.ts](app/api/public/promotion-play/route.ts) handles game_type correctly
-- [ ] Consolidate [lib/game-pool/types.ts](lib/game-pool/types.ts) with [lib/games/types.ts](lib/games/types.ts)
-- [ ] Update [lib/builder/types.ts](lib/builder/types.ts) BuilderGameType union
-- [ ] Review [lib/game-pool/gameRegistry.ts](lib/game-pool/gameRegistry.ts) for deprecation
-- [ ] Run `npx tsc --noEmit` to validate all type changes
-- [ ] Test promotion creation with each game type
-- [ ] Test play flow for each game type
-- [ ] Deploy to staging for QA validation
+- [x] Database migration applied (`20260601000000_normalize_game_identifiers.sql`)
+- [ ] Update [app/super-admin/games/actions.ts](app/super-admin/games/actions.ts) to use game_type ❌ still uses slug check
+- [ ] Update [app/super-admin/games/GameLabCard.tsx](app/super-admin/games/GameLabCard.tsx) slug check ❌ still pending
+- [x] Verify [app/api/public/promotion-play/route.ts](app/api/public/promotion-play/route.ts) handles game_type correctly ✅
+- [x] Consolidate [lib/game-pool/types.ts](lib/game-pool/types.ts) — now re-exports from `lib/games/types.ts` ✅
+- [x] Update [lib/builder/types.ts](lib/builder/types.ts) — BuilderGameType updated for active games ✅
+- [x] Delete [lib/game-pool/gameRegistry.ts](lib/game-pool/gameRegistry.ts) — registry unification complete ✅
+- [x] Run `npx tsc --noEmit` to validate all type changes ✅
+- [x] Test promotion creation with each game type ✅ (wheel, mystery_box, scratch_card, open_the_door)
+- [x] Test play flow for each game type ✅
+- [ ] Deploy to staging for QA validation — ongoing
+
+**Remaining work:** Super-admin slug checks in `app/super-admin/games/` are the last slug-based references. See `super-admin-audit.md`.
 
 ## Notes
 

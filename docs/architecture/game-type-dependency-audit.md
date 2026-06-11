@@ -1,5 +1,13 @@
 # Game Type Dependency Audit
 
+> **Status update (June 2026):**
+> - Super admin slug checks (`actions.ts`, `GameLabCard.tsx`) were cleaned up per `game-type-cleanup-report.md` — those files now use `game_type`.
+> - `lib/game-pool/gameRegistry.ts` has been **deleted** (registry unification). No longer a slug dependency.
+> - `open_the_door` was added safely using `game_type` from day one — confirming the migration readiness assessment was correct.
+> - The audit below documents the pre-cleanup state for historical context.
+
+---
+
 This audit is based on a repository-wide search for legacy game identifier references:
 - `spin-wheel`
 - `mystery-box`

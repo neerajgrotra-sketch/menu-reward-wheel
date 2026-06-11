@@ -1,7 +1,12 @@
 # Game Type Migration Report
 
-**Date:** June 1, 2026
+**Date:** June 1, 2026 (Phase 1) | **Updated:** June 11, 2026
 **Branch:** feature/game-management
+
+> **Phase 2 complete.** Registry unification finished after this report was written.
+> `lib/game-pool/gameRegistry.ts` has been **deleted**. See `registry-unification-report.md` for Phase 2 details.
+> `open_the_door` was subsequently added as the first new game under the unified registry (June 2026).
+> Super-admin slug checks in `app/super-admin/games/` remain — see `super-admin-audit.md`.
 
 ## Files changed
 

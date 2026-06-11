@@ -1,11 +1,18 @@
 # Game Identifier Normalization Strategy
 
-**Date:** June 1, 2026
+**Date:** June 1, 2026 (strategy) | **Updated:** June 11, 2026 (status)
 **Branch:** feature/game-management
 
-## Current State
+> **Status: Phase 1 COMPLETE. Phase 2 largely complete via registry unification.**
+> Migration `20260601000000_normalize_game_identifiers.sql` has been applied.
+> `open_the_door` added June 2026 with `game_type = 'open_the_door'` from day one.
+> See `registry-unification-report.md` for Phase 2 completion details.
 
-The `games` table currently uses `slug` as the only identifier:
+---
+
+## Original State (at time of writing)
+
+The `games` table previously used `slug` as the only identifier:
 
 - `spin-wheel` (Spin Wheel, 🎯, active)
 - `scratch-win` (Scratch & Win, ✨, coming_soon)
@@ -139,3 +146,26 @@ If needed, the migration can be reversed by:
 2. Keeping `slug` as the primary identifier (reverting to the current state)
 
 All downstream code that switches to `game_type` would need to revert as well.
+
+---
+
+## Current State (as of June 2026)
+
+Phase 1 and Phase 2 are complete. The `games` table now has `game_type` as a required column with a unique constraint.
+
+**Known games in DB (post-unification):**
+
+| game_type | slug | Status |
+|-----------|------|--------|
+| `spin_wheel` | `spin-wheel` | active |
+| `mystery_box` | `mystery-box` | active |
+| `scratch_card` | `scratch-win` | active |
+| `reward_reels` | `lucky-slot` | beta |
+| `open_the_door` | `open-the-door` | active (added June 2026) |
+| `pick_a_card` | `pick-a-card` | no runtime contract |
+
+**`pick_a_card`** still has no runtime contract in `lib/games/`. It exists in the DB but is not selectable in the builder. Remains a backlog item.
+
+**Super-admin slug checks** (`app/super-admin/games/`) still use some slug-based comparisons. See `super-admin-audit.md` for the remaining items.
+
+`lib/game-pool/gameRegistry.ts` has been **deleted** — unification complete. See `registry-unification-report.md`.

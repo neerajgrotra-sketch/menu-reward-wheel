@@ -96,12 +96,37 @@ Likely 5-7 files.
 
 ## 8. Architecture score
 
-### Before branch
+### Before registry unification
 
 - Score: 4/10
 - Reasons: duplicate registries, duplicated type definitions, split runtime metadata boundaries, and a more fragile add-new-game surface.
 
-### After branch
+### After registry unification (current state)
 
 - Score: 7/10
 - Reasons: registry unification is successful, runtime component lookup is centralized, and `GameType` is centralized in one type file. Remaining score loss comes from hardcoded UI branches, builder-specific type narrowing, and leftover aliasing.
+
+## 9. Post-unification: open_the_door addition (June 2026)
+
+`open_the_door` was added as the first game added entirely under the unified registry. Two bugs were caught and fixed:
+
+- **Selection bug** (`open-door-selection-bug.md`): `GameSelectionSection.tsx` click handler only passed `wheel`, `mystery_box`, and `scratch_card` to `onChange` — `open_the_door` was visible but unclickable. Fixed by removing the explicit allow-list from the handler.
+- **Preview bug** (`open-door-preview-bug.md`): `SpinWheelPreview.tsx` fell back to `MysteryBoxBuilderPreview` for any non-wheel game. Fixed by adding `components.BuilderPreview` to the contract and delegating to it in `SpinWheelPreview.tsx`.
+
+These bugs confirm the "2-4 additional UI files" estimate from Section 1: adding a new game still requires touching `GameSelectionSection.tsx` and the admin preview component — they are not yet fully data-driven from contract metadata alone.
+
+## 10. Updated add-new-game file count (current)
+
+Minimum (contract + runtime + registry): **4 files**
+
+Typical (selectable in builder + admin preview): **6–8 files**, specifically:
+- `lib/games/types.ts`
+- `lib/games/<game>/contract.ts`
+- `lib/games/<game>/runtime.tsx`
+- `lib/games/<game>/builderPreview.tsx` (recommended to avoid preview fallback bug)
+- `lib/games/registry.ts`
+- `lib/builder/types.ts` (update `BuilderGameType`)
+- `components/promotion-builder/GameSelectionSection.tsx` (update click handler allow-list)
+- `components/admin/SpinWheelPreview.tsx` (handled automatically if contract has `BuilderPreview`)
+
+Plus a `games` table DB seed row for the Super Admin game catalogue.

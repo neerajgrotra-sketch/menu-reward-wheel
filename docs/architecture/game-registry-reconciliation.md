@@ -1,7 +1,17 @@
 # Game Registry Reconciliation
 
-**Date:** June 1, 2026
+**Date:** June 1, 2026 (original) | **Updated:** June 11, 2026
 **Branch:** feature/game-management
+
+> **Status update (June 2026):** Most reconciliation items from this audit have been addressed.
+> - `game_type` column added to `games` table (migration 20260601000000) — resolves the slug/type mismatch
+> - `scratch_card` and `reward_reels` now have DB rows with `game_type` populated
+> - `open_the_door` added to registry and DB (`game_type = 'open_the_door'`, `status = 'active'`)
+> - `lib/game-pool/gameRegistry.ts` deleted — registry unification complete
+> - `pick_a_card` still has no runtime contract (still in DB, still orphaned)
+> - Super-admin slug checks updated to use `game_type` (see `game-type-cleanup-report.md`)
+>
+> The doc below reflects the pre-migration state for historical reference.
 
 ## Summary
 
