@@ -695,7 +695,7 @@ export default function MenuPage() {
                 <input
                   value={editingItemName}
                   onChange={(e) => setEditingItemName(e.target.value)}
-                  className="w-full rounded-xl border border-stone-200 px-3 py-2.5 font-bold outline-none focus:border-[#FF6B00]"
+                  className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-base font-bold outline-none focus:border-[#FF6B00]"
                 />
               </div>
               <div>
@@ -707,7 +707,7 @@ export default function MenuPage() {
                     onChange={(e) => setEditingItemPrice(e.target.value.replace(/[^0-9.]/g, ''))}
                     placeholder="0.00"
                     inputMode="decimal"
-                    className="w-full rounded-xl border border-stone-200 py-2.5 pl-7 pr-2 font-semibold outline-none focus:border-[#FF6B00]"
+                    className="w-full rounded-xl border border-stone-200 py-2.5 pl-7 pr-2 text-base font-semibold outline-none focus:border-[#FF6B00]"
                   />
                 </div>
               </div>
@@ -755,7 +755,7 @@ export default function MenuPage() {
                 onChange={(e) => setEditingItemDescription(e.target.value)}
                 placeholder="Describe this dish…"
                 rows={3}
-                className="w-full resize-none rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+                className="w-full resize-none rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-[#FF6B00]"
               />
             </div>
 
@@ -800,7 +800,7 @@ export default function MenuPage() {
                 value={editingItemTags}
                 onChange={(e) => setEditingItemTags(e.target.value)}
                 placeholder="Vegetarian, Vegan, Gluten Free, Spicy…"
-                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-[#FF6B00]"
               />
               <p className="mt-1 text-xs text-stone-400">Comma-separated</p>
             </div>
@@ -813,7 +813,7 @@ export default function MenuPage() {
                 value={editingItemDisplayOrder}
                 onChange={(e) => setEditingItemDisplayOrder(e.target.value)}
                 min="0"
-                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 font-semibold outline-none focus:border-[#FF6B00]"
+                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-[#FF6B00]"
               />
               <p className="mt-1 text-xs text-stone-400">
                 Lower numbers appear first. Items with the same order appear by creation date.
