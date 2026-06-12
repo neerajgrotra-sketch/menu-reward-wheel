@@ -97,6 +97,9 @@ export default function MenuPage() {
   const [editingItemAvailable, setEditingItemAvailable] = useState(true);
   const [editingItemTags, setEditingItemTags] = useState('');
   const [editingItemDisplayOrder, setEditingItemDisplayOrder] = useState('0');
+  // Chef Special and Popular are stored as tags in the DB but surfaced as Quick Action chips.
+  const [editingItemChefSpecial, setEditingItemChefSpecial] = useState(false);
+  const [editingItemPopular, setEditingItemPopular] = useState(false);
 
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -228,7 +231,13 @@ export default function MenuPage() {
     setEditingItemDescription(item.description || '');
     setEditingItemFeatured(item.is_featured);
     setEditingItemAvailable(item.available);
-    setEditingItemTags((item.tags || []).join(', '));
+    // chef_special and popular live in tags but are driven by Quick Action chips.
+    // Strip them from the user-visible tags input so the two surfaces don't conflict.
+    const QUICK_ACTION_TAGS = ['chef_special', 'popular'];
+    const userTags = (item.tags || []).filter((t) => !QUICK_ACTION_TAGS.includes(t));
+    setEditingItemTags(userTags.join(', '));
+    setEditingItemChefSpecial((item.tags || []).includes('chef_special'));
+    setEditingItemPopular((item.tags || []).includes('popular'));
     setEditingItemDisplayOrder(String(item.display_order ?? 0));
     setActiveSheetTab('details');
     setSheetOpen(true);
@@ -329,7 +338,13 @@ export default function MenuPage() {
         description: editingItemDescription.trim() || null,
         is_featured: editingItemFeatured,
         available: editingItemAvailable,
-        tags: editingItemTags.split(',').map((t) => t.trim()).filter(Boolean),
+        // Preserve user-authored tags; never let chef_special/popular sneak in via the text input.
+        // The Quick Action chips are the sole authority for those two tags.
+        tags: [
+          ...editingItemTags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'chef_special' && t !== 'popular'),
+          ...(editingItemChefSpecial ? ['chef_special'] : []),
+          ...(editingItemPopular ? ['popular'] : []),
+        ],
         display_order: parseInt(editingItemDisplayOrder, 10) || 0,
       })
       .eq('id', itemId)
@@ -589,14 +604,24 @@ export default function MenuPage() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <p className="font-black">{item.name}</p>
-                                {item.is_featured && (
-                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
-                                    Featured
-                                  </span>
-                                )}
                                 {!item.available && (
                                   <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
-                                    Unavailable
+                                    🚫 Sold Out
+                                  </span>
+                                )}
+                                {item.is_featured && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">
+                                    ⭐ Featured
+                                  </span>
+                                )}
+                                {(item.tags || []).includes('chef_special') && (
+                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-black text-purple-700">
+                                    👨‍🍳 Chef Special
+                                  </span>
+                                )}
+                                {(item.tags || []).includes('popular') && (
+                                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-black text-orange-600">
+                                    🔥 Popular
                                   </span>
                                 )}
                               </div>
@@ -688,6 +713,75 @@ export default function MenuPage() {
         {editingItemId && editingItemMenuId && (
           <div className="space-y-5 pb-8">
 
+            {/* ── QUICK ACTIONS ─────────────────────────────────────── */}
+            <div>
+              <p className="mb-2 text-xs font-black uppercase tracking-widest text-stone-400">Quick Actions</p>
+              <div className="grid grid-cols-2 gap-2">
+                {/* Available / Sold Out */}
+                <button
+                  type="button"
+                  onClick={() => setEditingItemAvailable(!editingItemAvailable)}
+                  className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                    editingItemAvailable
+                      ? 'bg-green-100 text-green-700 shadow-sm ring-1 ring-green-200'
+                      : 'bg-red-100 text-red-600 shadow-sm ring-1 ring-red-200'
+                  }`}
+                >
+                  <span>{editingItemAvailable ? '✓' : '🚫'}</span>
+                  <span>{editingItemAvailable ? 'Available' : 'Sold Out'}</span>
+                </button>
+
+                {/* Featured */}
+                <button
+                  type="button"
+                  onClick={() => setEditingItemFeatured(!editingItemFeatured)}
+                  className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                    editingItemFeatured
+                      ? 'bg-amber-100 text-amber-700 shadow-sm ring-1 ring-amber-200'
+                      : 'bg-stone-100 text-stone-400 ring-1 ring-stone-200'
+                  }`}
+                >
+                  <span>⭐</span>
+                  <span>Featured</span>
+                </button>
+
+                {/* Chef Special */}
+                <button
+                  type="button"
+                  onClick={() => setEditingItemChefSpecial(!editingItemChefSpecial)}
+                  className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                    editingItemChefSpecial
+                      ? 'bg-purple-100 text-purple-700 shadow-sm ring-1 ring-purple-200'
+                      : 'bg-stone-100 text-stone-400 ring-1 ring-stone-200'
+                  }`}
+                >
+                  <span>👨‍🍳</span>
+                  <span>Chef Special</span>
+                </button>
+
+                {/* Popular */}
+                <button
+                  type="button"
+                  onClick={() => setEditingItemPopular(!editingItemPopular)}
+                  className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                    editingItemPopular
+                      ? 'bg-orange-100 text-orange-600 shadow-sm ring-1 ring-orange-200'
+                      : 'bg-stone-100 text-stone-400 ring-1 ring-stone-200'
+                  }`}
+                >
+                  <span>🔥</span>
+                  <span>Popular</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-stone-100" />
+              <p className="text-xs font-black uppercase tracking-widest text-stone-300">Details</p>
+              <div className="h-px flex-1 bg-stone-100" />
+            </div>
+
             {/* Name + Price */}
             <div className="grid grid-cols-[1fr_110px] gap-3">
               <div>
@@ -771,29 +865,7 @@ export default function MenuPage() {
               />
             )}
 
-            {/* Featured + Available */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setEditingItemFeatured(!editingItemFeatured)}
-                className={`rounded-xl p-3 text-sm font-black transition-colors ${
-                  editingItemFeatured ? 'bg-amber-100 text-amber-700' : 'bg-stone-100 text-stone-500'
-                }`}
-              >
-                {editingItemFeatured ? '⭐ Featured' : 'Not Featured'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditingItemAvailable(!editingItemAvailable)}
-                className={`rounded-xl p-3 text-sm font-black transition-colors ${
-                  editingItemAvailable ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-                }`}
-              >
-                {editingItemAvailable ? '✓ Available' : '✗ Unavailable'}
-              </button>
-            </div>
-
-            {/* Tags */}
+            {/* Tags — chef_special and popular are excluded; managed by Quick Actions chips above */}
             <div>
               <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Tags</p>
               <input
@@ -802,7 +874,7 @@ export default function MenuPage() {
                 placeholder="Vegetarian, Vegan, Gluten Free, Spicy…"
                 className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-[#FF6B00]"
               />
-              <p className="mt-1 text-xs text-stone-400">Comma-separated</p>
+              <p className="mt-1 text-xs text-stone-400">Comma-separated · chef_special and popular are managed above</p>
             </div>
 
             {/* Display order */}
