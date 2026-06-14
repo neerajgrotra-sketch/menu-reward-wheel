@@ -101,10 +101,33 @@ export default function MenuPage() {
   const [editingItemChefSpecial, setEditingItemChefSpecial] = useState(false);
   const [editingItemPopular, setEditingItemPopular] = useState(false);
 
+  // Original snapshots — captured when the sheet opens. Used to compute dirty state.
+  const [originalItemName, setOriginalItemName] = useState('');
+  const [originalItemPrice, setOriginalItemPrice] = useState('');
+  const [originalItemDescription, setOriginalItemDescription] = useState('');
+  const [originalItemTags, setOriginalItemTags] = useState('');
+  const [originalItemDisplayOrder, setOriginalItemDisplayOrder] = useState('0');
+
+  // Transient feedback after a Quick Action instant-save.
+  const [quickActionFeedback, setQuickActionFeedback] = useState<string | null>(null);
+
+  // Overflow ⋮ menu in the sheet header.
+  const [overflowMenuOpen, setOverflowMenuOpen] = useState(false);
+
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [aiGenerating, setAiGenerating] = useState(false);
+
+  // Form is dirty when any of the manually-editable fields differ from the snapshot
+  // taken when the sheet was opened. Quick Action chips are excluded — they save instantly.
+  const isDirty =
+    editingItemId !== null &&
+    (editingItemName !== originalItemName ||
+      editingItemPrice !== originalItemPrice ||
+      editingItemDescription !== originalItemDescription ||
+      editingItemTags !== originalItemTags ||
+      editingItemDisplayOrder !== originalItemDisplayOrder);
 
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
@@ -211,6 +234,7 @@ export default function MenuPage() {
 
   function closeSheet() {
     setSheetOpen(false);
+    setOverflowMenuOpen(false);
     // Delay clearing editor state until the close animation completes so the
     // sheet content doesn't flash empty during the slide-down transition.
     clearTimeout(closeSheetTimeoutRef.current);
@@ -224,23 +248,76 @@ export default function MenuPage() {
     // Cancel any in-flight close timeout so opening a new item immediately
     // after closing another doesn't clear the freshly-loaded state.
     clearTimeout(closeSheetTimeoutRef.current);
+
+    const QUICK_ACTION_TAGS = ['chef_special', 'popular'];
+    const userTags = (item.tags || []).filter((t) => !QUICK_ACTION_TAGS.includes(t));
+    const priceStr = item.price != null ? String(item.price) : '';
+    const descStr = item.description || '';
+    const tagsStr = userTags.join(', ');
+    const orderStr = String(item.display_order ?? 0);
+
     setEditingItemId(item.id);
     setEditingItemMenuId(menuId);
     setEditingItemName(item.name);
-    setEditingItemPrice(item.price != null ? String(item.price) : '');
-    setEditingItemDescription(item.description || '');
+    setEditingItemPrice(priceStr);
+    setEditingItemDescription(descStr);
     setEditingItemFeatured(item.is_featured);
     setEditingItemAvailable(item.available);
-    // chef_special and popular live in tags but are driven by Quick Action chips.
-    // Strip them from the user-visible tags input so the two surfaces don't conflict.
-    const QUICK_ACTION_TAGS = ['chef_special', 'popular'];
-    const userTags = (item.tags || []).filter((t) => !QUICK_ACTION_TAGS.includes(t));
-    setEditingItemTags(userTags.join(', '));
+    setEditingItemTags(tagsStr);
     setEditingItemChefSpecial((item.tags || []).includes('chef_special'));
     setEditingItemPopular((item.tags || []).includes('popular'));
-    setEditingItemDisplayOrder(String(item.display_order ?? 0));
+    setEditingItemDisplayOrder(orderStr);
+
+    // Snapshot for dirty-state detection.
+    setOriginalItemName(item.name);
+    setOriginalItemPrice(priceStr);
+    setOriginalItemDescription(descStr);
+    setOriginalItemTags(tagsStr);
+    setOriginalItemDisplayOrder(orderStr);
+
+    setOverflowMenuOpen(false);
+    setQuickActionFeedback(null);
     setActiveSheetTab('details');
     setSheetOpen(true);
+  }
+
+  // ── Quick Action instant-save ──────────────────────────────────────
+  // Persists a boolean flag (available / is_featured / chef_special tag / popular tag)
+  // immediately without requiring the main Save button.
+  // Each call sends the full set of quick-action fields so the DB stays consistent.
+  async function saveQuickAction(patch: {
+    available?: boolean;
+    is_featured?: boolean;
+    chefSpecial?: boolean;
+    popular?: boolean;
+  }) {
+    if (!restaurant || !editingItemId || !editingItemMenuId) return;
+    const itemId = editingItemId;
+    const menuId = editingItemMenuId;
+
+    // Build the full tags array: keep user-authored tags + updated quick-action tags.
+    const userTags = editingItemTags
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t && t !== 'chef_special' && t !== 'popular');
+    const newChefSpecial = 'chefSpecial' in patch ? patch.chefSpecial! : editingItemChefSpecial;
+    const newPopular = 'popular' in patch ? patch.popular! : editingItemPopular;
+
+    const result = await supabase
+      .from('menu_items')
+      .update({
+        tags: [...userTags, ...(newChefSpecial ? ['chef_special'] : []), ...(newPopular ? ['popular'] : [])],
+        available: 'available' in patch ? patch.available! : editingItemAvailable,
+        is_featured: 'is_featured' in patch ? patch.is_featured! : editingItemFeatured,
+      })
+      .eq('id', itemId)
+      .eq('restaurant_id', restaurant.id)
+      .eq('menu_id', menuId);
+
+    if (result.error) { setError(result.error.message); return; }
+    await reloadItemsForMenu(menuId);
+    setQuickActionFeedback('✓ Updated');
+    setTimeout(() => setQuickActionFeedback(null), 1500);
   }
 
   // ── Data mutations ─────────────────────────────────────────────────
@@ -330,16 +407,17 @@ export default function MenuPage() {
   async function saveItem(itemId: string) {
     if (!restaurant || !editingItemMenuId || !editingItemName.trim()) return;
     const menuId = editingItemMenuId;
+    // Save only the form-editable fields. Quick Actions (available, is_featured,
+    // chef_special, popular) are persisted instantly by saveQuickAction and are
+    // intentionally excluded here so Save never overwrites their current DB state.
     const result = await supabase
       .from('menu_items')
       .update({
         name: editingItemName.trim(),
         price: parseCadPrice(editingItemPrice),
         description: editingItemDescription.trim() || null,
-        is_featured: editingItemFeatured,
-        available: editingItemAvailable,
-        // Preserve user-authored tags; never let chef_special/popular sneak in via the text input.
-        // The Quick Action chips are the sole authority for those two tags.
+        // Preserve user-authored tags; also include current quick-action tag state
+        // (already synced to DB) so the column stays consistent.
         tags: [
           ...editingItemTags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'chef_special' && t !== 'popular'),
           ...(editingItemChefSpecial ? ['chef_special'] : []),
@@ -353,7 +431,7 @@ export default function MenuPage() {
     if (result.error) { setError(result.error.message); return; }
     closeSheet();
     await reloadItemsForMenu(menuId);
-    setNotice('Item updated');
+    setNotice('Item saved');
     setTimeout(() => setNotice(''), 1500);
   }
 
@@ -709,18 +787,81 @@ export default function MenuPage() {
         tabs={SHEET_TABS}
         activeTab={activeSheetTab}
         onTabChange={setActiveSheetTab}
+        headerAction={
+          editingItemId ? (
+            <div className="relative">
+              <button
+                onClick={() => setOverflowMenuOpen((v) => !v)}
+                aria-label="More options"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100 text-base font-black text-stone-500 transition-colors hover:bg-stone-200 active:bg-stone-300"
+              >
+                ⋮
+              </button>
+              {overflowMenuOpen && (
+                <>
+                  {/* Transparent overlay closes the menu when tapping outside */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setOverflowMenuOpen(false)}
+                  />
+                  <div className="absolute right-0 top-10 z-20 min-w-[160px] overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-stone-100">
+                    <button
+                      disabled
+                      className="flex w-full cursor-not-allowed items-center gap-2 px-4 py-3 text-sm font-black text-stone-300"
+                    >
+                      Duplicate Item
+                    </button>
+                    <div className="mx-4 h-px bg-stone-100" />
+                    <button
+                      onClick={() => {
+                        setOverflowMenuOpen(false);
+                        if (editingItem && editingItemMenuId) {
+                          deleteItem(editingItem, editingItemMenuId);
+                        }
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-3 text-sm font-black text-red-500 transition-colors hover:bg-red-50 active:bg-red-100"
+                    >
+                      Delete Item
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : undefined
+        }
+        footer={
+          isDirty && editingItemId ? (
+            <div className="shrink-0 border-t border-stone-100 px-5 pb-5 pt-3">
+              <button
+                onClick={() => saveItem(editingItemId)}
+                className="w-full rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white transition-opacity active:opacity-80"
+              >
+                Save Changes
+              </button>
+            </div>
+          ) : undefined
+        }
       >
         {editingItemId && editingItemMenuId && (
           <div className="space-y-5 pb-8">
 
             {/* ── QUICK ACTIONS ─────────────────────────────────────── */}
             <div>
-              <p className="mb-2 text-xs font-black uppercase tracking-widest text-stone-400">Quick Actions</p>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-black uppercase tracking-widest text-stone-400">Quick Actions</p>
+                {quickActionFeedback && (
+                  <span className="text-xs font-black text-green-600 transition-opacity">{quickActionFeedback}</span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {/* Available / Sold Out */}
                 <button
                   type="button"
-                  onClick={() => setEditingItemAvailable(!editingItemAvailable)}
+                  onClick={() => {
+                    const next = !editingItemAvailable;
+                    setEditingItemAvailable(next);
+                    saveQuickAction({ available: next });
+                  }}
                   className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
                     editingItemAvailable
                       ? 'bg-green-100 text-green-700 shadow-sm ring-1 ring-green-200'
@@ -734,7 +875,11 @@ export default function MenuPage() {
                 {/* Featured */}
                 <button
                   type="button"
-                  onClick={() => setEditingItemFeatured(!editingItemFeatured)}
+                  onClick={() => {
+                    const next = !editingItemFeatured;
+                    setEditingItemFeatured(next);
+                    saveQuickAction({ is_featured: next });
+                  }}
                   className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
                     editingItemFeatured
                       ? 'bg-amber-100 text-amber-700 shadow-sm ring-1 ring-amber-200'
@@ -748,7 +893,11 @@ export default function MenuPage() {
                 {/* Chef Special */}
                 <button
                   type="button"
-                  onClick={() => setEditingItemChefSpecial(!editingItemChefSpecial)}
+                  onClick={() => {
+                    const next = !editingItemChefSpecial;
+                    setEditingItemChefSpecial(next);
+                    saveQuickAction({ chefSpecial: next });
+                  }}
                   className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
                     editingItemChefSpecial
                       ? 'bg-purple-100 text-purple-700 shadow-sm ring-1 ring-purple-200'
@@ -762,7 +911,11 @@ export default function MenuPage() {
                 {/* Popular */}
                 <button
                   type="button"
-                  onClick={() => setEditingItemPopular(!editingItemPopular)}
+                  onClick={() => {
+                    const next = !editingItemPopular;
+                    setEditingItemPopular(next);
+                    saveQuickAction({ popular: next });
+                  }}
                   className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
                     editingItemPopular
                       ? 'bg-orange-100 text-orange-600 shadow-sm ring-1 ring-orange-200'
@@ -892,31 +1045,8 @@ export default function MenuPage() {
               </p>
             </div>
 
-            {/* Save / Cancel */}
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => saveItem(editingItemId)}
-                className="rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white active:opacity-80"
-              >
-                Save Item
-              </button>
-              <button
-                onClick={closeSheet}
-                className="rounded-xl bg-stone-100 px-3 py-3.5 text-sm font-black text-stone-600 active:bg-stone-200"
-              >
-                Cancel
-              </button>
-            </div>
-
-            {/* Delete — destructive, always below primary actions */}
-            {editingItem && (
-              <button
-                onClick={() => editingItem && editingItemMenuId && deleteItem(editingItem, editingItemMenuId)}
-                className="w-full rounded-xl bg-red-50 px-3 py-2.5 text-xs font-black text-red-500 transition-colors hover:bg-red-100 active:bg-red-200"
-              >
-                Delete Item
-              </button>
-            )}
+            {/* bottom spacer so last field doesn't hide behind the sticky footer */}
+            <div className="h-2" />
           </div>
         )}
       </BottomSheet>

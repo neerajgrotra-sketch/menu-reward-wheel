@@ -14,9 +14,13 @@ type Props = {
   activeTab: string;
   onTabChange: (id: string) => void;
   children: React.ReactNode;
+  /** Rendered between the title and the ✕ close button (e.g. overflow menu). */
+  headerAction?: React.ReactNode;
+  /** Pinned below the scroll area — appears even when content is scrolled. */
+  footer?: React.ReactNode;
 };
 
-export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange, children }: Props) {
+export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange, children, headerAction, footer }: Props) {
   const [mounted, setMounted] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartY = useRef<number | null>(null);
@@ -146,14 +150,17 @@ export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange
 
           {/* Header */}
           <div className="flex shrink-0 items-center justify-between px-5 pb-2">
-            <h2 className="truncate pr-3 text-lg font-black text-[#1F1F1F]">{title}</h2>
-            <button
-              onClick={onClose}
-              aria-label="Close editor"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-100 text-sm font-black text-stone-500 transition-colors hover:bg-stone-200 active:bg-stone-300"
-            >
-              ✕
-            </button>
+            <h2 className="min-w-0 flex-1 truncate pr-3 text-lg font-black text-[#1F1F1F]">{title}</h2>
+            <div className="flex shrink-0 items-center gap-2">
+              {headerAction}
+              <button
+                onClick={onClose}
+                aria-label="Close editor"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-stone-100 text-sm font-black text-stone-500 transition-colors hover:bg-stone-200 active:bg-stone-300"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           {/* Tab bar — single tab now; extend tabs array in future phases */}
@@ -186,6 +193,9 @@ export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange
         >
           {children}
         </div>
+
+        {/* Sticky footer — pinned at bottom of sheet by flex layout */}
+        {footer}
       </div>
     </div>,
     document.body
