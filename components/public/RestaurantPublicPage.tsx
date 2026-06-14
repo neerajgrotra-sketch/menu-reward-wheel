@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Globe, Navigation2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
@@ -104,23 +104,29 @@ function MenuItemCard({
   item,
   brandColor,
   accentColor,
-  isRewardItem,
   onTap,
 }: {
   item: PublicMenuItem;
   brandColor: string;
   accentColor: string;
-  isRewardItem?: boolean;
   onTap: () => void;
 }) {
+  const isSoldOut = !item.available;
+  const isChefSpecial = (item.tags || []).includes('chef_special');
+  const isPopular = (item.tags || []).includes('popular');
+  // Left badge slot priority: Chef Special > Popular
+  const leftBadge = isChefSpecial ? 'chef_special' : isPopular ? 'popular' : null;
+
   return (
     <button
       type="button"
-      onClick={onTap}
-      className="overflow-hidden rounded-2xl bg-white text-left shadow-md active:scale-95"
+      onClick={isSoldOut ? undefined : onTap}
+      aria-disabled={isSoldOut || undefined}
+      className={`overflow-hidden rounded-2xl bg-white text-left shadow-md ${
+        isSoldOut ? 'cursor-default opacity-60' : 'active:scale-95'
+      }`}
       style={{
         transition: 'transform 150ms',
-        // D3: colored top border replaces the near-invisible outline treatment
         borderTop: item.is_featured ? `3px solid ${accentColor}` : undefined,
       }}
     >
@@ -135,28 +141,38 @@ function MenuItemCard({
         ) : (
           <ItemPlaceholder />
         )}
+        {/* Featured badge — top right */}
         {item.is_featured && (
-          // D2/D3: accent_color badge with legible text label
           <span
             className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
             style={{ backgroundColor: accentColor }}
           >
-            ★ Featured
+            ⭐ Featured
           </span>
         )}
-        {isRewardItem && (
-          <span
-            className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
-            style={{ backgroundColor: accentColor }}
-          >
-            🎁 Win This
+        {/* Merchandising badge — top left (Chef Special takes priority over Popular) */}
+        {leftBadge === 'chef_special' && (
+          <span className="absolute left-2 top-2 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
+            👨‍🍳 Chef
           </span>
+        )}
+        {leftBadge === 'popular' && (
+          <span className="absolute left-2 top-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
+            🔥 Popular
+          </span>
+        )}
+        {/* Sold Out overlay */}
+        {isSoldOut && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+            <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-black text-stone-700 shadow-sm">
+              🚫 Sold Out
+            </span>
+          </div>
         )}
       </div>
       <div className="p-3">
         <p className="line-clamp-2 text-sm font-black leading-tight text-stone-800">{item.name}</p>
         {item.description && (
-          // C7: stone-500 replaces stone-400
           <p className="mt-1 line-clamp-2 text-xs text-stone-500">{item.description}</p>
         )}
         <div className="mt-2">
@@ -300,16 +316,47 @@ function ItemDetailSheet({
             </p>
           )}
 
+          {/* Merchandising + availability badges — mirrors admin Quick Action states */}
+          {(item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.is_featured && (
+                <span
+                  className="rounded-full px-3 py-1 text-xs font-black"
+                  style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
+                >
+                  ⭐ Featured
+                </span>
+              )}
+              {(item.tags || []).includes('chef_special') && (
+                <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black text-purple-700">
+                  👨‍🍳 Chef Special
+                </span>
+              )}
+              {(item.tags || []).includes('popular') && (
+                <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-600">
+                  🔥 Popular
+                </span>
+              )}
+              {!item.available && (
+                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-600">
+                  🚫 Sold Out
+                </span>
+              )}
+            </div>
+          )}
+
           {item.description && (
             <p className="mt-3 text-sm leading-relaxed text-stone-600">{item.description}</p>
           )}
 
-          {item.tags.length > 0 && (
+          {/* User-authored tags — chef_special and popular are shown as badges above */}
+          {(item.tags || []).filter((t) => t !== 'chef_special' && t !== 'popular').length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {item.tags.map((tag) => (
-                // D2: accent-tinted tag pills
-                <TagPill key={tag} tag={tag} accentColor={accentColor} />
-              ))}
+              {(item.tags || [])
+                .filter((t) => t !== 'chef_special' && t !== 'popular')
+                .map((tag) => (
+                  <TagPill key={tag} tag={tag} accentColor={accentColor} />
+                ))}
             </div>
           )}
         </div>
@@ -687,6 +734,24 @@ function GameEntryModal({
   );
 }
 
+// ─── Filter chips ────────────────────────────────────────────────────────────
+
+type FilterId = 'all' | 'featured' | 'chef_special' | 'popular';
+
+const FILTER_CHIPS: Array<{ id: FilterId; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'featured', label: '⭐ Featured' },
+  { id: 'chef_special', label: '👨‍🍳 Chef Special' },
+  { id: 'popular', label: '🔥 Popular' },
+];
+
+const FILTER_EMPTY: Record<FilterId, string> = {
+  all: "We're putting the finishing touches on our menu. Check back soon!",
+  featured: 'No featured items right now.',
+  chef_special: 'No chef specials right now.',
+  popular: 'No popular items right now.',
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function RestaurantPublicPage({
@@ -694,29 +759,36 @@ export function RestaurantPublicPage({
   sections,
   promotion,
   promotionRewards,
-  rewardItemIds,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
   promotion?: PublicPromotion | null;
   promotionRewards?: PublicReward[];
-  rewardItemIds?: Set<string>;
 }) {
   const brandColor = brandPrimary(restaurant);
-  // D2: accent_color for badges/featured treatment; falls back to brand_color then amber
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
   const heroFallbackGradient = `linear-gradient(135deg, ${brandColor} 0%, ${darken(brandColor, 40)} 100%)`;
 
   const hasPromotion = !!promotion;
   const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
-  const cappedRewardItemIds = rewardItemIds
-    ? new Set(Array.from(rewardItemIds).slice(0, 3))
-    : undefined;
 
-  const featuredItems = sections
-    .flatMap((s) => s.items)
-    .filter((item) => item.is_featured)
-    .slice(0, 3);
+  // ── Filter state ────────────────────────────────────────────────────
+  const [activeFilter, setActiveFilter] = useState<FilterId>('all');
+
+  const filteredSections = useMemo(() => {
+    if (activeFilter === 'all') return sections;
+    return sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => {
+          if (activeFilter === 'featured') return item.is_featured;
+          if (activeFilter === 'chef_special') return (item.tags || []).includes('chef_special');
+          if (activeFilter === 'popular') return (item.tags || []).includes('popular');
+          return true;
+        }),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [sections, activeFilter]);
 
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
@@ -764,9 +836,10 @@ export function RestaurantPublicPage({
     window.scrollTo({ top: y, behavior: 'smooth' });
   }, []);
 
-  // IntersectionObserver for active section tracking
+  // IntersectionObserver for active section tracking.
+  // Re-runs when filteredSections changes so only currently visible sections are observed.
   useEffect(() => {
-    if (sections.length === 0) return;
+    if (filteredSections.length === 0) return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -780,7 +853,12 @@ export function RestaurantPublicPage({
     );
     sectionRefs.current.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [sections]);
+  }, [filteredSections]);
+
+  // Keep activeSection in sync with the first visible section whenever the filter changes.
+  useEffect(() => {
+    setActiveSection(filteredSections[0]?.id ?? '');
+  }, [filteredSections]);
 
   // Scroll active nav pill into view
   const navRef = useRef<HTMLDivElement>(null);
@@ -980,59 +1058,36 @@ export function RestaurantPublicPage({
         </div>
       )}
 
-      {/* ── Featured items ── */}
-      {featuredItems.length > 0 && (
-        <div className="mt-8 px-4">
-          <h2 className="text-xl font-black" style={{ color: brandColor }}>
-            <span className="mr-2" aria-hidden="true">⭐</span>Featured Dishes
-          </h2>
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {featuredItems.map((item) => (
-              <MenuItemCard
-                key={item.id}
-                item={item}
-                brandColor={brandColor}
-                accentColor={accentColor}
-                isRewardItem={cappedRewardItemIds?.has(item.id)}
-                onTap={() => openSheet(item)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Menu ── */}
       <div className="mt-8 pb-24">
 
-        {/* Empty state */}
+        {/* Empty state — no menu at all */}
         {sections.length === 0 && (
           <div className="mx-4 rounded-3xl bg-white p-8 text-center shadow-md">
             <p className="text-4xl">🍽️</p>
             <p className="mt-3 text-xl font-black text-stone-700">Menu coming soon</p>
-            {/* C7: stone-500 replaces stone-400 */}
             <p className="mt-2 text-sm text-stone-500">
               We&apos;re putting the finishing touches on our menu. Check back soon!
             </p>
           </div>
         )}
 
-        {/* Sticky section navigation */}
-        {sections.length > 1 && (
+        {/* ── Sticky filter chips + category nav ── */}
+        {sections.length > 0 && (
           <div
-            className="sticky top-0 z-30 bg-stone-50 pb-3 pt-3"
+            className="sticky top-0 z-30 bg-stone-50"
             style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
           >
-            <div ref={navRef} className="flex gap-2 overflow-x-auto px-4">
-              {sections.map((section) => {
-                const isActive = activeSection === section.id;
+            {/* Filter chips — always visible when menu exists */}
+            <div className="flex gap-2 overflow-x-auto px-4 pb-2 pt-3">
+              {FILTER_CHIPS.map((chip) => {
+                const isActive = activeFilter === chip.id;
                 return (
                   <button
-                    key={section.id}
+                    key={chip.id}
                     type="button"
-                    data-nav-id={section.id}
-                    onClick={() => scrollToSection(section.id)}
+                    onClick={() => setActiveFilter(chip.id)}
                     className="shrink-0 rounded-full px-4 py-2 text-sm font-black shadow-sm transition-colors"
-                    // C4: aria-current exposes active state to screen readers
                     aria-current={isActive ? 'true' : undefined}
                     style={
                       isActive
@@ -1040,25 +1095,59 @@ export function RestaurantPublicPage({
                         : { backgroundColor: '#fff', color: '#57534e' }
                     }
                   >
-                    {section.name}
+                    {chip.label}
                   </button>
                 );
               })}
             </div>
+
+            {/* Category nav — only shown when 2+ filtered sections exist */}
+            {filteredSections.length > 1 && (
+              <div ref={navRef} className="flex gap-2 overflow-x-auto px-4 pb-3">
+                {filteredSections.map((section) => {
+                  const isActive = activeSection === section.id;
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      data-nav-id={section.id}
+                      onClick={() => scrollToSection(section.id)}
+                      className="shrink-0 rounded-full px-4 py-2 text-sm font-black shadow-sm transition-colors"
+                      aria-current={isActive ? 'true' : undefined}
+                      style={
+                        isActive
+                          ? { backgroundColor: brandColor, color: '#fff' }
+                          : { backgroundColor: '#fff', color: '#57534e' }
+                      }
+                    >
+                      {section.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Section list */}
+        {/* Empty state — filter returned no results */}
+        {sections.length > 0 && filteredSections.length === 0 && (
+          <div className="mx-4 mt-6 rounded-3xl bg-white p-8 text-center shadow-md">
+            <p className="text-3xl">🔍</p>
+            <p className="mt-3 text-lg font-black text-stone-700">{FILTER_EMPTY[activeFilter]}</p>
+          </div>
+        )}
+
+        {/* Section list — rendered from filteredSections so items stay in their categories */}
         <div className="mt-6 space-y-10 px-4">
-          {sections.map((section) => (
+          {filteredSections.map((section) => (
             <div
               key={section.id}
               data-section-id={section.id}
               ref={(el) => {
                 if (el) sectionRefs.current.set(section.id, el);
+                else sectionRefs.current.delete(section.id);
               }}
             >
-              {/* D4: brand-colored heading with subtle divider line */}
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-black" style={{ color: brandColor }}>
                   {section.name}
@@ -1070,7 +1159,6 @@ export function RestaurantPublicPage({
               </div>
 
               {section.items.length === 0 ? (
-                // C7: stone-500 replaces stone-400
                 <p className="mt-3 text-sm text-stone-500">
                   No items available in this section right now.
                 </p>
@@ -1082,7 +1170,6 @@ export function RestaurantPublicPage({
                       item={item}
                       brandColor={brandColor}
                       accentColor={accentColor}
-                      isRewardItem={cappedRewardItemIds?.has(item.id)}
                       onTap={() => openSheet(item)}
                     />
                   ))}
