@@ -10,6 +10,7 @@ import {
   type Promotion,
   type PromotionsAdminMode,
 } from '@/hooks/usePromotionsAdmin';
+import { getGameBadge } from '@/lib/games/game-registry';
 
 function filterLabel(filter: Filter) {
   return filter === 'all' ? 'All' : filter[0].toUpperCase() + filter.slice(1);
@@ -39,9 +40,7 @@ function statusBadgeClass(status: string) {
 }
 
 function gameBadge(gameType?: string | null) {
-  if (gameType === 'scratch_card') return { icon: '🪙', label: 'Scratch Card' };
-  if (gameType === 'mystery_box') return { icon: '🎁', label: 'Mystery Box' };
-  return { icon: '🎯', label: 'Spin Wheel' };
+  return getGameBadge(gameType);
 }
 
 function modeLabel(mode: PromotionsAdminMode, copy: any) {

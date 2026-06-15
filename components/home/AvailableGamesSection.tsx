@@ -24,8 +24,8 @@ const games = [
     body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.',
     demoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
   },
-  { title: 'Slot Machine', icon: '🎰', status: 'Coming Soon', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
-  { title: 'Pick a Door', icon: '🚪', status: 'Coming Soon', body: 'Guests choose a door to uncover a menu reward, discount, or comeback coupon.' },
+  { title: 'Lucky Reels', icon: '🎰', status: 'Coming Soon', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
+  { title: 'Open The Door', icon: '🚪', status: 'Coming Soon', body: 'Guests choose a door to uncover a menu reward, discount, or comeback coupon.' },
   { title: 'Fortune Cookie', icon: '🥠', status: 'Coming Soon', body: 'A restaurant-friendly reveal for rewards, messages, and limited-time offers.' },
 ];
 

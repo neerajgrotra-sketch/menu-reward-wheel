@@ -26,7 +26,7 @@ const GAME_DEFINITIONS = [
   { key: 'spin_wheel',    title: 'Spin Wheel',       icon: '🎯', body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.' },
   { key: 'mystery_box',  title: 'Mystery Box Reveal', icon: '🎁', body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.' },
   { key: 'scratch_card', title: 'Scratch Card',       icon: '🎟️', body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.' },
-  { key: 'reward_reels', title: 'Reward Reels',       icon: '🎰', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
+  { key: 'reward_reels', title: 'Lucky Reels',         icon: '🎰', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
   { key: 'open_the_door', title: 'Open The Door',     icon: '🚪', body: 'Guests choose one of three doors to uncover a menu reward, discount, or comeback coupon.' },
 ] as const;
 

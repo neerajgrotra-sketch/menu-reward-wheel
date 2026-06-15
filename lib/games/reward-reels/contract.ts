@@ -22,24 +22,24 @@ function RewardReelsPlaceholderGame(_props: GamePlayProps) {
 
 export const rewardReelsContract: GameContract = {
   type: 'reward_reels',
-  name: 'Reward Reels',
+  name: 'Lucky Reels',
   icon: '🎰',
   availability: 'beta',
   labels: {
-    title: 'Reward Reels',
+    title: 'Lucky Reels',
     instruction: 'Pull the reels to reveal your reward.',
     playsAvailableSuffix: 'plays left 🎰',
     noPlaysText: 'No plays left — enjoy your rewards 🎉',
     playAgainText: 'Play Again',
   },
   createCard: {
-    title: 'Slot Machine',
+    title: 'Lucky Reels',
     description: 'Pull the lever, match the reels, and unlock a surprise reward.',
     statusLabel: 'COMING SOON',
   },
   preview: {
     supportsBuilderPreview: false,
-    previewTitle: 'Reward Reels Preview',
+    previewTitle: 'Lucky Reels Preview',
     previewDisclaimer: 'This game is coming soon and is not selectable yet.',
   },
   analytics: {
