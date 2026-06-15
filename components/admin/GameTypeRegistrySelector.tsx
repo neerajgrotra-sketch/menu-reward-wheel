@@ -2,34 +2,12 @@
 
 import type { GameType } from '@/lib/games/types';
 import { availableGames } from '@/lib/games/registry';
+import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 type Props = {
   selectedGameType: GameType;
   onSelect: (gameType: GameType) => void;
 };
-
-function MiniGamePreview({ gameType, icon }: { gameType: GameType; icon: string }) {
-  if (gameType === 'wheel') {
-    return (
-      <div className="relative flex h-16 w-16 shrink-0 items-center justify-center">
-        <div className="absolute -right-1 top-1/2 z-20 -translate-y-1/2 text-lg">◀</div>
-        <div
-          className="spinbite-mini-wheel h-16 w-16 rounded-full border-4 border-white shadow-lg"
-          style={{
-            background: 'conic-gradient(#FF6B00 0deg 45deg,#FFD166 45deg 90deg,#00C853 90deg 135deg,#E63939 135deg 180deg,#FF8A00 180deg 225deg,#FFF0C2 225deg 270deg,#2DD4BF 270deg 315deg,#F97316 315deg 360deg)',
-          }}
-        />
-        <div className="absolute z-10 flex h-8 w-8 items-center justify-center rounded-full bg-[#1F1F1F] text-[10px] font-black text-white shadow">SPIN</div>
-      </div>
-    );
-  }
-
-  if (gameType === 'scratch_card') {
-    return <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-gradient-to-br from-orange-400 via-yellow-300 to-red-500 text-4xl shadow-inner">{icon}</div>;
-  }
-
-  return <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-white text-4xl shadow-inner">{icon}</div>;
-}
 
 export default function GameTypeRegistrySelector({ selectedGameType, onSelect }: Props) {
   return (
@@ -46,7 +24,7 @@ export default function GameTypeRegistrySelector({ selectedGameType, onSelect }:
             }`}
           >
             <div className="flex items-start gap-4">
-              <MiniGamePreview gameType={game.type} icon={game.icon} />
+              {getGameVisual(game.type, 64).visual}
               <div>
                 <p className="text-2xl font-black">{game.createCard.title}</p>
                 <p className="mt-1 text-sm font-bold text-stone-600">{game.createCard.description}</p>

@@ -1,7 +1,7 @@
 'use client';
 
 import { getAvailableGameContracts } from '@/lib/games/registry';
-import { MiniPrizeWheel, MiniMysteryBox, MiniScratchCard, MiniOpenDoor } from '@/components/game-visuals/GameVisual';
+import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 export type BuilderGameType = 'wheel' | 'mystery_box' | 'scratch_card' | 'open_the_door';
 
@@ -10,33 +10,6 @@ export type GameSelectionSectionProps = {
   gameType: BuilderGameType;
   onChange: (gameType: BuilderGameType) => void;
 };
-
-function MiniRewardReels() {
-  return (
-    <div
-      className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl shadow-inner"
-      style={{ background: 'linear-gradient(135deg,#fde68a,#fed7aa,#fbbf24)' }}
-      aria-hidden="true"
-    >
-      {/* Slot machine reels — three vertical bars */}
-      <div className="flex gap-0.5">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="flex h-8 w-2 flex-col overflow-hidden rounded bg-white/60">
-            {[0, 1, 2].map((j) => (
-              <div
-                key={j}
-                className="flex flex-1 items-center justify-center rounded"
-                style={{
-                  background: ['#FF6B00','#E63939','#00C853','#FFD166','#2DD4BF','#F97316'][(i * 3 + j) % 6],
-                }}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function GameCard({
   selected,
@@ -82,16 +55,7 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
           onChange(game.type as BuilderGameType);
         };
 
-        const icon =
-          game.type === 'wheel'
-            ? <MiniPrizeWheel size={64} />
-            : game.type === 'mystery_box'
-            ? <MiniMysteryBox size={64} />
-            : game.type === 'scratch_card'
-            ? <MiniScratchCard size={64} />
-            : game.type === 'open_the_door'
-            ? <MiniOpenDoor size={64} />
-            : <MiniRewardReels />;
+        const icon = getGameVisual(game.type, 64).visual;
 
         return (
           <GameCard key={game.type} selected={selected} disabled={!isSelectable} onClick={handleClick}>
