@@ -10,6 +10,8 @@ import {
   type Promotion,
   type PromotionsAdminMode,
 } from '@/hooks/usePromotionsAdmin';
+import { getGameMeta } from '@/lib/games/game-registry';
+import { getGameDefinition } from '@/lib/games/registry';
 
 function filterLabel(filter: Filter) {
   return filter === 'all' ? 'All' : filter[0].toUpperCase() + filter.slice(1);
@@ -39,9 +41,9 @@ function statusBadgeClass(status: string) {
 }
 
 function gameBadge(gameType?: string | null) {
-  if (gameType === 'scratch_card') return { icon: '🪙', label: 'Scratch Card' };
-  if (gameType === 'mystery_box') return { icon: '🎁', label: 'Mystery Box' };
-  return { icon: '🎯', label: 'Spin Wheel' };
+  const meta = getGameMeta(gameType);
+  const def = getGameDefinition(gameType);
+  return { icon: def.icon, label: meta.label };
 }
 
 function modeLabel(mode: PromotionsAdminMode, copy: any) {
