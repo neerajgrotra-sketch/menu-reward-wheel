@@ -197,30 +197,55 @@ export function MiniOpenDoor({ size = 24 }: { size?: number }) {
 // CSS-only slot machine reels — three coloured vertical columns, no emoji.
 
 export function MiniRewardReels({ size = 24 }: { size?: number }) {
-  const reelHeight = Math.round(size * 0.5);
-  const reelWidth = Math.max(4, Math.round(size * 0.125));
-  const gap = Math.max(1, Math.round(size * 0.025));
-  const colors = ['#FF6B00', '#E63939', '#00C853', '#FFD166', '#2DD4BF', '#F97316'];
+  const borderW = Math.max(1, Math.round(size * 0.04));
+  const radius = Math.round(size * 0.15);
+  const headerH = Math.round(size * 0.18);
+  const reelW = Math.max(6, Math.round(size * 0.22));
+  const reelH = Math.round(size * 0.55);
+  const gap = Math.max(1, Math.round(size * 0.035));
+  const reelColors = [
+    ['#FF6B00', '#E63939', '#FFD166'],
+    ['#00C853', '#FFD166', '#2DD4BF'],
+    ['#E63939', '#FF6B00', '#00C853'],
+  ];
   return (
     <div
-      className="flex shrink-0 items-center justify-center shadow-inner"
+      className="relative shrink-0 overflow-hidden"
       style={{
         width: size,
         height: size,
-        background: 'linear-gradient(135deg,#fde68a,#fed7aa,#fbbf24)',
-        borderRadius: Math.round(size * 0.3),
+        background: '#1a0c00',
+        borderRadius: radius,
+        border: `${borderW}px solid #d4930a`,
       }}
       aria-hidden="true"
     >
-      <div className="flex" style={{ gap }}>
-        {[0, 1, 2].map((i) => (
+      {/* Gold header panel */}
+      <div style={{ height: headerH, background: 'linear-gradient(90deg,#b36b00,#ffd166,#e6a000,#ffd166,#b36b00)' }} />
+      {/* Three reel windows */}
+      <div
+        className="absolute flex items-center justify-center"
+        style={{ top: headerH + Math.round(size * 0.05), left: 0, right: 0, gap }}
+      >
+        {reelColors.map((colors, i) => (
           <div
             key={i}
-            className="flex flex-col overflow-hidden rounded bg-white/60"
-            style={{ width: reelWidth, height: reelHeight }}
+            style={{
+              width: reelW,
+              height: reelH,
+              background: '#fff8ee',
+              borderRadius: Math.max(2, Math.round(size * 0.05)),
+              border: '1px solid #d4930a',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
           >
-            {[0, 1, 2].map((j) => (
-              <div key={j} className="flex-1" style={{ background: colors[(i * 3 + j) % 6] }} />
+            {colors.map((c, j) => (
+              <div
+                key={j}
+                style={{ flex: 1, background: c, borderBottom: j < 2 ? '1px solid rgba(255,255,255,0.3)' : 'none' }}
+              />
             ))}
           </div>
         ))}

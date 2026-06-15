@@ -6,6 +6,7 @@ import { usePromotionBuilder } from '@/lib/builder/context';
 import { availableGames } from '@/lib/games/registry';
 import type { BuilderGameType } from '@/lib/builder/types';
 import type { GameType } from '@/lib/games/types';
+import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 type Props = { promotionId: string };
 
@@ -107,7 +108,7 @@ export default function GameTypeInlineControl({ promotionId }: Props) {
               className={`rounded-3xl border-2 p-4 text-left transition active:scale-[0.99] ${selected ? 'border-green-600 bg-green-50 shadow' : 'border-stone-100 bg-stone-50 hover:border-[#FF6B00]'}`}
             >
               <div className="flex items-start gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-2xl shadow-inner">{game.icon}</span>
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white shadow-inner">{getGameVisual(game.type, 48).visual}</span>
                 <span>
                   <span className="block text-xl font-black">{game.createCard.title}</span>
                   <span className="mt-1 block text-sm font-bold text-stone-600">{game.createCard.description}</span>

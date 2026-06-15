@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import SpinWheelPreview from '@/components/admin/SpinWheelPreview';
+import { getGameMeta, GAME_REGISTRY } from '@/lib/games/game-registry';
+import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 type RewardType = 'free' | 'discount' | 'custom';
 type WeightLabel = 'Common' | 'Normal' | 'Rare';
@@ -64,16 +66,8 @@ const EXPIRY_PRESETS = [
   { label: '30 days',    minutes: 43200 },
 ] as const;
 
-const POOL_GAMES = [
-  { type: 'spin_wheel',   name: 'Spin Wheel',    icon: '🎯' },
-  { type: 'mystery_box',  name: 'Mystery Box',   icon: '🎁' },
-  { type: 'scratch_card', name: 'Scratch Card',  icon: '🪙' },
-  { type: 'reward_reels', name: 'Lucky Reels',   icon: '🎰' },
-  { type: 'open_the_door',name: 'Open The Door', icon: '🚪' },
-] as const;
-
 // promotions.game_type stores 'wheel' for Spin Wheel (DB default + GameTypeInlineControl).
-// POOL_GAMES uses the canonical 'spin_wheel' identifier. Normalise before any comparison.
+// GAME_REGISTRY uses the canonical 'spin_wheel' identifier. Normalise before any comparison.
 function normalizePrimary(gt: string | null | undefined): string {
   return !gt || gt === 'wheel' ? 'spin_wheel' : gt;
 }
@@ -551,15 +545,14 @@ export default function PromotionBuilderPage() {
           <p className="text-sm font-black uppercase text-[#FF6B00]">Customer Experiences</p>
           <p className="mt-1 text-sm font-bold text-stone-600">Choose additional experiences customers may receive. Your Primary Experience is automatically included.</p>
 
-          {/* Primary Experience — always active, derived from promotions.game_type.
-              normalizePrimary maps 'wheel' → 'spin_wheel' so the lookup always hits. */}
+          {/* Primary Experience — always active, derived from promotions.game_type. */}
           {(() => {
-            const primary = POOL_GAMES.find((g) => g.type === normalizePrimary(promotion?.game_type));
+            const primaryMeta = getGameMeta(promotion?.game_type);
             return (
               <div className="mt-4 flex items-center gap-3 rounded-2xl bg-stone-50 p-4 ring-2 ring-stone-200">
                 <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-xs font-black uppercase tracking-wide text-stone-400 shadow-sm">Primary</span>
-                <span className="text-xl">{primary?.icon ?? '🎯'}</span>
-                <span className="text-sm font-black">{primary?.name ?? 'Spin Wheel'}</span>
+                {getGameVisual(primaryMeta.id, 32).visual}
+                <span className="text-sm font-black">{primaryMeta.label}</span>
                 <span className="ml-auto text-xs font-bold text-stone-400">Always included</span>
               </div>
             );
@@ -568,24 +561,24 @@ export default function PromotionBuilderPage() {
           {/* Additional experiences checklist — primary excluded via normalizePrimary */}
           {(() => {
             const primaryNorm = normalizePrimary(promotion?.game_type);
-            const additionalGames = POOL_GAMES.filter((g) => g.type !== primaryNorm);
+            const additionalGames = Object.values(GAME_REGISTRY).filter((g) => g.id !== primaryNorm);
             return (
               <>
                 <div className="mt-4 flex items-center justify-between">
                   <p className="text-xs font-black uppercase tracking-wide text-stone-400">Additional Experiences</p>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalGames.map((g) => g.type as string)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
+                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalGames.map((g) => g.id)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
                     <button type="button" onClick={() => { markDirty(); setGamePool([]); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Clear All</button>
                   </div>
                 </div>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   {additionalGames.map((game) => {
-                    const selected = gamePool.includes(game.type);
+                    const selected = gamePool.includes(game.id);
                     return (
-                      <label key={game.type} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 p-4 transition-colors ${selected ? 'border-[#FF6B00] bg-orange-50' : 'border-stone-100 bg-stone-50'}`}>
-                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.type] : current.filter((t) => t !== game.type)); }} className="h-5 w-5 accent-[#FF6B00]" />
-                        <span className="text-xl">{game.icon}</span>
-                        <span className="text-sm font-black">{game.name}</span>
+                      <label key={game.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 p-4 transition-colors ${selected ? 'border-[#FF6B00] bg-orange-50' : 'border-stone-100 bg-stone-50'}`}>
+                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.id] : current.filter((t) => t !== game.id)); }} className="h-5 w-5 accent-[#FF6B00]" />
+                        {getGameVisual(game.id, 32).visual}
+                        <span className="text-sm font-black">{game.label}</span>
                       </label>
                     );
                   })}
@@ -596,8 +589,8 @@ export default function PromotionBuilderPage() {
 
           {/* Status — pool size = 1 primary + N additional */}
           {gamePool.length === 0 && (() => {
-            const primary = POOL_GAMES.find((g) => g.type === normalizePrimary(promotion?.game_type));
-            return <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-sm font-bold text-stone-500">Single Experience Mode — All customers receive: {primary?.icon} {primary?.name}.</p>;
+            const primaryMeta = getGameMeta(promotion?.game_type);
+            return <p className="mt-3 rounded-2xl bg-stone-50 p-3 text-sm font-bold text-stone-500">Single Experience Mode — All customers receive: {primaryMeta.label}.</p>;
           })()}
           {gamePool.length > 0 && <p className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">🎲 Randomized Experience Mode — Customers may receive one of {gamePool.length + 1} experiences.</p>}
         </div>

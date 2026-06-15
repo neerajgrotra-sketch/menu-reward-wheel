@@ -231,3 +231,22 @@ These are two distinct identity systems and must never be mixed.
 - Game selection cards (any surface where customer or operator chooses a game)
 - Marketing tiles that represent a specific game
 - Any visual icon slot with width/height dimensions allocated for a game image
+
+---
+
+## Rule 16 — Audit ≠ Implementation
+
+A branch containing documentation, audits, analysis, reports, or architectural
+recommendations must NEVER be merged assuming functionality changed.
+
+Before any merge, mandatory checklist:
+
+1. Which files changed?
+2. Which runtime components changed?
+3. Which user-facing behavior changed?
+4. What exact bug is fixed?
+
+No code changes = no merge.
+
+A branch that only touches `.md` files fixes nothing in production.
+Audit work and fix work are separate branches with separate commits.

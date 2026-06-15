@@ -8,6 +8,7 @@ import HeroSection, { type HomeHeroContent } from '@/components/home/HeroSection
 import PricingSection from '@/components/home/PricingSection';
 import CTASection from '@/components/home/CTASection';
 import FooterSection from '@/components/home/FooterSection';
+import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 const steps = [
   { icon: ChefHat, title: 'Build your menu', body: 'Add dishes, drinks, combos, and chef specials in minutes.' },
@@ -23,11 +24,11 @@ const benefits = [
 ];
 
 const GAME_DEFINITIONS = [
-  { key: 'spin_wheel',    title: 'Spin Wheel',       icon: '🎯', body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.' },
-  { key: 'mystery_box',  title: 'Mystery Box Reveal', icon: '🎁', body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.' },
-  { key: 'scratch_card', title: 'Scratch Card',       icon: '🎟️', body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.' },
-  { key: 'reward_reels', title: 'Lucky Reels',         icon: '🎰', body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
-  { key: 'open_the_door', title: 'Open The Door',     icon: '🚪', body: 'Guests choose one of three doors to uncover a menu reward, discount, or comeback coupon.' },
+  { key: 'spin_wheel',    title: 'Spin Wheel',        body: 'A branded reward wheel for discounts, free menu items, daily promos, and table-side excitement.' },
+  { key: 'mystery_box',  title: 'Mystery Box Reveal', body: 'Guests pick one of three mystery boxes and reveal a surprise coupon with a fun reward moment.' },
+  { key: 'scratch_card', title: 'Scratch Card',       body: 'A quick scratch-and-win experience for receipts, posters, and post-payment campaigns.' },
+  { key: 'reward_reels', title: 'Lucky Reels',        body: 'A jackpot-style reveal for bigger campaign launches and high-energy promos.' },
+  { key: 'open_the_door', title: 'Open The Door',     body: 'Guests choose one of three doors to uncover a menu reward, discount, or comeback coupon.' },
 ] as const;
 
 type GameKey = (typeof GAME_DEFINITIONS)[number]['key'];
@@ -77,7 +78,7 @@ export default function LandingPageClient({
               return (
                 <div key={game.title} className="rounded-3xl border border-orange-100 bg-[#FFF8F0] p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
                   <div className="flex items-start justify-between gap-3">
-                    <span className="text-4xl">{game.icon}</span>
+                    {getGameVisual(game.key, 64).visual}
                     <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black uppercase text-green-700">
                       LIVE
                     </span>
