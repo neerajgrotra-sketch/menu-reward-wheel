@@ -52,11 +52,20 @@ Rules:
 - Do NOT include prices, discounts, or promotional language
 - Return only the description text — no quotes, no labels, no preamble`;
 
-  const message = await client.messages.create({
-    model: 'claude-opus-4-8',
-    max_tokens: 150,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 150,
+      messages: [{ role: 'user', content: prompt }],
+    });
+  } catch (err) {
+    console.error('[generate-description] Anthropic SDK error:', err);
+    return NextResponse.json(
+      { error: 'AI generation failed. Check server logs.' },
+      { status: 500 }
+    );
+  }
 
   const block = message.content[0];
   const raw = block.type === 'text' ? block.text.trim() : '';
