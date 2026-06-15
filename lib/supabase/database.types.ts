@@ -1,6 +1,3 @@
-// Auto-generated from Supabase project viaoholpnysccaijfpox (Restaurant-gamify)
-// Generated: 2026-06-08 — do not edit manually, run: supabase gen types typescript
-
 export type Json =
   | string
   | number
@@ -10,6 +7,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -304,6 +303,345 @@ export type Database = {
           },
         ]
       }
+      intelligence_audit_log: {
+        Row: {
+          action: string
+          admin_user_id: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+        }
+        Insert: {
+          action: string
+          admin_user_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+        }
+        Update: {
+          action?: string
+          admin_user_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+        }
+        Relationships: []
+      }
+      intelligence_experiments: {
+        Row: {
+          active: boolean
+          created_at: string
+          feature_key: string
+          id: string
+          name: string
+          template_a_id: string
+          template_b_id: string
+          traffic_split_pct: number
+          updated_at: string
+          winner: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          feature_key: string
+          id?: string
+          name: string
+          template_a_id: string
+          template_b_id: string
+          traffic_split_pct?: number
+          updated_at?: string
+          winner?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          feature_key?: string
+          id?: string
+          name?: string
+          template_a_id?: string
+          template_b_id?: string
+          traffic_split_pct?: number
+          updated_at?: string
+          winner?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intelligence_experiments_feature_key_fkey"
+            columns: ["feature_key"]
+            isOneToOne: false
+            referencedRelation: "intelligence_features"
+            referencedColumns: ["feature_key"]
+          },
+          {
+            foreignKeyName: "intelligence_experiments_template_a_id_fkey"
+            columns: ["template_a_id"]
+            isOneToOne: false
+            referencedRelation: "intelligence_prompt_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intelligence_experiments_template_b_id_fkey"
+            columns: ["template_b_id"]
+            isOneToOne: false
+            referencedRelation: "intelligence_prompt_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      intelligence_features: {
+        Row: {
+          created_at: string
+          description: string | null
+          enabled: boolean
+          feature_key: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          feature_key: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          feature_key?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      intelligence_generation_logs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          estimated_cost_usd: number | null
+          experiment_id: string | null
+          experiment_variant: string | null
+          feature_key: string
+          id: string
+          input_tokens: number | null
+          latency_ms: number | null
+          model: string
+          output_tokens: number | null
+          prompt_template_id: string | null
+          provider: string
+          restaurant_id: string | null
+          success: boolean
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          estimated_cost_usd?: number | null
+          experiment_id?: string | null
+          experiment_variant?: string | null
+          feature_key: string
+          id?: string
+          input_tokens?: number | null
+          latency_ms?: number | null
+          model: string
+          output_tokens?: number | null
+          prompt_template_id?: string | null
+          provider: string
+          restaurant_id?: string | null
+          success: boolean
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          estimated_cost_usd?: number | null
+          experiment_id?: string | null
+          experiment_variant?: string | null
+          feature_key?: string
+          id?: string
+          input_tokens?: number | null
+          latency_ms?: number | null
+          model?: string
+          output_tokens?: number | null
+          prompt_template_id?: string | null
+          provider?: string
+          restaurant_id?: string | null
+          success?: boolean
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intelligence_generation_logs_experiment_id_fkey"
+            columns: ["experiment_id"]
+            isOneToOne: false
+            referencedRelation: "intelligence_experiments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intelligence_generation_logs_prompt_template_id_fkey"
+            columns: ["prompt_template_id"]
+            isOneToOne: false
+            referencedRelation: "intelligence_prompt_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intelligence_generation_logs_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      intelligence_prompt_templates: {
+        Row: {
+          active: boolean
+          created_at: string
+          feature_key: string
+          id: string
+          max_tokens: number
+          model: string
+          name: string
+          notes: string | null
+          provider: string
+          status: string
+          system_prompt: string | null
+          temperature: number
+          updated_at: string
+          user_prompt_template: string
+          version: number
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          feature_key: string
+          id?: string
+          max_tokens?: number
+          model?: string
+          name: string
+          notes?: string | null
+          provider?: string
+          status?: string
+          system_prompt?: string | null
+          temperature?: number
+          updated_at?: string
+          user_prompt_template: string
+          version?: number
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          feature_key?: string
+          id?: string
+          max_tokens?: number
+          model?: string
+          name?: string
+          notes?: string | null
+          provider?: string
+          status?: string
+          system_prompt?: string | null
+          temperature?: number
+          updated_at?: string
+          user_prompt_template?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intelligence_prompt_templates_feature_key_fkey"
+            columns: ["feature_key"]
+            isOneToOne: false
+            referencedRelation: "intelligence_features"
+            referencedColumns: ["feature_key"]
+          },
+        ]
+      }
+      intelligence_provider_costs: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          input_cost_per_1m: number
+          model: string
+          output_cost_per_1m: number
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          input_cost_per_1m: number
+          model: string
+          output_cost_per_1m: number
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          input_cost_per_1m?: number
+          model?: string
+          output_cost_per_1m?: number
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      intelligence_usage_limits: {
+        Row: {
+          created_at: string
+          current_month_usage: number
+          id: string
+          monthly_limit: number
+          requests_per_minute: number
+          restaurant_id: string
+          updated_at: string
+          usage_reset_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_month_usage?: number
+          id?: string
+          monthly_limit?: number
+          requests_per_minute?: number
+          restaurant_id: string
+          updated_at?: string
+          usage_reset_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_month_usage?: number
+          id?: string
+          monthly_limit?: number
+          requests_per_minute?: number
+          restaurant_id?: string
+          updated_at?: string
+          usage_reset_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intelligence_usage_limits_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: true
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       menu_items: {
         Row: {
           active: boolean | null
@@ -316,7 +654,7 @@ export type Database = {
           id: string
           image_url: string | null
           is_featured: boolean
-          menu_id: string | null
+          menu_id: string
           name: string
           owner_id: string | null
           price: number | null
@@ -336,7 +674,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_featured?: boolean
-          menu_id?: string | null
+          menu_id: string
           name: string
           owner_id?: string | null
           price?: number | null
@@ -356,7 +694,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_featured?: boolean
-          menu_id?: string | null
+          menu_id?: string
           name?: string
           owner_id?: string | null
           price?: number | null
@@ -748,6 +1086,56 @@ export type Database = {
           },
         ]
       }
+      restaurant_intelligence_profile: {
+        Row: {
+          brand_tone: string | null
+          created_at: string
+          cuisine_type: string | null
+          customer_demographic: string | null
+          id: string
+          price_range: string | null
+          restaurant_id: string
+          restaurant_style: string | null
+          service_style: string | null
+          target_customer: string | null
+          updated_at: string
+        }
+        Insert: {
+          brand_tone?: string | null
+          created_at?: string
+          cuisine_type?: string | null
+          customer_demographic?: string | null
+          id?: string
+          price_range?: string | null
+          restaurant_id: string
+          restaurant_style?: string | null
+          service_style?: string | null
+          target_customer?: string | null
+          updated_at?: string
+        }
+        Update: {
+          brand_tone?: string | null
+          created_at?: string
+          cuisine_type?: string | null
+          customer_demographic?: string | null
+          id?: string
+          price_range?: string | null
+          restaurant_id?: string
+          restaurant_style?: string | null
+          service_style?: string | null
+          target_customer?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restaurant_intelligence_profile_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: true
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       restaurant_settings: {
         Row: {
           created_at: string
@@ -1045,6 +1433,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activate_prompt_version: {
+        Args: { p_feature_key: string; p_template_id: string }
+        Returns: undefined
+      }
       delete_promotion_cascade: {
         Args: { target_promotion_id: string }
         Returns: undefined
@@ -1065,6 +1457,7 @@ export type Database = {
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<

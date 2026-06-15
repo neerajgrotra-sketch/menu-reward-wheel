@@ -36,6 +36,13 @@ const cards = [
     copy: 'Prepare reusable poster, table tent, signage, and QR kit defaults.',
     status: 'Future',
   },
+  {
+    title: 'Intelligence Lab',
+    href: '/super-admin/intelligence-lab',
+    icon: '🧠',
+    copy: 'Manage generation features, prompt templates, provider costs, and A/B experiments.',
+    status: 'Available now',
+  },
 ];
 
 export default async function SuperAdminPage() {
