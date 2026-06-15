@@ -21,18 +21,6 @@ export function MiniPrizeWheel({ size = 24, boosted = false }: { size?: number; 
   const pointerSize = Math.max(7, Math.round(size * 0.28));
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }} aria-hidden="true">
-      <style jsx>{`
-        @keyframes miniWheelSpin {
-          0%   { transform: rotate(0deg); }
-          55%  { transform: rotate(760deg); }
-          70%  { transform: rotate(760deg); }
-          100% { transform: rotate(1080deg); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .mini-wheel-disc { animation: none !important; }
-        }
-      `}</style>
-
       {/* Pointer */}
       <div
         className="absolute right-0 top-1/2 z-20 font-black leading-none text-stone-800"
@@ -44,13 +32,10 @@ export function MiniPrizeWheel({ size = 24, boosted = false }: { size?: number; 
         ◀
       </div>
 
-      {/* Wheel disc */}
+      {/* Wheel disc — animation applied via globals.css .spinbite-mini-wheel[/-fast] */}
       <div
-        className="mini-wheel-disc absolute inset-0 rounded-full border-2 border-white shadow-md"
+        className={`${boosted ? 'spinbite-mini-wheel-fast' : 'spinbite-mini-wheel'} absolute inset-0 rounded-full border-2 border-white shadow-md`}
         style={{
-          animation: boosted
-            ? 'miniWheelSpin 0.28s linear infinite'
-            : 'miniWheelSpin 3.2s cubic-bezier(.18,.8,.25,1) infinite',
           background:
             'conic-gradient(#FF6B00 0deg 45deg,#FFD166 45deg 90deg,#00C853 90deg 135deg,#E63939 135deg 180deg,#FF8A00 180deg 225deg,#FFF0C2 225deg 270deg,#2DD4BF 270deg 315deg,#F97316 315deg 360deg)',
         }}
@@ -80,7 +65,7 @@ export function MiniPrizeWheel({ size = 24, boosted = false }: { size?: number; 
 export function MiniMysteryBox({ size = 24 }: { size?: number }) {
   return (
     <div
-      className="relative shrink-0 overflow-hidden rounded"
+      className="spinbite-mini-mystery-box relative shrink-0 overflow-hidden rounded"
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
@@ -135,7 +120,7 @@ export function MiniScratchCard({ size = 24 }: { size?: number }) {
   const height = Math.round(size * 0.7);
   return (
     <div
-      className="relative shrink-0 overflow-hidden rounded shadow"
+      className="spinbite-mini-scratch-card relative shrink-0 overflow-hidden rounded shadow"
       style={{
         width: size,
         height,

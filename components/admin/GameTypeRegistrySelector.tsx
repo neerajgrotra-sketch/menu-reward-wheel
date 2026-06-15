@@ -12,12 +12,10 @@ function MiniGamePreview({ gameType, icon }: { gameType: GameType; icon: string 
   if (gameType === 'wheel') {
     return (
       <div className="relative flex h-16 w-16 shrink-0 items-center justify-center">
-        <style jsx>{`@keyframes spinPause{0%{transform:rotate(0deg)}55%{transform:rotate(760deg)}70%{transform:rotate(760deg)}100%{transform:rotate(1080deg)}}`}</style>
         <div className="absolute -right-1 top-1/2 z-20 -translate-y-1/2 text-lg">◀</div>
         <div
-          className="h-16 w-16 rounded-full border-4 border-white shadow-lg"
+          className="spinbite-mini-wheel h-16 w-16 rounded-full border-4 border-white shadow-lg"
           style={{
-            animation: 'spinPause 3.2s cubic-bezier(.18,.8,.25,1) infinite',
             background: 'conic-gradient(#FF6B00 0deg 45deg,#FFD166 45deg 90deg,#00C853 90deg 135deg,#E63939 135deg 180deg,#FF8A00 180deg 225deg,#FFF0C2 225deg 270deg,#2DD4BF 270deg 315deg,#F97316 315deg 360deg)',
           }}
         />
