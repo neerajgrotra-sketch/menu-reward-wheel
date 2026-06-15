@@ -193,6 +193,42 @@ export function MiniOpenDoor({ size = 24 }: { size?: number }) {
   );
 }
 
+// ─── Reward Reels ─────────────────────────────────────────────────────────────
+// CSS-only slot machine reels — three coloured vertical columns, no emoji.
+
+export function MiniRewardReels({ size = 24 }: { size?: number }) {
+  const reelHeight = Math.round(size * 0.5);
+  const reelWidth = Math.max(4, Math.round(size * 0.125));
+  const gap = Math.max(1, Math.round(size * 0.025));
+  const colors = ['#FF6B00', '#E63939', '#00C853', '#FFD166', '#2DD4BF', '#F97316'];
+  return (
+    <div
+      className="flex shrink-0 items-center justify-center shadow-inner"
+      style={{
+        width: size,
+        height: size,
+        background: 'linear-gradient(135deg,#fde68a,#fed7aa,#fbbf24)',
+        borderRadius: Math.round(size * 0.3),
+      }}
+      aria-hidden="true"
+    >
+      <div className="flex" style={{ gap }}>
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="flex flex-col overflow-hidden rounded bg-white/60"
+            style={{ width: reelWidth, height: reelHeight }}
+          >
+            {[0, 1, 2].map((j) => (
+              <div key={j} className="flex-1" style={{ background: colors[(i * 3 + j) % 6] }} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
 export type GameVisualData = {
@@ -220,6 +256,12 @@ export function getGameVisual(gameType: GameType, size = 24, boosted = false): G
         visual: <MiniOpenDoor size={size} />,
         headline: 'Choose & Win',
         subline: 'Pick your door',
+      };
+    case 'reward_reels':
+      return {
+        visual: <MiniRewardReels size={size} />,
+        headline: 'Pull & Win',
+        subline: 'Lucky Reels today',
       };
     default: // 'wheel' and any unrecognised type
       return {
