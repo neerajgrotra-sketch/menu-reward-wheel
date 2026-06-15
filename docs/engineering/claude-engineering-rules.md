@@ -187,3 +187,47 @@ Forbidden:
 - duplicated hardcoded labels
 
 Every core entity must have one canonical source of truth.
+
+---
+
+## Rule 14 — Brand Identity ≠ Game Identity
+
+The SpinBite brand mark (🎯 target emoji) is platform branding only.
+
+Game visuals represent gameplay mechanics.
+
+These are two distinct identity systems and must never be mixed.
+
+**Canonical Spin Wheel visual:**
+- 8-segment conic-gradient wheel (45° segments)
+- Segments: #FF6B00, #FFD166, #00C853, #E63939, #FF8A00, #FFF0C2, #2DD4BF, #F97316
+- Black center hub with SPIN text
+- Left-facing pointer (◀)
+- Defined in: `components/game-visuals/GameVisual.tsx` → `MiniPrizeWheel`
+
+**Canonical Lucky Reels visual:**
+- CSS-only slot machine reel columns
+- Gold gradient background
+- Three coloured vertical reel panels
+- Defined in: `components/game-visuals/GameVisual.tsx` → `MiniRewardReels`
+
+**Forbidden:**
+- Using 🎯 as the Spin Wheel game visual in any game card, selector, or marketing tile
+- Using 🎰 as the Lucky Reels visual in any game card, selector, or marketing tile
+- Using any emoji as a game visual in a game selection or marketing context
+- Rendering `spinWheelContract.icon` as a game card visual (contract icons are for compact inline badges and heading text only, not for visual game tiles)
+
+**Permitted uses of 🎯:**
+- SpinBite nav logo
+- Page headers (`🎯 SpinBite`)
+- Inline text badges next to promotion names where no visual canvas exists
+
+**Permitted uses of game contract `.icon` field:**
+- Compact promotion badges (e.g. `🎯 Spin Wheel` text label beside promotion name in list views)
+- Heading-level text decoration inside builder panels (`{game.icon} {game.name}`)
+- These are inline text contexts, not visual game tile contexts
+
+**Always use `getGameVisual()` from `GameVisual.tsx` for:**
+- Game selection cards (any surface where customer or operator chooses a game)
+- Marketing tiles that represent a specific game
+- Any visual icon slot with width/height dimensions allocated for a game image
