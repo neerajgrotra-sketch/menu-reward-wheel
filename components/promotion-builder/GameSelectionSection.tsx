@@ -75,7 +75,7 @@ export function GameSelectionSection({ label, gameType, onChange }: GameSelectio
           game.availability === 'active' &&
           (game.type === 'wheel' || game.type === 'mystery_box' || game.type === 'scratch_card' || game.type === 'open_the_door');
         const selected = game.type === gameType;
-        const title = game.type === 'reward_reels' ? 'Slot Machine' : game.createCard.title;
+        const title = game.createCard.title;
 
         const handleClick = () => {
           if (!isSelectable) return;

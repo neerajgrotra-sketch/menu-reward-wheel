@@ -68,7 +68,7 @@ const POOL_GAMES = [
   { type: 'spin_wheel',   name: 'Spin Wheel',    icon: '🎯' },
   { type: 'mystery_box',  name: 'Mystery Box',   icon: '🎁' },
   { type: 'scratch_card', name: 'Scratch Card',  icon: '🪙' },
-  { type: 'reward_reels', name: 'Reward Reels',  icon: '🎰' },
+  { type: 'reward_reels', name: 'Lucky Reels',   icon: '🎰' },
   { type: 'open_the_door',name: 'Open The Door', icon: '🚪' },
 ] as const;
 

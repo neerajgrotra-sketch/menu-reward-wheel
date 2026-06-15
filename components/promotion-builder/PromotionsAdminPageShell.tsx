@@ -10,8 +10,7 @@ import {
   type Promotion,
   type PromotionsAdminMode,
 } from '@/hooks/usePromotionsAdmin';
-import { getGameMeta } from '@/lib/games/game-registry';
-import { getGameDefinition } from '@/lib/games/registry';
+import { getGameBadge } from '@/lib/games/game-registry';
 
 function filterLabel(filter: Filter) {
   return filter === 'all' ? 'All' : filter[0].toUpperCase() + filter.slice(1);
@@ -41,9 +40,7 @@ function statusBadgeClass(status: string) {
 }
 
 function gameBadge(gameType?: string | null) {
-  const meta = getGameMeta(gameType);
-  const def = getGameDefinition(gameType);
-  return { icon: def.icon, label: meta.label };
+  return getGameBadge(gameType);
 }
 
 function modeLabel(mode: PromotionsAdminMode, copy: any) {
