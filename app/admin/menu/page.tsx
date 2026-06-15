@@ -974,13 +974,18 @@ export default function MenuPage() {
                         const res = await fetch('/api/admin/generate-description', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ itemName: editingItemName, tags: editingItemTags }),
+                          body: JSON.stringify({
+                            itemName: editingItemName,
+                            tags: editingItemTags,
+                            restaurantName: restaurant?.name ?? '',
+                            categoryName: menus.find((m) => m.id === editingItemMenuId)?.name ?? '',
+                          }),
                         });
                         const data = await res.json();
                         if (!res.ok) throw new Error(data.error || 'Generation failed');
                         setEditingItemDescription(data.description);
-                      } catch (err: any) {
-                        setError(err.message || 'AI generation failed');
+                      } catch {
+                        setError("Couldn't generate right now. Please try again.");
                       } finally {
                         setAiGenerating(false);
                       }

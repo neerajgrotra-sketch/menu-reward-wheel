@@ -12,10 +12,14 @@ export async function POST(request: Request) {
 
   let itemName: string;
   let tags: string;
+  let restaurantName: string;
+  let categoryName: string;
   try {
     const body = await request.json();
     itemName = (body.itemName ?? '').trim();
     tags = (body.tags ?? '').trim();
+    restaurantName = (body.restaurantName ?? '').trim();
+    categoryName = (body.categoryName ?? '').trim();
   } catch {
     return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
   }
@@ -31,8 +35,22 @@ export async function POST(request: Request) {
 
   const client = new Anthropic({ apiKey });
 
-  const tagLine = tags ? ` Tags: ${tags}.` : '';
-  const prompt = `Write a 1–2 sentence appetizing menu description for "${itemName}".${tagLine} Be concise and vivid. Return only the description text, no quotes, no labels.`;
+  const contextParts: string[] = [];
+  if (restaurantName) contextParts.push(`Restaurant: ${restaurantName}`);
+  if (categoryName) contextParts.push(`Menu category: ${categoryName}`);
+  if (tags) contextParts.push(`Item tags: ${tags}`);
+  const contextBlock = contextParts.length > 0 ? `\nContext:\n${contextParts.join('\n')}` : '';
+
+  const prompt = `Write a concise, appetizing menu description for "${itemName}".${contextBlock}
+
+Rules:
+- 1–2 sentences, under 300 characters total
+- Premium but natural tone — evocative and inviting, not over-the-top
+- Describe flavour, texture, or cooking method only if clearly implied by the dish name or tags
+- Do NOT claim homemade, fresh, or organic unless explicitly stated in the tags
+- Do NOT mention allergens or ingredients not evident from the name or tags
+- Do NOT include prices, discounts, or promotional language
+- Return only the description text — no quotes, no labels, no preamble`;
 
   const message = await client.messages.create({
     model: 'claude-opus-4-8',
@@ -41,7 +59,8 @@ export async function POST(request: Request) {
   });
 
   const block = message.content[0];
-  const description = block.type === 'text' ? block.text.trim() : '';
+  const raw = block.type === 'text' ? block.text.trim() : '';
+  const description = raw.slice(0, 300);
 
   return NextResponse.json({ description });
 }
