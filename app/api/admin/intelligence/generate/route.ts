@@ -3,6 +3,26 @@ import { createClient as createServiceSupabaseClient } from '@supabase/supabase-
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
 import type { Database } from '@/lib/supabase/database.types';
 import { generate } from '@/lib/intelligence/intelligence-engine';
+import { UnresolvedVariableError } from '@/lib/intelligence/prompt-engine';
+import { FeatureDisabledError, TemplateMissingError } from '@/lib/intelligence/feature-resolver';
+import { MissingContextError } from '@/lib/intelligence/context-builder';
+import { ValidationError } from '@/lib/intelligence/validators';
+
+function clientSafeError(err: unknown): { message: string; status: number } {
+  if (err instanceof FeatureDisabledError) {
+    return { message: 'This feature is currently unavailable.', status: 503 };
+  }
+  if (err instanceof MissingContextError) {
+    return { message: 'Insufficient context to generate a description.', status: 400 };
+  }
+  if (err instanceof UnresolvedVariableError || err instanceof TemplateMissingError) {
+    return { message: 'Template configuration error. Please contact support.', status: 500 };
+  }
+  if (err instanceof ValidationError) {
+    return { message: 'Generation produced no usable output. Please try again.', status: 500 };
+  }
+  return { message: 'Description generation temporarily unavailable.', status: 500 };
+}
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -122,8 +142,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ output: result.output });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Generation failed.';
     console.error('[intelligence/generate] Error:', err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = clientSafeError(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

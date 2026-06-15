@@ -22,7 +22,7 @@ export default async function IntelligenceLabPage() {
       .order('feature_key'),
     supabase
       .from('intelligence_prompt_templates')
-      .select('id, feature_key, name, provider, model, system_prompt, user_prompt_template, temperature, max_tokens, active, version, notes')
+      .select('id, feature_key, name, provider, model, system_prompt, user_prompt_template, temperature, max_tokens, active, version, notes, status')
       .order('feature_key')
       .order('version', { ascending: false }),
     supabase

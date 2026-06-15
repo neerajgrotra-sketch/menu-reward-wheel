@@ -71,7 +71,9 @@ export async function generate(params: GenerateParams): Promise<GenerateResult> 
 
   try {
     // 1. Resolve template (or experiment variant).
-    const resolved = await resolveFeature(featureKey, serverClient);
+    // serviceClient used: RLS on platform tables restricts reads to super_admin;
+    // the service role bypasses RLS so generation works for any authenticated user.
+    const resolved = await resolveFeature(featureKey, serviceClient);
     templateId  = resolved.template.id;
     experimentId = resolved.experimentId;
     variant     = resolved.variant;
@@ -88,7 +90,8 @@ export async function generate(params: GenerateParams): Promise<GenerateResult> 
       : null;
 
     // 4. Look up cost rate for this provider + model.
-    const { data: costRow } = await serverClient
+    // serviceClient used: RLS restricts intelligence_provider_costs to super_admin.
+    const { data: costRow } = await serviceClient
       .from('intelligence_provider_costs')
       .select('input_cost_per_1m, output_cost_per_1m')
       .eq('provider', provider)

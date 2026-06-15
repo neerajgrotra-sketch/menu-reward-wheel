@@ -16,6 +16,7 @@ type Template = {
   active: boolean;
   version: number;
   notes: string | null;
+  status: string;
 };
 
 type Props = {
@@ -23,14 +24,21 @@ type Props = {
   templates: Template[];
 };
 
-export function PromptEditor({ featureKey, templates }: Props) {
-  const active = templates.find((t) => t.active) ?? templates[0] ?? null;
+const STATUS_STYLES: Record<string, string> = {
+  active:   'bg-green-100 text-green-700',
+  testing:  'bg-blue-100 text-blue-700',
+  draft:    'bg-stone-100 text-stone-500',
+  archived: 'bg-stone-50 text-stone-400',
+};
 
-  const [showForm, setShowForm]       = useState(false);
-  const [notice, setNotice]           = useState('');
-  const [error, setError]             = useState('');
-  const [isPending, startTransition]  = useTransition();
-  const [activating, setActivating]   = useState<string | null>(null);
+export function PromptEditor({ featureKey, templates }: Props) {
+  const active = templates.find((t) => t.active) ?? null;
+
+  const [showForm, setShowForm]      = useState(false);
+  const [notice, setNotice]          = useState('');
+  const [error, setError]            = useState('');
+  const [isPending, startTransition] = useTransition();
+  const [activating, setActivating]  = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   function flash(msg: string, isError = false) {
@@ -38,13 +46,13 @@ export function PromptEditor({ featureKey, templates }: Props) {
     else          { setNotice(msg); setTimeout(() => setNotice(''), 3000); }
   }
 
-  function handleSave(formData: FormData) {
+  function handleSaveDraft(formData: FormData) {
     startTransition(async () => {
       try {
         await savePromptTemplate(formData);
         setShowForm(false);
         formRef.current?.reset();
-        flash('New template version saved and activated.');
+        flash('Draft saved. Review it in version history, then activate when ready.');
       } catch (err) {
         flash(err instanceof Error ? err.message : 'Save failed.', true);
       }
@@ -72,7 +80,7 @@ export function PromptEditor({ featureKey, templates }: Props) {
     <div className="space-y-4">
 
       {/* Active template preview */}
-      {active && (
+      {active ? (
         <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -100,32 +108,44 @@ export function PromptEditor({ featureKey, templates }: Props) {
             <p className="mt-2 text-xs text-stone-500">{active.notes}</p>
           )}
         </div>
+      ) : (
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+          <p className="text-sm font-black text-amber-700">No active template — generation will fail for this feature.</p>
+          <p className="mt-1 text-xs text-amber-600">Save a draft and activate it before enabling this feature.</p>
+        </div>
       )}
 
       {/* Feedback messages */}
       {notice && <p className="rounded-xl bg-green-50 px-4 py-3 text-sm font-bold text-green-700">{notice}</p>}
       {error  && <p className="rounded-xl bg-red-50   px-4 py-3 text-sm font-bold text-red-700">{error}</p>}
 
-      {/* Toggle new version form */}
+      {/* Toggle draft form */}
       <button
         type="button"
         onClick={() => setShowForm((v) => !v)}
         className="rounded-xl bg-[#FF6B00] px-5 py-2.5 text-sm font-black text-white transition-opacity hover:opacity-85"
       >
-        {showForm ? 'Cancel' : '+ New Template Version'}
+        {showForm ? 'Cancel' : '+ New Draft Version'}
       </button>
 
-      {/* New version form */}
+      {/* Draft form — saves as status=draft, never activates immediately */}
       {showForm && (
-        <form ref={formRef} action={handleSave} className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+        <form ref={formRef} action={handleSaveDraft} className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
           <input type="hidden" name="feature_key" value={featureKey} />
 
-          <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">New Template Version</p>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">New Draft Version</p>
+            <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-black text-stone-500">Saves as Draft</span>
+          </div>
+
+          <p className="text-xs text-stone-500">
+            Drafts do not go live. Review the saved version in history and click Activate when ready.
+          </p>
 
           {/* Name */}
           <div>
             <label className="mb-1 block text-xs font-black uppercase tracking-wide text-stone-400">Name</label>
-            <input name="name" required placeholder="v3 — Concise, 2 sentences" className="w-full rounded-xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
+            <input name="name" required placeholder="v2 — Concise, 2 sentences" className="w-full rounded-xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
           </div>
 
           {/* Provider + model */}
@@ -152,7 +172,9 @@ export function PromptEditor({ featureKey, templates }: Props) {
 
           {/* User prompt template */}
           <div>
-            <label className="mb-1 block text-xs font-black uppercase tracking-wide text-stone-400">User Prompt Template <span className="font-normal normal-case text-stone-400">— use {'{{variable}}'} syntax</span></label>
+            <label className="mb-1 block text-xs font-black uppercase tracking-wide text-stone-400">
+              User Prompt Template <span className="font-normal normal-case text-stone-400">— use {'{{variable}}'} syntax</span>
+            </label>
             <textarea name="user_prompt_template" required rows={6} placeholder="Write a 2-sentence description for {{item_name}}..." className="w-full resize-none rounded-xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
           </div>
 
@@ -174,15 +196,15 @@ export function PromptEditor({ featureKey, templates }: Props) {
             <input name="notes" placeholder="What changed and why..." className="w-full rounded-xl border border-stone-200 px-4 py-3 font-semibold outline-none focus:border-[#FF6B00]" />
           </div>
 
-          <button type="submit" disabled={isPending} className="w-full rounded-xl bg-green-600 py-3 text-sm font-black text-white transition-opacity disabled:opacity-50">
-            {isPending ? 'Saving…' : 'Save & Activate'}
+          <button type="submit" disabled={isPending} className="w-full rounded-xl bg-stone-800 py-3 text-sm font-black text-white transition-opacity disabled:opacity-50">
+            {isPending ? 'Saving draft…' : 'Save as Draft'}
           </button>
         </form>
       )}
 
-      {/* Template version history */}
-      {templates.length > 1 && (
-        <details className="rounded-2xl border border-stone-100 bg-white p-5 shadow-sm">
+      {/* Version history — all templates, with status badges and activate controls */}
+      {templates.length > 0 && (
+        <details className="rounded-2xl border border-stone-100 bg-white p-5 shadow-sm" open={!active}>
           <summary className="cursor-pointer text-xs font-black uppercase tracking-wide text-stone-400">
             Version History ({templates.length} total)
           </summary>
@@ -190,11 +212,18 @@ export function PromptEditor({ featureKey, templates }: Props) {
             {templates.map((t) => (
               <div key={t.id} className={`flex items-center justify-between gap-3 rounded-xl p-3 ${t.active ? 'bg-orange-50' : 'bg-stone-50'}`}>
                 <div className="min-w-0">
-                  <p className="text-sm font-black">{t.name} <span className="text-xs text-stone-400">v{t.version}</span></p>
-                  <p className="text-xs text-stone-500">{t.provider} · {t.model}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-black">{t.name}</p>
+                    <span className="text-xs text-stone-400">v{t.version}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-black ${STATUS_STYLES[t.status] ?? 'bg-stone-100 text-stone-400'}`}>
+                      {t.status}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-stone-500">{t.provider} · {t.model}</p>
+                  {t.notes && <p className="mt-0.5 text-xs text-stone-400 italic">{t.notes}</p>}
                 </div>
                 {t.active ? (
-                  <span className="shrink-0 rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">Active</span>
+                  <span className="shrink-0 rounded-full bg-green-100 px-3 py-1 text-xs font-black text-green-700">Live</span>
                 ) : (
                   <button
                     type="button"

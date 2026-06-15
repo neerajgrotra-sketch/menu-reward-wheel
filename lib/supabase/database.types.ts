@@ -1,6 +1,3 @@
-// Auto-generated from Supabase project viaoholpnysccaijfpox (Restaurant-gamify)
-// Generated: 2026-06-15 — do not edit manually, run: supabase gen types typescript
-
 export type Json =
   | string
   | number
@@ -306,6 +303,39 @@ export type Database = {
           },
         ]
       }
+      intelligence_audit_log: {
+        Row: {
+          action: string
+          admin_user_id: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          id: string
+          new_value: Json | null
+          old_value: Json | null
+        }
+        Insert: {
+          action: string
+          admin_user_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+        }
+        Update: {
+          action?: string
+          admin_user_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+        }
+        Relationships: []
+      }
       intelligence_experiments: {
         Row: {
           active: boolean
@@ -487,6 +517,7 @@ export type Database = {
           name: string
           notes: string | null
           provider: string
+          status: string
           system_prompt: string | null
           temperature: number
           updated_at: string
@@ -503,6 +534,7 @@ export type Database = {
           name: string
           notes?: string | null
           provider?: string
+          status?: string
           system_prompt?: string | null
           temperature?: number
           updated_at?: string
@@ -519,6 +551,7 @@ export type Database = {
           name?: string
           notes?: string | null
           provider?: string
+          status?: string
           system_prompt?: string | null
           temperature?: number
           updated_at?: string
@@ -1400,6 +1433,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      activate_prompt_version: {
+        Args: { p_feature_key: string; p_template_id: string }
+        Returns: undefined
+      }
       delete_promotion_cascade: {
         Args: { target_promotion_id: string }
         Returns: undefined
