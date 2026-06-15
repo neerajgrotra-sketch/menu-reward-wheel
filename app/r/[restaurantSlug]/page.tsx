@@ -75,6 +75,7 @@ export type PublicPromotion = {
   name: string;
   slug: string;
   game_type?: string | null;
+  game_types: string[];
 };
 
 export type PublicReward = {
@@ -101,7 +102,7 @@ async function fetchPromotionForCard(
 ): Promise<[PublicPromotion | null, PublicReward[], Set<string>]> {
   const promoResult = await supabase
     .from('promotions')
-    .select('id,name,slug,status,starts_at,ends_at,promotion_game_assignments(game_type)')
+    .select('id,name,slug,status,starts_at,ends_at,promotion_game_assignments(game_type,enabled)')
     .eq('restaurant_id', restaurant.id)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -109,7 +110,7 @@ async function fetchPromotionForCard(
 
   if (promoResult.error || !promoResult.data?.length) return [null, [], new Set()];
 
-  type PromoRow = { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null; promotion_game_assignments?: Array<{ game_type: string }> | null };
+  type PromoRow = { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null; promotion_game_assignments?: Array<{ game_type: string; enabled: boolean }> | null };
   const live = (promoResult.data as PromoRow[]).find((p) => {
     if (p.starts_at && now < new Date(p.starts_at)) return false;
     if (p.ends_at && now > new Date(p.ends_at)) return false;
@@ -118,8 +119,10 @@ async function fetchPromotionForCard(
 
   if (!live) return [null, [], new Set()];
 
-  const gameType = live.promotion_game_assignments?.[0]?.game_type ?? null;
-  const promotion: PublicPromotion = { id: live.id, name: live.name, slug: live.slug, game_type: gameType };
+  const assignments = (live.promotion_game_assignments ?? []).filter((a) => a.enabled !== false);
+  const game_types = assignments.map((a) => a.game_type);
+  const gameType = game_types[0] ?? null;
+  const promotion: PublicPromotion = { id: live.id, name: live.name, slug: live.slug, game_type: gameType, game_types };
 
   const rewardsResult = await supabase
     .from('promotion_rewards')
