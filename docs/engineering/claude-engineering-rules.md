@@ -234,6 +234,28 @@ These are two distinct identity systems and must never be mixed.
 
 ---
 
+## Rule 15 — Verify Production After Every Merge
+
+After merging to main, confirm the change is live across three layers before closing the task.
+
+**Layer 1 — Git**
+Confirm commit exists on origin/main:
+
+```
+git log origin/main --oneline -3
+```
+
+**Layer 2 — Vercel**
+Confirm latest production deployment SHA matches the merged commit.
+A READY state alone is not enough — the SHA must match.
+
+**Layer 3 — Runtime**
+Visit the production URL and verify the changed UI is visible.
+
+Never report a task as complete until all three layers confirm.
+
+---
+
 ## Rule 16 — Audit ≠ Implementation
 
 A branch containing documentation, audits, analysis, reports, or architectural

@@ -386,11 +386,22 @@ function RewardWidget({
   );
   const [expanded, setExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const launchBtnRef = useRef<HTMLButtonElement>(null);
 
   const buttonVisual = getGameVisual(promotion.game_type ?? 'wheel', 28);
   const panelData = getGameVisual(displayType, 88);
   const gameMeta = getGameMeta(displayType);
+
+  function handlePlay() {
+    if (launching) return;
+    setLaunching(true);
+    if (launchBtnRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      fireButtonConfetti(launchBtnRef.current.getBoundingClientRect());
+    }
+    setTimeout(() => { window.location.href = playUrl; }, 500);
+  }
 
   useEffect(() => {
     if (sheetVisible) closeBtnRef.current?.focus();
@@ -525,13 +536,16 @@ function RewardWidget({
                 {panelData.headline}
               </h2>
               <p className="mt-2 text-sm text-stone-500">{panelData.subline}</p>
-              <a
-                href={playUrl}
-                className="mt-6 block rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95"
-                style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
+              <button
+                ref={launchBtnRef}
+                type="button"
+                onClick={handlePlay}
+                disabled={launching}
+                className="mt-6 block w-full rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95 disabled:opacity-70"
+                style={{ backgroundColor: accentColor, transition: 'transform 150ms, opacity 150ms' }}
               >
-                Play Now
-              </a>
+                {launching ? 'Launching…' : 'Play Now'}
+              </button>
               <p className="mt-4 text-xs text-stone-400">
                 No purchase necessary • takes less than 10 seconds
               </p>
@@ -579,6 +593,13 @@ function FacebookIcon({ className }: { className?: string }) {
 
 // ─── Confetti ─────────────────────────────────────────────────────────────────
 // Full-screen celebration: 170+ particles from top, falls ~1.2–1.8 s.
+
+function fireButtonConfetti(rect: DOMRect) {
+  const colors = ['#FF6B00', '#FFD166', '#00C853', '#E63939', '#2DD4BF', '#FFFFFF', '#F97316'];
+  const x = (rect.left + rect.width / 2) / window.innerWidth;
+  const y = (rect.top + rect.height / 2) / window.innerHeight;
+  confetti({ particleCount: 30, spread: 55, origin: { x, y }, colors, scalar: 0.7, ticks: 60, startVelocity: 18, gravity: 1.2 });
+}
 
 function fireFullScreenConfetti() {
   const colors = ['#FF6B00', '#FFD166', '#00C853', '#E63939', '#2DD4BF', '#FFFFFF', '#F97316'];
