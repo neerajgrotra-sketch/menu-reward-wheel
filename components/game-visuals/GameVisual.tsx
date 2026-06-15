@@ -267,32 +267,32 @@ export function getGameVisual(gameType: GameType, size = 24, boosted = false): G
     case 'mystery_box':
       return {
         visual: <MiniMysteryBox size={size} />,
-        headline: 'Open & Win',
-        subline: 'Mystery reward today',
+        headline: 'Choose Your Box',
+        subline: 'Three choices. One surprise inside.',
       };
     case 'scratch_card':
       return {
         visual: <MiniScratchCard size={size} />,
-        headline: 'Scratch & Win',
-        subline: 'Reveal your reward',
+        headline: 'Scratch & Reveal',
+        subline: "Scratch to see what's hidden underneath.",
       };
     case 'open_the_door':
       return {
         visual: <MiniOpenDoor size={size} />,
-        headline: 'Choose & Win',
-        subline: 'Pick your door',
+        headline: 'Pick A Door',
+        subline: 'One door leads to something special.',
       };
     case 'reward_reels':
       return {
         visual: <MiniRewardReels size={size} />,
         headline: 'Pull & Win',
-        subline: 'Lucky Reels today',
+        subline: 'Pull the reels and test your luck.',
       };
     default: // 'wheel' and any unrecognised type
       return {
         visual: <MiniPrizeWheel size={size} boosted={boosted} />,
         headline: 'Spin & Win',
-        subline: 'Rewards today',
+        subline: 'Something special is waiting — take a spin.',
       };
   }
 }

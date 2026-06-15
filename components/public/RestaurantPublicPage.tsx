@@ -5,6 +5,7 @@ import { Globe, Navigation2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 import { getGameVisual, type GameType } from '@/components/game-visuals/GameVisual';
+import { getGameMeta } from '@/lib/games/game-registry';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -369,19 +370,27 @@ function ItemDetailSheet({
 
 function RewardWidget({
   promotion,
-  rewards,
   playUrl,
   accentColor,
 }: {
   promotion: PublicPromotion;
-  rewards: PublicReward[];
   playUrl: string;
   accentColor: string;
 }) {
-  const widgetVisual = getGameVisual(promotion.game_type, 28);
+  const pool = useMemo(
+    () => (promotion.game_types.length > 0 ? promotion.game_types : [promotion.game_type ?? 'wheel']),
+    [promotion.game_types, promotion.game_type],
+  );
+  const [displayType, setDisplayType] = useState<string>(
+    () => pool[Math.floor(Math.random() * pool.length)],
+  );
   const [expanded, setExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+
+  const buttonVisual = getGameVisual(promotion.game_type ?? 'wheel', 28);
+  const panelData = getGameVisual(displayType, 88);
+  const gameMeta = getGameMeta(displayType);
 
   useEffect(() => {
     if (sheetVisible) closeBtnRef.current?.focus();
@@ -404,6 +413,7 @@ function RewardWidget({
   }, [expanded]);
 
   function openSheet() {
+    setDisplayType(pool[Math.floor(Math.random() * pool.length)]);
     setExpanded(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
@@ -437,14 +447,14 @@ function RewardWidget({
       <button
         type="button"
         onClick={openSheet}
-        aria-label="View today's reward"
+        aria-label="View today's promotion"
         className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full shadow-xl"
         style={{
           backgroundColor: accentColor,
           bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
         }}
       >
-        {widgetVisual.visual}
+        {buttonVisual.visual}
       </button>
 
       {/* Bottom sheet */}
@@ -465,7 +475,7 @@ function RewardWidget({
 
           {/* Sheet */}
           <div
-            className="absolute bottom-0 left-0 right-0 max-h-[80vh] overflow-y-auto rounded-t-3xl bg-white overscroll-contain"
+            className="absolute bottom-0 left-0 right-0 overflow-hidden rounded-t-3xl bg-white"
             style={{
               transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
               transition: 'transform 300ms ease-out',
@@ -473,50 +483,58 @@ function RewardWidget({
             onClick={(e) => e.stopPropagation()}
           >
             {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1">
+            <div className="flex justify-center pt-3">
               <div className="h-1 w-10 rounded-full bg-stone-300" />
             </div>
 
-            <div className="flex items-center justify-between px-5 pt-2">
-              <h2 id="widget-sheet-title" className="text-lg font-black text-stone-900">
-                Today&apos;s Rewards
-              </h2>
+            {/* Close button */}
+            <div className="flex justify-end px-4 pt-2">
               <button
                 ref={closeBtnRef}
                 type="button"
                 onClick={closeSheet}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-stone-100 text-stone-600"
                 aria-label="Close"
               >
                 <span aria-hidden="true">✕</span>
               </button>
             </div>
 
-            <div className="px-5 pb-8 pt-3">
-              <p className="font-black text-stone-900">{promotion.name}</p>
-
-              {rewards.length > 0 && (
-                <ul className="mt-3 space-y-2" aria-label="Available rewards">
-                  {rewards.map((r) => (
-                    <li key={r.id} className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} aria-hidden="true" />
-                      {r.label}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              <p className="mt-3 text-sm text-stone-500">
-                Play today&apos;s game and you could win a free item or discount.
+            {/* Game visual header */}
+            <div
+              className="mx-4 rounded-3xl px-6 pb-8 pt-6 text-center"
+              style={{ background: `linear-gradient(160deg, ${accentColor} 0%, ${darken(accentColor, 35)} 100%)` }}
+            >
+              <div
+                className="flex justify-center"
+                style={{ filter: 'drop-shadow(0 8px 24px rgba(0,0,0,0.45))' }}
+              >
+                {panelData.visual}
+              </div>
+              <p
+                className="mt-4 text-xs font-black uppercase tracking-widest"
+                style={{ color: 'rgba(255,255,255,0.7)' }}
+              >
+                {gameMeta.label}
               </p>
+            </div>
 
+            {/* Headline + CTA */}
+            <div className="px-6 pb-8 pt-6 text-center">
+              <h2 id="widget-sheet-title" className="text-2xl font-black text-stone-900">
+                {panelData.headline}
+              </h2>
+              <p className="mt-2 text-sm text-stone-500">{panelData.subline}</p>
               <a
                 href={playUrl}
-                className="mt-5 block rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95"
+                className="mt-6 block rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95"
                 style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
               >
                 Play Now
               </a>
+              <p className="mt-4 text-xs text-stone-400">
+                No purchase necessary • takes less than 10 seconds
+              </p>
             </div>
           </div>
         </div>
@@ -1196,7 +1214,6 @@ export function RestaurantPublicPage({
       {hasPromotion && (
         <RewardWidget
           promotion={promotion!}
-          rewards={promotionRewards ?? []}
           playUrl={playUrl}
           accentColor={accentColor}
         />
