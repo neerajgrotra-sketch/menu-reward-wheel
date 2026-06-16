@@ -11,25 +11,38 @@ language plpgsql
 as $$
 declare
   normalized_type text;
+  game_slug       text;
 begin
-  -- Disabled assignments are allowed with any game_type (audit history).
+  -- Disabled assignments bypass validation (preserved as audit history).
   if new.enabled = false then
     return new;
   end if;
 
-  -- Normalize legacy 'wheel' alias before checking the games table.
+  -- Normalize legacy 'wheel' alias.
   normalized_type := case when new.game_type = 'wheel' then 'spin_wheel' else new.game_type end;
 
-  -- Reject if the game is not found or is not active in Super Admin.
-  if not exists (
+  -- Map canonical game_type → games.slug for status lookup.
+  -- games.id is UUID; no game_type column exists on games; slug is the stable text key.
+  game_slug := case normalized_type
+    when 'spin_wheel'    then 'spin-wheel'
+    when 'mystery_box'   then 'mystery-box'
+    when 'scratch_card'  then 'scratch-win'
+    when 'reward_reels'  then 'lucky-slot'
+    when 'open_the_door' then 'open-the-door'
+    when 'pick_a_card'   then 'pick-a-card'
+    else null
+  end;
+
+  -- Reject unknown game types or games not active in Super Admin.
+  if game_slug is null or not exists (
     select 1
     from public.games
-    where id = normalized_type
+    where slug   = game_slug
       and status = 'active'
   ) then
     raise exception
       'Game "%" is not active. Only active games can be assigned to promotions. '
-      'Check Super Admin → Intelligence Lab → Game Configuration.',
+      'Check Super Admin → Game Configuration.',
       new.game_type;
   end if;
 
