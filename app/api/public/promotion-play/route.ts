@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { resolvePromotionGame } from '@/lib/game-pool/resolvePromotionGame';
 import { resolveSessionPlayState } from '@/lib/session-play-state';
-import type { GameType } from '@/lib/game-pool/types';
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -69,12 +68,12 @@ export async function GET(request: NextRequest) {
 
     const promotion = promotionResult.data;
 
-    // Resolve game type (idempotent — handles duplicate session gracefully).
+    // Resolve game type from promotion_game_assignments (single source of truth).
+    // Both the primary game (is_primary=true) and additional games live there.
     // Returns the play_sessions.id so downstream routes can store a proper FK.
     const { gameType: selectedGameType, isNewSession, playSessionId } = await resolvePromotionGame({
       promotionId: promotion.id,
       sessionToken,
-      fallbackGameType: (promotion.game_type || 'wheel') as GameType,
       ipAddress:
         request.headers.get('x-forwarded-for') ||
         request.headers.get('x-real-ip') ||

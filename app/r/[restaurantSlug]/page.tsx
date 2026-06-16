@@ -102,7 +102,7 @@ async function fetchPromotionForCard(
 ): Promise<[PublicPromotion | null, PublicReward[], Set<string>]> {
   const promoResult = await supabase
     .from('promotions')
-    .select('id,name,slug,status,starts_at,ends_at,promotion_game_assignments(game_type,enabled)')
+    .select('id,name,slug,status,game_type,starts_at,ends_at,promotion_game_assignments(game_type,enabled,is_primary)')
     .eq('restaurant_id', restaurant.id)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -110,7 +110,8 @@ async function fetchPromotionForCard(
 
   if (promoResult.error || !promoResult.data?.length) return [null, [], new Set()];
 
-  type PromoRow = { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null; promotion_game_assignments?: Array<{ game_type: string; enabled: boolean }> | null };
+  type AssignmentRow = { game_type: string; enabled: boolean; is_primary: boolean };
+  type PromoRow = { id: string; name: string; slug: string; status: string; game_type?: string | null; starts_at?: string | null; ends_at?: string | null; promotion_game_assignments?: Array<AssignmentRow> | null };
   const live = (promoResult.data as PromoRow[]).find((p) => {
     if (p.starts_at && now < new Date(p.starts_at)) return false;
     if (p.ends_at && now > new Date(p.ends_at)) return false;
@@ -119,9 +120,14 @@ async function fetchPromotionForCard(
 
   if (!live) return [null, [], new Set()];
 
+  // promotion_game_assignments is the single source of truth for all assigned games.
+  // The is_primary=true row identifies the primary game. All enabled rows form the pool.
   const assignments = (live.promotion_game_assignments ?? []).filter((a) => a.enabled !== false);
   const game_types = assignments.map((a) => a.game_type);
-  const gameType = game_types[0] ?? null;
+  const primaryAssignment = assignments.find((a) => a.is_primary);
+  // Fallback chain: primary assignment → first assignment → legacy promotions.game_type → null.
+  // The legacy fallback covers promotions created before the is_primary migration is applied.
+  const gameType = primaryAssignment?.game_type ?? game_types[0] ?? live.game_type ?? null;
   const promotion: PublicPromotion = { id: live.id, name: live.name, slug: live.slug, game_type: gameType, game_types };
 
   const rewardsResult = await supabase

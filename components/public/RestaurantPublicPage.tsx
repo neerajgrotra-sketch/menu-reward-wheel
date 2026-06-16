@@ -378,7 +378,7 @@ function RewardWidget({
   accentColor: string;
 }) {
   const pool = useMemo(
-    () => (promotion.game_types.length > 0 ? promotion.game_types : [promotion.game_type ?? 'wheel']),
+    () => (promotion.game_types.length > 0 ? promotion.game_types : [promotion.game_type ?? 'spin_wheel']),
     [promotion.game_types, promotion.game_type],
   );
   const [displayType, setDisplayType] = useState<string>(
@@ -390,7 +390,10 @@ function RewardWidget({
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const launchBtnRef = useRef<HTMLButtonElement>(null);
 
-  const buttonVisual = getGameVisual(promotion.game_type ?? 'wheel', 28);
+  if (!promotion.game_type) {
+    console.error('[RewardWidget] promotion.game_type is null — is_primary assignment may be missing for this promotion.');
+  }
+  const buttonVisual = getGameVisual(promotion.game_type ?? 'spin_wheel', 28);
   const panelData = getGameVisual(displayType, 88);
   const gameMeta = getGameMeta(displayType);
 

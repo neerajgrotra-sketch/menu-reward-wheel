@@ -288,7 +288,17 @@ export function getGameVisual(gameType: GameType, size = 24, boosted = false): G
         headline: 'Pull & Win',
         subline: 'Pull the reels and test your luck.',
       };
-    default: // 'wheel' and any unrecognised type
+    case 'wheel':
+    case 'spin_wheel':
+      return {
+        visual: <MiniPrizeWheel size={size} boosted={boosted} />,
+        headline: 'Spin & Win',
+        subline: 'Something special is waiting — take a spin.',
+      };
+    default:
+      // Unknown game type — should not occur after architecture correction.
+      // Log so it surfaces in monitoring, but still render a safe fallback.
+      console.error(`[getGameVisual] Unknown game type: "${gameType}". Falling back to spin_wheel visual.`);
       return {
         visual: <MiniPrizeWheel size={size} boosted={boosted} />,
         headline: 'Spin & Win',

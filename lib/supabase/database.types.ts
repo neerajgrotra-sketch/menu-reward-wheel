@@ -912,6 +912,7 @@ export type Database = {
           enabled: boolean
           game_type: string
           id: string
+          is_primary: boolean
           promotion_id: string
           weight: number
         }
@@ -920,6 +921,7 @@ export type Database = {
           enabled?: boolean
           game_type: string
           id?: string
+          is_primary?: boolean
           promotion_id: string
           weight?: number
         }
@@ -928,6 +930,7 @@ export type Database = {
           enabled?: boolean
           game_type?: string
           id?: string
+          is_primary?: boolean
           promotion_id?: string
           weight?: number
         }

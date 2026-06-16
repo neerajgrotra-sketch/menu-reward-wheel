@@ -22,7 +22,6 @@ const supabase = createClient(
 interface ResolvePromotionGameParams {
   promotionId: string;
   sessionToken: string;
-  fallbackGameType?: GameType;
   customerId?: string;
   ipAddress?: string;
   userAgent?: string;
@@ -38,7 +37,6 @@ export interface ResolveResult {
 export async function resolvePromotionGame({
   promotionId,
   sessionToken,
-  fallbackGameType,
   customerId,
   ipAddress,
   userAgent,
@@ -52,45 +50,56 @@ export async function resolvePromotionGame({
 
   if (existingSession) {
     return {
-      gameType: (existingSession.selected_game_type as GameType) || (fallbackGameType ?? ('wheel' as GameType)),
+      gameType: (existingSession.selected_game_type as GameType) || ('spin_wheel' as GameType),
       isNewSession: false,
       playSessionId: existingSession.id as string,
     };
   }
 
-  // New session: pick a game type from the promotion's pool.
-  const { data: assignments, error } = await supabase
-    .from('promotion_game_assignments')
-    .select('game_type, weight, enabled')
-    .eq('promotion_id', promotionId)
-    .eq('enabled', true);
+  // New session: build game pool from promotion_game_assignments, cross-checked against
+  // games.status = 'active'. Running both queries in parallel ensures Super Admin disabling
+  // a game takes immediate effect at runtime — stale enabled assignments are filtered out.
+  const normType = (gt: string) => (gt === 'wheel' ? 'spin_wheel' : gt);
 
-  if (error) {
-    throw new Error(`Failed to fetch game assignments: ${error.message}`);
+  const [assignmentsResult, activeGamesResult] = await Promise.all([
+    supabase
+      .from('promotion_game_assignments')
+      .select('game_type, weight, enabled')
+      .eq('promotion_id', promotionId)
+      .eq('enabled', true),
+    supabase
+      .from('games')
+      .select('id')
+      .eq('status', 'active'),
+  ]);
+
+  if (assignmentsResult.error) {
+    throw new Error(`Failed to fetch game assignments: ${assignmentsResult.error.message}`);
+  }
+  if (activeGamesResult.error) {
+    throw new Error(`Failed to fetch active games: ${activeGamesResult.error.message}`);
   }
 
-  // Build the effective pool: primary experience always leads, followed by
-  // additional experiences from promotion_game_assignments.
-  // De-duplicate by normalised game_type: 'wheel' and 'spin_wheel' are the same
-  // game stored under two historical identifiers and must count as one slot.
-  const normType = (gt: string) => (gt === 'wheel' ? 'spin_wheel' : gt);
+  // Only games that are both assignment-enabled AND currently active in Super Admin enter the pool.
+  const activeGameIds = new Set((activeGamesResult.data ?? []).map((g) => normType(g.id)));
+
+  // De-duplicate by normalised game_type ('wheel' and 'spin_wheel' are the same game).
   const seen = new Set<string>();
   const effectivePool: GamePoolEntry[] = [];
 
-  if (fallbackGameType) {
-    seen.add(normType(fallbackGameType));
-    effectivePool.push({ gameType: fallbackGameType, weight: 1, enabled: true });
-  }
-
-  for (const a of (assignments ?? [])) {
-    if (!seen.has(normType(a.game_type))) {
-      seen.add(normType(a.game_type));
+  for (const a of (assignmentsResult.data ?? [])) {
+    const norm = normType(a.game_type);
+    if (!seen.has(norm) && activeGameIds.has(norm)) {
+      seen.add(norm);
       effectivePool.push({ gameType: a.game_type as GameType, weight: a.weight, enabled: a.enabled });
     }
   }
 
   if (effectivePool.length === 0) {
-    throw new Error('No game pool assignments or fallback game type available');
+    throw new Error(
+      `No active game assignments found for promotion ${promotionId}. ` +
+      `Ensure promotion_game_assignments has at least one enabled row with is_primary=true.`
+    );
   }
 
   const selectedGame = selectWeightedGame(effectivePool).gameType;

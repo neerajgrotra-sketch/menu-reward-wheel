@@ -4,14 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
-import type { BuilderGameType } from '@/lib/builder/types';
+import { getGameMeta } from '@/lib/games/game-registry';
 import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; phone?: string | null };
 type Promotion = { id: string; name: string; slug: string; status: string; created_at: string; restaurant_id: string; starts_at?: string | null; ends_at?: string | null };
 type CountsByPromotion = Record<string, { issued: number; redeemed: number }>;
 type Filter = 'active' | 'pending' | 'draft' | 'ended' | 'all';
-type GameType = BuilderGameType;
 type PerformanceCoupon = { id: string; coupon_code: string; issued_at: string | null; redeemed_at: string | null; expires_at: string | null; raw_status: string; display_status: 'active' | 'expired' | 'redeemed'; item_won: string; discount_type: string };
 type PromotionPerformance = { promotion: { id: string; name: string; slug: string; status: string; starts_at?: string | null; ends_at?: string | null; coupon_expiry_minutes: number }; restaurant: { id: string; name: string; slug: string; address: string }; summary: { issued: number; redeemed: number; active: number; expired: number; redemptionRate: number }; rewardsBreakdown: Record<string, number>; coupons: PerformanceCoupon[]; limit: number };
 
@@ -74,7 +73,8 @@ export default function PromotionsPage() {
   const [metricsError, setMetricsError] = useState('');
   const [metricsInfo, setMetricsInfo] = useState('');
   const [name, setName] = useState('');
-  const [gameType, setGameType] = useState<GameType>('wheel');
+  const [gameType, setGameType] = useState<string>('spin_wheel');
+  const [availableGames, setAvailableGames] = useState<{ id: string; name: string; status: string }[]>([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -147,6 +147,11 @@ export default function PromotionsPage() {
       setRestaurants(owned);
       const preselected = requestedSlug ? owned.find((r) => r.slug === requestedSlug) : null;
       setSelectedRestaurantId((preselected || owned[0])?.id || '');
+      // Load active games from the games table — canonical availability authority.
+      const { data: gamesData } = await supabase.from('games').select('id,name,status').eq('status', 'active').order('name');
+      const activeGames = (gamesData ?? []) as { id: string; name: string; status: string }[];
+      setAvailableGames(activeGames);
+      if (activeGames.length > 0) setGameType(activeGames[0].id);
     }
     load();
   }, [supabase]);
@@ -159,6 +164,8 @@ export default function PromotionsPage() {
     const slug = `${toSlug(name)}-${Date.now().toString().slice(-4)}`;
     const response = await supabase.from('promotions').insert({ restaurant_id: selectedRestaurant.id, name: name.trim(), slug, status: 'draft', game_type: gameType }).select('id').single();
     if (response.error || !response.data) { setError(response.error?.message || 'Could not create promotion.'); setSaving(false); return; }
+    // Write the primary game assignment immediately so promotion_game_assignments is authoritative from creation.
+    await supabase.from('promotion_game_assignments').insert({ promotion_id: response.data.id, game_type: gameType, weight: 1, enabled: true, is_primary: true });
     window.location.href = `/admin/promotions/${response.data.id}/builder`;
   }
 
@@ -197,14 +204,14 @@ export default function PromotionsPage() {
 
   const statusCounts = promotions.reduce<Record<Filter, number>>((acc, p) => { const s = statusOf(p); acc[s] += 1; acc.all += 1; return acc; }, { active: 0, pending: 0, draft: 0, ended: 0, all: 0 });
   const visiblePromotions = mode === 'create' ? promotions.filter((p) => statusOf(p) === 'draft') : promotions.filter((p) => filter === 'all' || statusOf(p) === filter);
-  const canCreate = Boolean(selectedRestaurant && name.trim() && !saving);
+  const canCreate = Boolean(selectedRestaurant && name.trim() && gameType && !saving);
 
   return <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]"><section className="mx-auto max-w-5xl">
     <div className="flex items-center justify-between gap-4"><div><h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1><p className="mt-1 text-sm font-bold text-stone-500">{mode === 'create' ? copy.create_tab_label : copy.manage_tab_label}</p></div><a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a></div>
     <div className="mt-6 rounded-[2rem] bg-gradient-to-br from-[#FF6B00] to-[#E63939] p-6 text-white shadow-2xl shadow-orange-200"><p className="text-sm font-black uppercase tracking-[0.18em] text-white/80">{copy.eyebrow}</p><h2 className="mt-3 text-4xl font-black leading-tight">{mode === 'create' ? copy.create_headline : copy.manage_headline}</h2><p className="mt-3 text-sm font-semibold text-white/85">{mode === 'create' ? copy.create_subheadline : copy.manage_subheadline}</p></div>
     <div className="mt-5 grid grid-cols-2 gap-3 rounded-3xl bg-white p-2 shadow-xl"><button onClick={() => setMode('create')} className={`rounded-2xl px-4 py-3 text-sm font-black ${mode === 'create' ? 'bg-green-600 text-white' : 'bg-white text-stone-500'}`}>{copy.create_tab_label}</button><button onClick={() => setMode('manage')} className={`rounded-2xl px-4 py-3 text-sm font-black ${mode === 'manage' ? 'bg-[#1F1F1F] text-white' : 'bg-white text-stone-500'}`}>{copy.manage_tab_label}</button></div>
     <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">{mode === 'create' ? copy.select_location_label : 'Restaurant Location'}</p><select value={selectedRestaurantId} onChange={(e) => setSelectedRestaurantId(e.target.value)} className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]"><option value="">Select restaurant/location...</option>{restaurants.map((r) => <option key={r.id} value={r.id}>{locationLabel(r)}</option>)}</select>{selectedRestaurant && <div className="mt-4 rounded-2xl bg-orange-50 p-4"><p className="text-xl font-black">{selectedRestaurant.name}</p><p className="mt-1 text-sm font-bold text-stone-600">{address(selectedRestaurant)}</p><p className="mt-1 text-xs font-bold text-stone-500">/{selectedRestaurant.slug}</p></div>}</div>
-    {mode === 'create' && <><div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">{copy.name_promotion_label}</p><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Halloween, Lunch Rush, Weekend Spin..." className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 font-semibold outline-none focus:border-[#FF6B00]" /></div><div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_game_label}</p><GameCard selected={gameType === 'wheel'} onClick={() => setGameType('wheel')}><div className="flex items-start gap-4">{getGameVisual('wheel', 64).visual}<div><p className="text-2xl font-black">Spin Wheel</p><p className="mt-1 text-sm font-bold text-stone-600">Customers scan a QR code, spin a branded prize wheel, and win configured rewards.</p><p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p></div></div></GameCard><GameCard selected={gameType === 'mystery_box'} onClick={() => setGameType('mystery_box')}><div className="flex items-start gap-4">{getGameVisual('mystery_box', 64).visual}<div><p className="text-2xl font-black">Mystery Box Reveal</p><p className="mt-1 text-sm font-bold text-stone-600">Customers tap one of 3 mystery boxes and reveal a surprise coupon with stars and confetti.</p><p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p></div></div></GameCard><GameCard selected={gameType === 'scratch_card'} onClick={() => setGameType('scratch_card')}><div className="flex items-start gap-4">{getGameVisual('scratch_card', 64).visual}<div><p className="text-2xl font-black">Scratch Card</p><p className="mt-1 text-sm font-bold text-stone-600">Customers tap a digital scratch card to reveal a surprise reward using the same coupon engine.</p><p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p></div></div></GameCard><GameCard selected={gameType === 'open_the_door'} onClick={() => setGameType('open_the_door')}><div className="flex items-start gap-4">{getGameVisual('open_the_door', 64).visual}<div><p className="text-2xl font-black">Open The Door</p><p className="mt-1 text-sm font-bold text-stone-600">Customers choose one of three doors and reveal a surprise coupon behind it.</p><p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p></div></div></GameCard></div><div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 4: {copy.create_button_label}</p><button onClick={addPromotion} disabled={!canCreate} className="mt-3 w-full rounded-3xl bg-green-600 px-5 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400">{saving ? 'Creating...' : copy.create_button_label}</button></div></>}
+    {mode === 'create' && <><div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">{copy.name_promotion_label}</p><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Halloween, Lunch Rush, Weekend Spin..." className="mt-3 w-full rounded-2xl border border-stone-200 px-4 py-4 font-semibold outline-none focus:border-[#FF6B00]" /></div><div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_game_label}</p>{availableGames.map((game) => { const meta = getGameMeta(game.id); return <GameCard key={game.id} selected={gameType === game.id} onClick={() => setGameType(game.id)}><div className="flex items-start gap-4">{getGameVisual(game.id, 64).visual}<div><p className="text-2xl font-black">{game.name}</p><p className="mt-1 text-sm font-bold text-stone-600">{meta.description}</p><p className="mt-2 text-xs font-black uppercase text-green-700">Available now</p></div></div></GameCard>; })}{availableGames.length === 0 && <p className="mt-3 rounded-2xl bg-stone-50 p-4 text-sm font-bold text-stone-500">Loading available games...</p>}</div><div className="mt-5 rounded-3xl bg-white p-5 shadow-xl"><p className="text-sm font-black uppercase text-[#FF6B00]">Step 4: {copy.create_button_label}</p><button onClick={addPromotion} disabled={!canCreate} className="mt-3 w-full rounded-3xl bg-green-600 px-5 py-5 text-xl font-black text-white shadow-xl disabled:bg-stone-400">{saving ? 'Creating...' : copy.create_button_label}</button></div></>}
     {error && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">{error}</p>}
     {metricsError && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">Metrics error: {metricsError}</p>}
     {performanceError && <p className="mt-5 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">Performance error: {performanceError}</p>}
