@@ -56,7 +56,6 @@ export function HeroImageUploader({ currentUrl, restaurantId, ownerId, supabase,
     setMessage({ type: 'info', text: 'Uploading…' });
 
     const ext = pendingFile.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-    // Unique path per upload avoids CDN caching issues without polluting the stored URL.
     const storagePath = `${ownerId}/${restaurantId}/hero-${Date.now()}.${ext}`;
 
     const { error: uploadErr } = await supabase.storage
@@ -70,12 +69,10 @@ export function HeroImageUploader({ currentUrl, restaurantId, ownerId, supabase,
     }
 
     const { data: urlData } = supabase.storage.from(HERO_BUCKET).getPublicUrl(storagePath);
-    // Store the clean public URL — no cache-busting params in the DB value.
-    const cleanUrl = urlData.publicUrl;
 
     const { error: updateErr } = await supabase
       .from('restaurants')
-      .update({ hero_image_url: cleanUrl })
+      .update({ hero_image_url: urlData.publicUrl })
       .eq('id', restaurantId);
 
     if (updateErr) {
@@ -84,7 +81,6 @@ export function HeroImageUploader({ currentUrl, restaurantId, ownerId, supabase,
       return;
     }
 
-    // Clean up old hero file after successful save (best-effort; failure is non-fatal).
     if (currentUrl) {
       const oldPath = pathFromPublicUrl(currentUrl, HERO_BUCKET);
       if (oldPath && oldPath !== storagePath) {
@@ -95,15 +91,15 @@ export function HeroImageUploader({ currentUrl, restaurantId, ownerId, supabase,
     if (pendingPreview) URL.revokeObjectURL(pendingPreview);
     setPendingFile(null);
     setPendingPreview(null);
-    setMessage({ type: 'success', text: 'Hero image saved.' });
+    setMessage({ type: 'success', text: 'Cover photo saved.' });
     setUploading(false);
     onSaved();
   }
 
   function requestRemove() {
     requestConfirm({
-      title: 'Remove hero image',
-      message: 'This will remove the hero image from your landing page. You can re-upload at any time.',
+      title: 'Remove cover photo',
+      message: 'This will remove the cover photo from your menu page. You can re-upload at any time.',
       confirmLabel: 'Remove',
       danger: true,
       onConfirm: async () => {
@@ -130,67 +126,79 @@ export function HeroImageUploader({ currentUrl, restaurantId, ownerId, supabase,
 
   return (
     <div>
-      <p className="text-xs font-black uppercase tracking-wide text-stone-500">Hero Image</p>
-      <p className="mt-1 text-sm text-stone-500">Full-bleed background shown on your landing page. Recommended: 1600 × 900px (16:9).</p>
-
-      <div className="mt-2 overflow-hidden rounded-2xl border-2 border-dashed border-stone-200">
+      <div className="overflow-hidden bg-gradient-to-br from-orange-200 via-amber-100 to-red-100">
         {displayUrl ? (
           <div className="relative">
-            <img src={displayUrl} alt="Hero preview" className="h-40 w-full object-cover" />
+            <img src={displayUrl} alt="Cover photo" className="h-64 w-full object-cover" />
+
             {pendingFile ? (
-              // Step 2: file selected, awaiting upload confirmation
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50">
-                <p className="text-xs font-bold text-white">{pendingFile.name}</p>
-                <div className="flex gap-2">
+              // Step 2: file chosen — confirm before uploading
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55">
+                <p className="max-w-[200px] truncate text-xs font-bold text-white">{pendingFile.name}</p>
+                <div className="flex gap-3">
                   <button
                     type="button"
                     onClick={uploadPending}
                     disabled={uploading}
-                    className="rounded-xl bg-[#FF6B00] px-4 py-2 text-sm font-black text-white disabled:opacity-60"
+                    className="rounded-2xl bg-[#FF6B00] px-5 py-3 text-sm font-black text-white disabled:opacity-60"
                   >
-                    {uploading ? 'Uploading…' : 'Upload'}
+                    {uploading ? 'Uploading…' : 'Save Photo'}
                   </button>
                   <button
                     type="button"
                     onClick={cancelPending}
                     disabled={uploading}
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-black text-stone-700 disabled:opacity-60"
+                    className="rounded-2xl bg-white px-5 py-3 text-sm font-black text-stone-700 disabled:opacity-60"
                   >
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
-              // Step 1: existing image, hover overlay
-              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 transition-opacity hover:opacity-100">
-                <label className="cursor-pointer rounded-xl bg-white px-3 py-2 text-sm font-black">
-                  Replace
-                  <input ref={inputRef} type="file" accept="image/jpeg,image/webp,image/png" onChange={handleFileSelect} className="hidden" />
-                </label>
+              // Step 1: persistent overlay — full image is the click target for replace
+              <div
+                className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-black/35"
+                onClick={() => inputRef.current?.click()}
+              >
+                <span className="text-3xl">📷</span>
+                <span className="text-sm font-black tracking-wide text-white">Change Cover Photo</span>
                 <button
                   type="button"
-                  onClick={requestRemove}
+                  onClick={(e) => { e.stopPropagation(); requestRemove(); }}
                   disabled={removing}
-                  className="rounded-xl bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-60"
+                  className="rounded-2xl bg-white/20 px-5 py-2.5 text-sm font-black text-white ring-1 ring-white/40 backdrop-blur-sm disabled:opacity-50"
                 >
-                  {removing ? 'Removing…' : 'Remove'}
+                  {removing ? 'Removing…' : 'Remove Photo'}
                 </button>
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept="image/jpeg,image/webp,image/png"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
               </div>
             )}
           </div>
         ) : (
-          // Step 1: no image — drop zone
-          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 py-10 text-stone-400 hover:bg-stone-50">
+          // No image — full-height drop zone
+          <label className="flex h-64 cursor-pointer flex-col items-center justify-center gap-2 text-stone-400 hover:bg-orange-50/50">
             <span className="text-4xl">📷</span>
-            <span className="text-sm font-bold">Drag and drop, or tap to select</span>
-            <span className="text-xs">JPEG · WebP · PNG · Max 10 MB</span>
-            <input ref={inputRef} type="file" accept="image/jpeg,image/webp,image/png" onChange={handleFileSelect} className="hidden" />
+            <span className="text-sm font-black text-stone-500">Tap to add a cover photo</span>
+            <span className="text-xs text-stone-400">JPEG · WebP · PNG · Landscape photo works best · Max 10 MB</span>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/jpeg,image/webp,image/png"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
           </label>
         )}
       </div>
 
       {message && (
-        <p className={`mt-2 rounded-xl p-2 text-sm font-bold ${message.type === 'error' ? 'bg-red-50 text-red-700' : message.type === 'success' ? 'bg-green-50 text-green-700' : 'text-stone-600'}`}>
+        <p className={`mt-2 px-5 text-sm font-bold ${message.type === 'error' ? 'text-red-600' : message.type === 'success' ? 'text-green-700' : 'text-stone-500'}`}>
           {message.text}
         </p>
       )}

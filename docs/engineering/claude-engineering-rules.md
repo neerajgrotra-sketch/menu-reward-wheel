@@ -272,3 +272,54 @@ No code changes = no merge.
 
 A branch that only touches `.md` files fixes nothing in production.
 Audit work and fix work are separate branches with separate commits.
+
+---
+
+## Rule 27 — Never Expose Developer Artifacts to Restaurant Users
+
+Developer identifiers must never appear in the restaurant admin or customer-facing UI.
+
+Prohibited:
+- `#{index + 1}` position badges
+- URL slug display (e.g. `/my-restaurant`)
+- "Copy Link" developer utilities in the main action bar
+- Internal IDs, UUIDs, or database row identifiers
+- Technical column names used as labels
+
+Permitted:
+- Human-readable location info (name, address, city)
+- Business-relevant identifiers (phone, website)
+- Status information meaningful to the restaurant owner
+
+If a restaurant owner would not naturally use a term in conversation, it must not exist in the UI.
+
+---
+
+## Rule 28 — Disabled Configurations Must Be Visibly Disabled
+
+Any configuration option that does not fully alter system behavior must be clearly marked as unavailable.
+
+Requirements:
+- `opacity-60` on the disabled card/control
+- `cursor-not-allowed` on click areas (never `pointer-events-none` — keeps them interactive)
+- A visible "Coming Soon" badge on the card
+- A toast on click: `"Coming soon — this mode will be available in a future update."`
+- An explanatory note if the user currently has that configuration saved
+
+Never silently accept a setting that won't be enforced. Disabled without interaction feedback feels broken.
+
+---
+
+## Rule 29 — Admin Editing Screens Must Mirror the Customer-Facing Storefront
+
+The restaurant management page must visually match the geometry and layout of the public customer menu page.
+
+Requirements:
+- Hero image: same height (`h-64`), same gradient, full-width
+- Info card: same `-mt-8 rounded-t-3xl bg-white shadow-xl` overlap
+- Logo: same position (`absolute -top-10 left-5 h-20 w-20 rounded-2xl`)
+- Restaurant name: same typography (`text-2xl font-black` or `text-3xl font-black`)
+- Address: same `📍` prefix and `text-sm text-stone-500` treatment
+
+When the public page layout changes, the admin card header must be updated to match.
+The admin card is a live editable preview — not a separate design.

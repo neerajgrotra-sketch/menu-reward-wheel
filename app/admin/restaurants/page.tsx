@@ -1,14 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Restaurant, ProfileForm, ContactForm, WeekHours, DayHours, ConfirmOptions } from '@/components/admin/restaurants/types';
-import { parseHours } from '@/components/admin/restaurants/types';
+import { parseHours, sanitizeFileName, pathFromPublicUrl } from '@/components/admin/restaurants/types';
 import { ConfirmModal } from '@/components/admin/restaurants/ConfirmModal';
 import { RestaurantProfileTab } from '@/components/admin/restaurants/RestaurantProfileTab';
 import { RestaurantContactTab } from '@/components/admin/restaurants/RestaurantContactTab';
 import { RestaurantSettingsTab } from '@/components/admin/restaurants/RestaurantSettingsTab';
 import { RestaurantQrTab } from '@/components/admin/restaurants/RestaurantQrTab';
+import { HeroImageUploader } from '@/components/admin/restaurants/HeroImageUploader';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,16 +17,16 @@ type TabId = 'profile' | 'contact' | 'settings' | 'qr';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function modeLabel(mode: string | null | undefined) {
-  if (mode === 'menu_and_promotion') return 'Menu + Promotion';
-  if (mode === 'menu_only') return 'Menu Only';
-  return 'Promotion Only';
-}
-
 function modeBadgeColor(mode: string | null | undefined) {
   if (mode === 'menu_and_promotion') return 'bg-green-100 text-green-700';
   if (mode === 'menu_only') return 'bg-blue-100 text-blue-700';
   return 'bg-orange-100 text-orange-700';
+}
+
+function modeLabel(mode: string | null | undefined) {
+  if (mode === 'menu_and_promotion') return 'Menu + Promotion';
+  if (mode === 'menu_only') return 'Menu Only';
+  return 'Promotion Only';
 }
 
 function initProfileForm(r: Restaurant): ProfileForm {
@@ -53,6 +54,9 @@ function initContactForm(r: Restaurant): ContactForm {
   };
 }
 
+const LOGO_BUCKET = 'restaurant-logos';
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function RestaurantsPage() {
@@ -69,9 +73,6 @@ export default function RestaurantsPage() {
   // Per-restaurant form state (kept in parent so switching tabs doesn't discard edits)
   const [profileForms, setProfileForms] = useState<Record<string, ProfileForm>>({});
   const [contactForms, setContactForms] = useState<Record<string, ContactForm>>({});
-
-  // Copy link feedback
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Confirm modal
   const [confirm, setConfirm] = useState<(ConfirmOptions & { open: boolean }) | null>(null);
@@ -91,7 +92,6 @@ export default function RestaurantsPage() {
     const list = data ?? [];
     setRestaurants(list);
 
-    // Initialise form state for new restaurants only — don't overwrite in-progress edits.
     setProfileForms(prev => {
       const next = { ...prev };
       for (const r of list) { if (!next[r.id]) next[r.id] = initProfileForm(r); }
@@ -135,12 +135,6 @@ export default function RestaurantsPage() {
     setConfirm({ ...opts, open: true });
   }
 
-  async function copyLink(r: Restaurant) {
-    await navigator.clipboard.writeText(`${window.location.origin}/admin/promotions?slug=${r.slug}`);
-    setCopiedId(r.id);
-    setTimeout(() => setCopiedId(null), 1600);
-  }
-
   function handleDeleteRequest(r: Restaurant) {
     requestConfirm({
       title: `Delete ${r.name}?`,
@@ -153,6 +147,33 @@ export default function RestaurantsPage() {
         if (ownerId) loadRestaurants(ownerId);
       },
     });
+  }
+
+  // Lightweight logo upload from the card header edit badge.
+  // Full logo management (remove, local preview) remains in the Profile tab.
+  async function handleHeaderLogoUpload(restaurantId: string, e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !ownerId) return;
+    if (!file.type.startsWith('image/')) { setPageError('Please choose an image file.'); return; }
+    if (file.size > MAX_LOGO_BYTES) { setPageError(`Logo is ${(file.size / 1024 / 1024).toFixed(2)} MB — max 2 MB.`); return; }
+
+    const storagePath = `${ownerId}/${restaurantId}/${Date.now()}-${sanitizeFileName(file.name || 'logo.png')}`;
+    const { error: uploadErr } = await supabase.storage.from(LOGO_BUCKET).upload(storagePath, file, { upsert: true, contentType: file.type });
+    if (uploadErr) { setPageError(uploadErr.message); return; }
+
+    const { data: urlData } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(storagePath);
+
+    // Clean up old logo file (best-effort)
+    const existing = restaurants.find(r => r.id === restaurantId);
+    if (existing?.logo_url) {
+      const oldPath = pathFromPublicUrl(existing.logo_url, LOGO_BUCKET);
+      if (oldPath) await supabase.storage.from(LOGO_BUCKET).remove([oldPath]);
+    }
+
+    const { error: updateErr } = await supabase.from('restaurants').update({ logo_url: urlData.publicUrl }).eq('id', restaurantId);
+    if (updateErr) { setPageError(updateErr.message); return; }
+    loadRestaurants(ownerId);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -210,74 +231,87 @@ export default function RestaurantsPage() {
               </div>
             )}
 
-            {restaurants.map((r, index) => {
+            {restaurants.map((r) => {
               const tab = getTab(r.id);
               const pf = profileForms[r.id];
               const cf = contactForms[r.id];
+              const address = [r.address_line1, r.city].filter(Boolean).join(', ');
 
               return (
                 <article key={r.id} className="overflow-hidden rounded-3xl bg-white shadow-xl">
 
-                  {/* Hero banner */}
-                  <div className="relative h-32 overflow-hidden bg-gradient-to-br from-orange-200 via-amber-100 to-red-100">
-                    {r.hero_image_url && (
-                      <img src={r.hero_image_url} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover" />
-                    )}
-                    <div className="relative flex h-full items-start justify-between px-5 py-4">
-                      <span className="rounded-2xl bg-white/80 px-3 py-1.5 text-xs font-black text-[#FF6B00] shadow backdrop-blur-sm">
-                        #{index + 1}
-                      </span>
-                      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-3xl bg-white/90 p-2 shadow-lg backdrop-blur-sm">
+                  {/* ── Live preview header — mirrors public menu page geometry ── */}
+
+                  {/* Hero zone — full h-64, clicking opens cover photo upload */}
+                  <HeroImageUploader
+                    currentUrl={r.hero_image_url}
+                    restaurantId={r.id}
+                    ownerId={ownerId}
+                    supabase={supabase}
+                    requestConfirm={requestConfirm}
+                    onSaved={() => loadRestaurants(ownerId)}
+                  />
+
+                  {/* Info card — matches public page: -mt-8, rounded-t-3xl, white, shadow */}
+                  <div className="relative -mt-8 rounded-t-3xl bg-white px-5 pb-0 pt-5 shadow-xl">
+
+                    {/* Logo — straddles hero/card boundary, matching public page position */}
+                    <div className="absolute -top-10 left-5">
+                      <div className="relative h-20 w-20 overflow-hidden rounded-2xl bg-white p-1.5 shadow-xl ring-1 ring-stone-100">
                         {r.logo_url
-                          ? <img src={r.logo_url} alt={`${r.name} logo`} className="max-h-full max-w-full object-contain" />
-                          : <span className="text-2xl">🍽️</span>
+                          ? <img src={r.logo_url} alt={`${r.name} logo`} className="h-full w-full object-contain" />
+                          : <span className="flex h-full w-full items-center justify-center text-2xl">🍽️</span>
                         }
                       </div>
+                      {/* Edit badge — opens logo file picker */}
+                      <label
+                        className="absolute -bottom-1 -right-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-white text-sm shadow-md ring-1 ring-stone-200"
+                        title="Change logo"
+                      >
+                        ✏️
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleHeaderLogoUpload(r.id, e)}
+                        />
+                      </label>
                     </div>
-                  </div>
 
-                  {/* Name + actions row */}
-                  <div className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4">
-                    <div>
-                      <h3 className="text-2xl font-black">{r.name}</h3>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-bold text-stone-400">/{r.slug}</span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-black ${modeBadgeColor(r.experience_mode)}`}>
-                          {modeLabel(r.experience_mode)}
-                        </span>
-                      </div>
+                    {/* Restaurant name + address — replaces slug + number badge */}
+                    <div className={r.logo_url ? 'mt-12' : 'mt-2'}>
+                      <h3 className="text-2xl font-black text-[#1F1F1F]">{r.name}</h3>
+                      {address && (
+                        <p className="mt-1 text-sm font-semibold text-stone-500">
+                          <span className="mr-1">📍</span>{address}
+                        </p>
+                      )}
+                      <span className={`mt-2 inline-block rounded-full px-2 py-0.5 text-xs font-black ${modeBadgeColor(r.experience_mode)}`}>
+                        {modeLabel(r.experience_mode)}
+                      </span>
                     </div>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <a href={`/admin/promotions?slug=${r.slug}`} className="rounded-full bg-green-600 px-3 py-1.5 text-xs font-black text-white">
+
+                    {/* Action bar — Promotions + View Menu only (Delete moved to Settings tab) */}
+                    <div className="mt-4 flex flex-wrap gap-2 pb-4">
+                      <a
+                        href={`/admin/promotions?slug=${r.slug}`}
+                        className="rounded-full bg-green-600 px-4 py-2 text-sm font-black text-white"
+                      >
                         Promotions
                       </a>
                       <a
                         href={`/r/${r.slug}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700"
+                        className="rounded-full bg-blue-50 px-4 py-2 text-sm font-black text-blue-700"
                       >
-                        Preview
+                        View Menu
                       </a>
-                      <button
-                        type="button"
-                        onClick={() => copyLink(r)}
-                        className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700"
-                      >
-                        {copiedId === r.id ? 'Copied!' : 'Copy Link'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteRequest(r)}
-                        className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-black text-red-600"
-                      >
-                        Delete
-                      </button>
                     </div>
                   </div>
 
                   {/* Tab strip */}
-                  <div className="mt-4 flex gap-1 border-b border-stone-100 px-5">
+                  <div className="flex gap-1 border-b border-stone-100 px-5">
                     {TABS.map(({ id, label }) => (
                       <button
                         key={id}
@@ -321,7 +355,9 @@ export default function RestaurantsPage() {
                     {tab === 'settings' && (
                       <RestaurantSettingsTab
                         restaurantId={r.id}
+                        restaurantName={r.name}
                         supabase={supabase}
+                        onDeleteRequest={() => handleDeleteRequest(r)}
                       />
                     )}
                     {tab === 'qr' && (

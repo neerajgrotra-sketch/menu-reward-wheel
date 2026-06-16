@@ -35,7 +35,7 @@ function ContrastWarning({ hex, label }: { hex: string; label: string }) {
   if (ratio >= 4.5) return null;
   return (
     <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700">
-      {label} contrast {ratio.toFixed(1)}:1 — below WCAG AA (4.5:1). White text may be hard to read on this colour.
+      {label} colour has low contrast — white text may be hard to read on this background.
     </p>
   );
 }
@@ -87,12 +87,12 @@ export function BrandColorFields({ brandColor, secondaryColor, accentColor, onSe
                 onClick={() => onSecondaryChange('')}
                 className="mt-1 text-[10px] font-bold text-stone-400 hover:text-red-500"
               >
-                Clear (use Auto)
+                Reset to Auto
               </button>
             </>
           ) : (
             <>
-              <p className="mt-2 text-xs text-stone-400 italic">Auto-derived</p>
+              <p className="mt-2 text-xs text-stone-400 italic">Auto</p>
               <button
                 type="button"
                 onClick={() => onSecondaryChange('#000000')}
@@ -123,12 +123,12 @@ export function BrandColorFields({ brandColor, secondaryColor, accentColor, onSe
                 onClick={() => onAccentChange('')}
                 className="mt-1 text-[10px] font-bold text-stone-400 hover:text-red-500"
               >
-                Clear (use Auto)
+                Reset to Auto
               </button>
             </>
           ) : (
             <>
-              <p className="mt-2 text-xs text-stone-400 italic">Auto-derived</p>
+              <p className="mt-2 text-xs text-stone-400 italic">Auto</p>
               <button
                 type="button"
                 onClick={() => onAccentChange('#000000')}

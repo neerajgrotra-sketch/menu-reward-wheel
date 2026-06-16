@@ -4,19 +4,22 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import type { AppSupabaseClient } from '@/lib/supabase/client';
 import type { Restaurant, ProfileForm, MessageState, ConfirmOptions } from './types';
 import { sanitizeFileName, pathFromPublicUrl } from './types';
-import { HeroImageUploader } from './HeroImageUploader';
 import { BrandColorFields } from './BrandColorFields';
+import { AIActionButton } from '@/components/ui/AIActionButton';
 
 const LOGO_BUCKET = 'restaurant-logos';
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
+// Only menu_and_promotion is fully enforced today.
+// The other modes are saved but enforcement is coming in a future release.
 const EXPERIENCE_MODES = [
   {
     value: 'promotion_only',
     icon: '🎯',
     label: 'Promotion Only',
     flow: 'QR → Game → Win',
-    detail: 'For campaigns and promotions only',
+    detail: 'Promotions and games only',
+    comingSoon: true,
   },
   {
     value: 'menu_only',
@@ -24,14 +27,16 @@ const EXPERIENCE_MODES = [
     label: 'Menu Only',
     flow: 'QR → Menu → Browse',
     detail: 'Digital menu, no promotions',
+    comingSoon: true,
   },
   {
     value: 'menu_and_promotion',
     icon: '✨',
     label: 'Menu + Promotion',
-    flow: 'QR → Landing → Menu → Game → Win',
+    flow: 'QR → Menu → Game → Win',
     detail: 'Full experience',
     recommended: true,
+    comingSoon: false,
   },
 ] as const;
 
@@ -48,6 +53,7 @@ type Props = {
 export function RestaurantProfileTab({ restaurant, form, onChange, supabase, ownerId, requestConfirm, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<MessageState | null>(null);
+  const [comingSoonToast, setComingSoonToast] = useState(false);
 
   // Logo upload state
   const [localLogoPreview, setLocalLogoPreview] = useState<string | null>(null);
@@ -65,6 +71,11 @@ export function RestaurantProfileTab({ restaurant, form, onChange, supabase, own
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurant.id, restaurant.updated_at]);
+
+  function showComingSoon() {
+    setComingSoonToast(true);
+    setTimeout(() => setComingSoonToast(false), 3000);
+  }
 
   // ── Logo upload ─────────────────────────────────────────────────────────────
 
@@ -153,65 +164,85 @@ export function RestaurantProfileTab({ restaurant, form, onChange, supabase, own
   return (
     <div className="space-y-6">
 
-      {/* Experience mode */}
+      {/* Customer Experience Mode */}
       <div>
         <p className="text-xs font-black uppercase tracking-wide text-stone-500">Customer Experience Mode</p>
         <p className="mt-1 text-sm text-stone-500">How customers experience your restaurant after scanning the QR code.</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          {EXPERIENCE_MODES.map((mode) => (
-            <button
-              key={mode.value}
-              type="button"
-              onClick={() => onChange({ experience_mode: mode.value })}
-              className={`relative rounded-2xl border-2 p-4 text-left transition-all ${
-                form.experience_mode === mode.value
-                  ? 'border-[#FF6B00] bg-orange-50'
-                  : 'border-stone-200 bg-white hover:border-orange-200'
-              }`}
-            >
-              {'recommended' in mode && mode.recommended && (
-                <span className="absolute right-2 top-2 rounded-full bg-[#FF6B00] px-2 py-0.5 text-[10px] font-black text-white">
-                  ★ Recommended
-                </span>
-              )}
-              <p className="text-2xl">{mode.icon}</p>
-              <p className="mt-2 text-sm font-black">{mode.label}</p>
-              <p className="mt-1 text-xs font-semibold text-stone-500">{mode.flow}</p>
-              <p className="mt-0.5 text-xs text-stone-400">{mode.detail}</p>
-            </button>
-          ))}
+          {EXPERIENCE_MODES.map((mode) => {
+            const isSelected = form.experience_mode === mode.value;
+            return (
+              <button
+                key={mode.value}
+                type="button"
+                onClick={() => {
+                  if (mode.comingSoon) {
+                    // Only show toast if trying to switch to a coming-soon mode
+                    if (!isSelected) showComingSoon();
+                  } else {
+                    onChange({ experience_mode: mode.value });
+                  }
+                }}
+                className={`relative rounded-2xl border-2 p-4 text-left transition-all ${
+                  isSelected
+                    ? 'border-[#FF6B00] bg-orange-50'
+                    : 'border-stone-200 bg-white hover:border-orange-200'
+                } ${mode.comingSoon ? 'cursor-not-allowed opacity-60' : ''}`}
+              >
+                {mode.comingSoon && (
+                  <span className="absolute right-2 top-2 rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-black text-stone-500">
+                    Coming Soon
+                  </span>
+                )}
+                {'recommended' in mode && mode.recommended && (
+                  <span className="absolute right-2 top-2 rounded-full bg-[#FF6B00] px-2 py-0.5 text-[10px] font-black text-white">
+                    ★ Recommended
+                  </span>
+                )}
+                <p className="text-2xl">{mode.icon}</p>
+                <p className="mt-2 text-sm font-black">{mode.label}</p>
+                <p className="mt-1 text-xs font-semibold text-stone-500">{mode.flow}</p>
+                <p className="mt-0.5 text-xs text-stone-400">{mode.detail}</p>
+              </button>
+            );
+          })}
         </div>
+        {comingSoonToast && (
+          <p className="mt-3 rounded-2xl bg-stone-800 px-4 py-3 text-center text-sm font-bold text-white">
+            Coming soon — this mode will be available in a future update.
+          </p>
+        )}
+        {form.experience_mode !== 'menu_and_promotion' && (
+          <p className="mt-2 text-xs font-semibold text-stone-400">
+            Your current mode is saved. Full mode enforcement is coming soon.
+          </p>
+        )}
       </div>
 
-      {/* Hero image — only relevant for menu modes */}
-      {form.experience_mode !== 'promotion_only' && (
-        <HeroImageUploader
-          currentUrl={restaurant.hero_image_url}
-          restaurantId={restaurant.id}
-          ownerId={ownerId}
-          supabase={supabase}
-          requestConfirm={requestConfirm}
-          onSaved={onSaved}
-        />
-      )}
-
-      {/* Description — only relevant for menu modes */}
-      {form.experience_mode !== 'promotion_only' && (
-        <div>
+      {/* About Your Restaurant */}
+      <div>
+        <div className="flex items-center justify-between gap-3">
           <p className="text-xs font-black uppercase tracking-wide text-stone-500">About Your Restaurant</p>
-          <p className="mt-1 text-sm text-stone-500">Shown in the About section of your landing page.</p>
-          <textarea
-            value={form.description}
-            onChange={(e) => onChange({ description: e.target.value.slice(0, 300) })}
-            placeholder="Authentic cuisine serving the finest seasonal ingredients since 1998…"
-            rows={4}
-            className="mt-2 w-full rounded-2xl border border-stone-200 p-3 text-sm font-semibold focus:border-[#FF6B00] focus:outline-none"
+          <AIActionButton
+            featureKey="restaurant_profile_generation"
+            restaurantId={restaurant.id}
+            context={{ restaurant_name: restaurant.name }}
+            onGenerated={(text) => onChange({ description: text })}
+            disabled={!restaurant.name}
           />
-          <p className={`mt-1 text-right text-xs font-bold ${form.description.length >= 280 ? 'text-red-500' : 'text-stone-400'}`}>
-            {form.description.length} / 300
-          </p>
         </div>
-      )}
+        <p className="mt-1 text-sm text-stone-500">Shown on your customer menu page.</p>
+        <textarea
+          value={form.description}
+          onChange={(e) => onChange({ description: e.target.value.slice(0, 300) })}
+          placeholder="Authentic cuisine serving the finest seasonal ingredients since 1998…"
+          rows={4}
+          className="mt-2 w-full rounded-2xl border border-stone-200 p-3 text-sm font-semibold focus:border-[#FF6B00] focus:outline-none"
+        />
+        <p className={`mt-1 text-right text-xs font-bold ${form.description.length >= 280 ? 'text-red-500' : 'text-stone-400'}`}>
+          {form.description.length} / 300
+        </p>
+      </div>
 
       {/* Brand colors */}
       <BrandColorFields
@@ -271,7 +302,7 @@ export function RestaurantProfileTab({ restaurant, form, onChange, supabase, own
           rel="noopener noreferrer"
           className="flex items-center justify-center rounded-2xl border-2 border-[#FF6B00] px-5 py-3 text-sm font-black text-[#FF6B00] hover:bg-orange-50"
         >
-          Preview →
+          View Menu →
         </a>
       </div>
     </div>
