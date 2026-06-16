@@ -1199,7 +1199,7 @@ export function RestaurantPublicPage({
 
               {section.items.length === 0 ? (
                 <p className="mt-3 text-sm text-stone-500">
-                  No items available in this section right now.
+                  No items available in this category right now.
                 </p>
               ) : (
                 <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">

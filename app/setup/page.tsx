@@ -165,7 +165,7 @@ export default function SetupPage() {
         <input type="color" value={brandColor} onChange={(event) => setBrandColor(event.target.value)} className="mt-2 h-12 w-full rounded-2xl border border-stone-200 bg-white p-2" />
 
         <div className="mt-5 rounded-2xl bg-orange-50 p-4 text-sm font-semibold text-stone-700">
-          Menus will be assigned after this restaurant is created from the Menus section.
+          Menus will be assigned after this restaurant is created from the Menus page.
         </div>
 
         {error && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
