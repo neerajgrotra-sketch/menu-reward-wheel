@@ -128,10 +128,7 @@ function ItemPlaceholder() {
 }
 
 // Menu item card — 2-column grid
-// V2 architecture: five deterministic fixed-height zones so every card in the grid
-// aligns regardless of metadata quantity (Rules 61/62).
-// Zone 1: Image h-28 | Zone 2: Name min-h-[48px] | Zone 3: Pills min/max-h-[40px]
-// Zone 4: Description min-h-[42px] | Zone 5: Price row
+// V3 commerce density: natural card height, collapsed metadata, 1-line description, tight price anchor.
 function MenuItemCard({
   item,
   brandColor,
@@ -148,24 +145,26 @@ function MenuItemCard({
   const isPopular = (item.tags || []).includes('popular');
 
   // Tier 1 left overlay — Discount only (Rule 58/59).
-  // Chef/Popular removed from overlay; they live exclusively in the Tier 3 pills row.
   // Sold Out uses full inset overlay and suppresses this slot entirely (Rule 60).
   const showDiscountBadge = !isSoldOut && item.special_active;
+
+  // Metadata row collapses completely when no labels apply (Part 2).
+  const showFeaturedLabel = !isSoldOut && item.is_featured && item.special_active;
+  const hasMetadata = showFeaturedLabel || (!isSoldOut && (isChefSpecial || isPopular));
 
   return (
     <button
       type="button"
       onClick={isSoldOut ? undefined : onTap}
       aria-disabled={isSoldOut || undefined}
-      className={`flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-md ${
-        isSoldOut ? 'cursor-default opacity-60' : 'active:scale-95'
+      className={`flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-md transition-all duration-150 ${
+        isSoldOut ? 'cursor-default opacity-60' : 'active:scale-[0.98]'
       }`}
       style={{
-        transition: 'transform 150ms',
         borderTop: item.is_featured ? `3px solid ${accentColor}` : undefined,
       }}
     >
-      {/* Zone 1 — Image (fixed h-28, never resizes) */}
+      {/* Image — h-28 crop, maintains aspect ratio */}
       <div className="relative h-28 w-full shrink-0 overflow-hidden bg-stone-100">
         {item.image_url ? (
           <img
@@ -186,10 +185,10 @@ function MenuItemCard({
             ⭐ Featured
           </span>
         )}
-        {/* Tier 1 — Left overlay: Discount (green = savings signal, not brand orange; Rule 63) */}
+        {/* Tier 1 — Left overlay: Discount — no emoji, commerce style (Part 6) */}
         {showDiscountBadge && (
           <span className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
-            💸 {item.discount_label}
+            {item.discount_label}
           </span>
         )}
         {/* Sold Out — full inset overlay, all badge slots suppressed at DOM level (Rule 60) */}
@@ -202,46 +201,44 @@ function MenuItemCard({
         )}
       </div>
 
-      {/* Card body — fixed vertical zones prevent grid misalignment (Rules 61/62) */}
+      {/* Card body */}
       <div className="flex flex-1 flex-col p-3">
-        {/* Zone 2 — Name: 2-line clamp, always occupies 48 px minimum */}
-        <p className="line-clamp-2 min-h-[48px] text-sm font-black leading-tight text-stone-800">
+        {/* Name: 2-line clamp */}
+        <p className="line-clamp-2 text-sm font-black leading-tight text-stone-800">
           {item.name}
         </p>
 
-        {/* Zone 3 — Metadata Pills: fixed 40 px container, always rendered (Rules 61/62).
-            Chef/Popular always here (Tier 3). Featured moves here when discount is active.
-            overflow-hidden + max-h-[40px] cap accommodates future dietary tags safely. */}
-        <div className="mt-1 flex min-h-[40px] max-h-[40px] flex-wrap content-start gap-1 overflow-hidden">
-          {!isSoldOut && item.is_featured && item.special_active && (
-            <span
-              className="rounded-full px-1.5 py-0.5 text-[10px] font-black leading-none"
-              style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
-            >
-              ⭐ Featured
-            </span>
-          )}
-          {!isSoldOut && isChefSpecial && (
-            <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-black leading-none text-purple-700">
-              👨‍🍳 Chef
-            </span>
-          )}
-          {!isSoldOut && isPopular && (
-            <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-black leading-none text-orange-600">
-              🔥 Popular
-            </span>
-          )}
-        </div>
+        {/* Metadata labels — collapsed when absent (Part 2 + 3) */}
+        {hasMetadata && (
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            {showFeaturedLabel && (
+              <span
+                className="text-[10px] font-bold leading-none"
+                style={{ color: accentColor }}
+              >
+                ⭐ Featured
+              </span>
+            )}
+            {!isSoldOut && isChefSpecial && (
+              <span className="text-[10px] font-bold leading-none text-purple-600">
+                👨‍🍳 Chef
+              </span>
+            )}
+            {!isSoldOut && isPopular && (
+              <span className="text-[10px] font-bold leading-none text-orange-500">
+                🔥 Popular
+              </span>
+            )}
+          </div>
+        )}
 
-        {/* Zone 4 — Description: 2-line clamp inside fixed 42 px container */}
-        <div className="mt-1 min-h-[42px]">
-          {item.description && (
-            <p className="line-clamp-2 text-xs text-stone-500">{item.description}</p>
-          )}
-        </div>
+        {/* Description — 1-line truncate, no fixed height (Part 4) */}
+        {item.description && (
+          <p className="mt-1 truncate text-xs text-stone-500">{item.description}</p>
+        )}
 
-        {/* Zone 5 — Price Row */}
-        <div className="mt-2">
+        {/* Price — tight anchor immediately below description (Part 5) */}
+        <div className="mt-1">
           <PriceBadge
             price={item.price}
             effectivePrice={item.effective_price}
