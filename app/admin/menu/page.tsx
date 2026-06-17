@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
 import { MenuItemImageUploader } from '@/components/admin/restaurants/MenuItemImageUploader';
 import { BottomSheet, SheetTab } from '@/components/admin/BottomSheet';
-import { calculateSpecialPrice } from '@/lib/menu/special-offer';
+import { calculateSpecialPrice, getDiscountLabel } from '@/lib/menu/special-offer';
 
 type Restaurant = {
   id: string;
@@ -799,7 +799,7 @@ export default function MenuPage() {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <p className="font-black">{item.name}</p>
                                 {item.special_enabled && (
-                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
+                                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-black text-[#FF6B00]">
                                     💸 On Special
                                   </span>
                                 )}
@@ -1081,6 +1081,215 @@ export default function MenuPage() {
               </div>
             </div>
 
+            {/* ── LIMITED TIME OFFER ────────────────────────────────── */}
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-stone-100" />
+                <p className="text-xs font-black uppercase tracking-widest text-stone-300">🔥 LIMITED TIME OFFER</p>
+                <div className="h-px flex-1 bg-stone-100" />
+              </div>
+
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingItemSpecialEnabled((v) => !v)}
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-sm font-black transition-all active:scale-95 ${
+                    editingItemSpecialEnabled
+                      ? 'bg-[#FF6B00] text-white shadow-md'
+                      : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+                  }`}
+                >
+                  <span>{editingItemSpecialEnabled ? '💸 Special Offer Active' : '💸 Enable Special Offer'}</span>
+                  <span className={`relative h-5 w-9 rounded-full transition-colors ${editingItemSpecialEnabled ? 'bg-white/30' : 'bg-stone-300'}`}>
+                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${editingItemSpecialEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </span>
+                </button>
+              </div>
+
+              <div className={`grid transition-all duration-200 ${editingItemSpecialEnabled ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                  <div className="mt-4 space-y-4">
+
+                    {/* Discount Type */}
+                    <div>
+                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Discount Type</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingItemSpecialType('percentage')}
+                          className={`rounded-xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                            editingItemSpecialType === 'percentage'
+                              ? 'bg-[#FF6B00] text-white shadow-md'
+                              : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+                          }`}
+                        >
+                          % Percentage Off
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingItemSpecialType('fixed_price')}
+                          className={`rounded-xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                            editingItemSpecialType === 'fixed_price'
+                              ? 'bg-[#FF6B00] text-white shadow-md'
+                              : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+                          }`}
+                        >
+                          $ Fixed Price
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Amount field */}
+                    {editingItemSpecialType === 'percentage' ? (
+                      <div>
+                        <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Discount %</p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={editingItemSpecialPercent}
+                            onChange={(e) => setEditingItemSpecialPercent(e.target.value)}
+                            placeholder="20"
+                            min="1"
+                            max="99"
+                            inputMode="numeric"
+                            className="w-28 rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-[#FF6B00]"
+                          />
+                          <span className="text-sm font-black text-stone-400">%</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Special Price</p>
+                        <div className="relative w-36">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                          <input
+                            type="number"
+                            value={editingItemSpecialPrice}
+                            onChange={(e) => setEditingItemSpecialPrice(e.target.value)}
+                            placeholder="14.99"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            className="w-full rounded-xl border border-stone-200 py-2.5 pl-7 pr-2 text-base font-semibold outline-none focus:border-[#FF6B00]"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Live Pricing Preview */}
+                    {(() => {
+                      const origPrice = parseCadPrice(editingItemPrice);
+                      if (origPrice == null) return null;
+                      let finalPrice: number | null = null;
+                      let label = '';
+                      if (editingItemSpecialType === 'percentage') {
+                        const pct = parseFloat(editingItemSpecialPercent);
+                        if (Number.isFinite(pct) && pct > 0 && pct < 100) {
+                          finalPrice = calculateSpecialPrice(origPrice, 'percentage', pct, null);
+                          label = getDiscountLabel(origPrice, 'percentage', pct, null);
+                        }
+                      } else {
+                        const sp = parseCadPrice(editingItemSpecialPrice);
+                        if (sp != null && sp > 0) {
+                          finalPrice = calculateSpecialPrice(origPrice, 'fixed_price', null, sp);
+                          label = getDiscountLabel(origPrice, 'fixed_price', null, sp);
+                        }
+                      }
+                      if (finalPrice == null) return null;
+                      return (
+                        <div className="rounded-xl bg-orange-50 p-3 ring-1 ring-[#FF6B00]/20">
+                          <p className="mb-2 text-xs font-black uppercase tracking-wide text-[#FF6B00]">Price Preview</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-base font-bold text-stone-400 line-through">${origPrice.toFixed(2)}</span>
+                            <span className="text-stone-400">↓</span>
+                            <span className="text-lg font-black text-[#FF6B00]">${finalPrice.toFixed(2)}</span>
+                            <span className="rounded-full bg-[#FF6B00] px-2 py-0.5 text-xs font-black text-white">{label}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Duration */}
+                    <div>
+                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Duration</p>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditingItemDurationMode(editingItemDurationMode === 'no_expiry' ? 'quick' : 'no_expiry')}
+                        className={`mb-3 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-black transition-all active:scale-95 ${
+                          editingItemDurationMode === 'no_expiry'
+                            ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
+                            : 'bg-stone-50 text-stone-500 ring-1 ring-stone-200'
+                        }`}
+                      >
+                        <span className={`flex h-5 w-5 items-center justify-center rounded border-2 text-xs font-black ${editingItemDurationMode === 'no_expiry' ? 'border-amber-600 bg-amber-600 text-white' : 'border-stone-300'}`}>
+                          {editingItemDurationMode === 'no_expiry' ? '✓' : ''}
+                        </span>
+                        ∞ No Expiry
+                      </button>
+
+                      {editingItemDurationMode !== 'no_expiry' && (
+                        <>
+                          <div className="grid grid-cols-3 gap-2">
+                            {([1, 2, 4, 6, 12, 'eod'] as const).map((h) => (
+                              <button
+                                key={String(h)}
+                                type="button"
+                                onClick={() => {
+                                  setEditingItemDurationMode('quick');
+                                  setEditingItemQuickHours(h);
+                                }}
+                                className={`rounded-xl py-2.5 text-sm font-black transition-all active:scale-95 ${
+                                  editingItemDurationMode === 'quick' && editingItemQuickHours === h
+                                    ? 'bg-[#FF6B00] text-white shadow-md'
+                                    : 'bg-stone-100 text-stone-600 ring-1 ring-stone-200'
+                                }`}
+                              >
+                                {h === 'eod' ? 'End of Day' : `${h}H`}
+                              </button>
+                            ))}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setEditingItemDurationMode(editingItemDurationMode === 'advanced' ? 'quick' : 'advanced')}
+                            className="mt-3 flex items-center gap-1 text-xs font-black text-stone-400 hover:text-stone-600"
+                          >
+                            <span>{editingItemDurationMode === 'advanced' ? '▾' : '▸'}</span>
+                            Advanced Schedule
+                          </button>
+
+                          {editingItemDurationMode === 'advanced' && (
+                            <div className="mt-3 space-y-3 rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200">
+                              <div>
+                                <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Start</p>
+                                <input
+                                  type="datetime-local"
+                                  value={editingItemAdvancedStart}
+                                  onChange={(e) => setEditingItemAdvancedStart(e.target.value)}
+                                  className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+                                />
+                              </div>
+                              <div>
+                                <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">End</p>
+                                <input
+                                  type="datetime-local"
+                                  value={editingItemAdvancedEnd}
+                                  onChange={(e) => setEditingItemAdvancedEnd(e.target.value)}
+                                  className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-[#FF6B00]"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Description */}
             <div>
               <div className="mb-1 flex items-center justify-between">
@@ -1173,191 +1382,6 @@ export default function MenuPage() {
               <p className="mt-1 text-xs text-stone-400">
                 Lower numbers appear first. Items with the same order appear by creation date.
               </p>
-            </div>
-
-            {/* ── SPECIAL OFFER ─────────────────────────────────────── */}
-            <div>
-              <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-stone-100" />
-                <p className="text-xs font-black uppercase tracking-widest text-stone-300">Special Offer</p>
-                <div className="h-px flex-1 bg-stone-100" />
-              </div>
-
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => setEditingItemSpecialEnabled((v) => !v)}
-                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-sm font-black transition-all active:scale-95 ${
-                    editingItemSpecialEnabled
-                      ? 'bg-red-600 text-white shadow-md'
-                      : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
-                  }`}
-                >
-                  <span>{editingItemSpecialEnabled ? '💸 Special Offer Active' : '💸 Enable Special Offer'}</span>
-                  <span className={`h-5 w-9 rounded-full transition-colors ${editingItemSpecialEnabled ? 'bg-white/30' : 'bg-stone-300'} relative`}>
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${editingItemSpecialEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                  </span>
-                </button>
-              </div>
-
-              {editingItemSpecialEnabled && (
-                <div className="mt-4 space-y-4">
-
-                  {/* Discount Type */}
-                  <div>
-                    <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Discount Type</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditingItemSpecialType('percentage')}
-                        className={`rounded-xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
-                          editingItemSpecialType === 'percentage'
-                            ? 'bg-red-600 text-white shadow-md'
-                            : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
-                        }`}
-                      >
-                        % Percentage Off
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingItemSpecialType('fixed_price')}
-                        className={`rounded-xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
-                          editingItemSpecialType === 'fixed_price'
-                            ? 'bg-red-600 text-white shadow-md'
-                            : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
-                        }`}
-                      >
-                        $ Fixed Price
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Amount field */}
-                  {editingItemSpecialType === 'percentage' ? (
-                    <div>
-                      <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Discount %</p>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={editingItemSpecialPercent}
-                          onChange={(e) => setEditingItemSpecialPercent(e.target.value)}
-                          placeholder="20"
-                          min="1"
-                          max="99"
-                          inputMode="numeric"
-                          className="w-28 rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-red-500"
-                        />
-                        <span className="text-sm font-black text-stone-400">%</span>
-                        {editingItemSpecialPercent && editingItemPrice && (
-                          <span className="text-sm font-bold text-stone-500">
-                            → ${(parseCadPrice(editingItemPrice) != null
-                              ? calculateSpecialPrice(parseCadPrice(editingItemPrice)!, 'percentage', parseFloat(editingItemSpecialPercent), null)
-                              : 0
-                            ).toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Special Price</p>
-                      <div className="relative w-36">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
-                        <input
-                          type="number"
-                          value={editingItemSpecialPrice}
-                          onChange={(e) => setEditingItemSpecialPrice(e.target.value)}
-                          placeholder="14.99"
-                          min="0"
-                          step="0.01"
-                          inputMode="decimal"
-                          className="w-full rounded-xl border border-stone-200 py-2.5 pl-7 pr-2 text-base font-semibold outline-none focus:border-red-500"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Duration */}
-                  <div>
-                    <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Duration</p>
-
-                    {/* No Expiry checkbox */}
-                    <button
-                      type="button"
-                      onClick={() => setEditingItemDurationMode(editingItemDurationMode === 'no_expiry' ? 'quick' : 'no_expiry')}
-                      className={`mb-3 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-black transition-all active:scale-95 ${
-                        editingItemDurationMode === 'no_expiry'
-                          ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
-                          : 'bg-stone-50 text-stone-500 ring-1 ring-stone-200'
-                      }`}
-                    >
-                      <span className={`flex h-5 w-5 items-center justify-center rounded border-2 text-xs font-black ${editingItemDurationMode === 'no_expiry' ? 'border-amber-600 bg-amber-600 text-white' : 'border-stone-300'}`}>
-                        {editingItemDurationMode === 'no_expiry' ? '✓' : ''}
-                      </span>
-                      No Expiry — runs until manually turned off
-                    </button>
-
-                    {editingItemDurationMode !== 'no_expiry' && (
-                      <>
-                        {/* Quick Duration buttons */}
-                        <div className="grid grid-cols-3 gap-2">
-                          {([1, 2, 4, 6, 12, 'eod'] as const).map((h) => (
-                            <button
-                              key={String(h)}
-                              type="button"
-                              onClick={() => {
-                                setEditingItemDurationMode('quick');
-                                setEditingItemQuickHours(h);
-                              }}
-                              className={`rounded-xl py-2.5 text-sm font-black transition-all active:scale-95 ${
-                                editingItemDurationMode === 'quick' && editingItemQuickHours === h
-                                  ? 'bg-red-600 text-white shadow-md'
-                                  : 'bg-stone-100 text-stone-600 ring-1 ring-stone-200'
-                              }`}
-                            >
-                              {h === 'eod' ? 'End of Day' : `${h}H`}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Advanced Schedule toggle */}
-                        <button
-                          type="button"
-                          onClick={() => setEditingItemDurationMode(editingItemDurationMode === 'advanced' ? 'quick' : 'advanced')}
-                          className="mt-3 flex items-center gap-1 text-xs font-black text-stone-400 hover:text-stone-600"
-                        >
-                          <span>{editingItemDurationMode === 'advanced' ? '▾' : '▸'}</span>
-                          Advanced Schedule
-                        </button>
-
-                        {editingItemDurationMode === 'advanced' && (
-                          <div className="mt-3 space-y-3 rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200">
-                            <div>
-                              <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Start</p>
-                              <input
-                                type="datetime-local"
-                                value={editingItemAdvancedStart}
-                                onChange={(e) => setEditingItemAdvancedStart(e.target.value)}
-                                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-red-500"
-                              />
-                            </div>
-                            <div>
-                              <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">End</p>
-                              <input
-                                type="datetime-local"
-                                value={editingItemAdvancedEnd}
-                                onChange={(e) => setEditingItemAdvancedEnd(e.target.value)}
-                                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-red-500"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                </div>
-              )}
             </div>
 
             {/* bottom spacer so last field doesn't hide behind the sticky footer */}
