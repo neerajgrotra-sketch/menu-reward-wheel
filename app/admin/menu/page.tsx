@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
 import { MenuItemImageUploader } from '@/components/admin/restaurants/MenuItemImageUploader';
 import { BottomSheet, SheetTab } from '@/components/admin/BottomSheet';
+import { calculateSpecialPrice } from '@/lib/menu/special-offer';
 
 type Restaurant = {
   id: string;
@@ -31,6 +32,13 @@ type MenuItem = {
   available: boolean;
   tags: string[];
   display_order: number;
+  special_enabled: boolean;
+  special_type: string | null;
+  special_percent: number | null;
+  special_price: number | null;
+  special_start_at: string | null;
+  special_end_at: string | null;
+  special_no_expiry: boolean;
 };
 
 const fallbackCopy = {
@@ -101,12 +109,28 @@ export default function MenuPage() {
   const [editingItemChefSpecial, setEditingItemChefSpecial] = useState(false);
   const [editingItemPopular, setEditingItemPopular] = useState(false);
 
+  // Special Offer Engine fields
+  const [editingItemSpecialEnabled, setEditingItemSpecialEnabled] = useState(false);
+  const [editingItemSpecialType, setEditingItemSpecialType] = useState<'percentage' | 'fixed_price'>('percentage');
+  const [editingItemSpecialPercent, setEditingItemSpecialPercent] = useState('');
+  const [editingItemSpecialPrice, setEditingItemSpecialPrice] = useState('');
+  // Duration mode: 'quick' = quick buttons, 'advanced' = explicit dates, 'no_expiry' = no end date
+  const [editingItemDurationMode, setEditingItemDurationMode] = useState<'quick' | 'advanced' | 'no_expiry'>('quick');
+  const [editingItemQuickHours, setEditingItemQuickHours] = useState<number | 'eod' | null>(null);
+  const [editingItemAdvancedStart, setEditingItemAdvancedStart] = useState('');
+  const [editingItemAdvancedEnd, setEditingItemAdvancedEnd] = useState('');
+
   // Original snapshots — captured when the sheet opens. Used to compute dirty state.
   const [originalItemName, setOriginalItemName] = useState('');
   const [originalItemPrice, setOriginalItemPrice] = useState('');
   const [originalItemDescription, setOriginalItemDescription] = useState('');
   const [originalItemTags, setOriginalItemTags] = useState('');
   const [originalItemDisplayOrder, setOriginalItemDisplayOrder] = useState('0');
+  const [originalItemSpecialEnabled, setOriginalItemSpecialEnabled] = useState(false);
+  const [originalItemSpecialType, setOriginalItemSpecialType] = useState<'percentage' | 'fixed_price'>('percentage');
+  const [originalItemSpecialPercent, setOriginalItemSpecialPercent] = useState('');
+  const [originalItemSpecialPrice, setOriginalItemSpecialPrice] = useState('');
+  const [originalItemSpecialNoExpiry, setOriginalItemSpecialNoExpiry] = useState(false);
 
   // Transient feedback after a Quick Action instant-save.
   const [quickActionFeedback, setQuickActionFeedback] = useState<string | null>(null);
@@ -127,7 +151,11 @@ export default function MenuPage() {
       editingItemPrice !== originalItemPrice ||
       editingItemDescription !== originalItemDescription ||
       editingItemTags !== originalItemTags ||
-      editingItemDisplayOrder !== originalItemDisplayOrder);
+      editingItemDisplayOrder !== originalItemDisplayOrder ||
+      editingItemSpecialEnabled !== originalItemSpecialEnabled ||
+      editingItemSpecialType !== originalItemSpecialType ||
+      editingItemSpecialPercent !== originalItemSpecialPercent ||
+      editingItemSpecialPrice !== originalItemSpecialPrice);
 
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
@@ -147,7 +175,7 @@ export default function MenuPage() {
       supabase.from('menus').select('id,name,menu_type').eq('restaurant_id', restaurantId),
       supabase
         .from('menu_items')
-        .select('id,name,price,description,image_url,is_featured,available,tags,display_order,menu_id')
+        .select('id,name,price,description,image_url,is_featured,available,tags,display_order,menu_id,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
         .eq('restaurant_id', restaurantId)
         .order('display_order', { ascending: true }),
     ]);
@@ -155,7 +183,7 @@ export default function MenuPage() {
     if (menuResult.error) { setError(menuResult.error.message); return; }
     if (itemResult.error) { setError(itemResult.error.message); return; }
 
-    const allItems = (itemResult.data || []) as Array<MenuItem & { menu_id: string }>;
+    const allItems = (itemResult.data || []) as unknown as Array<MenuItem & { menu_id: string }>;
 
     const grouped: Record<string, MenuItem[]> = {};
     allItems.forEach((item) => {
@@ -182,14 +210,14 @@ export default function MenuPage() {
     if (!restaurant) return;
     const result = await supabase
       .from('menu_items')
-      .select('id,name,price,description,image_url,is_featured,available,tags,display_order')
+      .select('id,name,price,description,image_url,is_featured,available,tags,display_order,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId)
       .order('display_order', { ascending: true });
     if (result.error) { setError(result.error.message); return; }
     setItemsByMenuId((prev) => ({
       ...prev,
-      [menuId]: (result.data || []) as MenuItem[],
+      [menuId]: (result.data || []) as unknown as MenuItem[],
     }));
   }
 
@@ -256,6 +284,26 @@ export default function MenuPage() {
     const tagsStr = userTags.join(', ');
     const orderStr = String(item.display_order ?? 0);
 
+    const specialType = (item.special_type === 'fixed_price' ? 'fixed_price' : 'percentage') as 'percentage' | 'fixed_price';
+    const specialPercent = item.special_percent != null ? String(item.special_percent) : '';
+    const specialPrice = item.special_price != null ? String(item.special_price) : '';
+
+    // Determine duration mode from existing DB state
+    let durationMode: 'quick' | 'advanced' | 'no_expiry' = 'quick';
+    if (item.special_no_expiry) {
+      durationMode = 'no_expiry';
+    } else if (item.special_start_at || item.special_end_at) {
+      durationMode = 'advanced';
+    }
+
+    // Format datetime-local string (YYYY-MM-DDTHH:mm) from ISO string
+    function toDatetimeLocal(iso: string | null): string {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
     setEditingItemId(item.id);
     setEditingItemMenuId(menuId);
     setEditingItemName(item.name);
@@ -267,6 +315,14 @@ export default function MenuPage() {
     setEditingItemChefSpecial((item.tags || []).includes('chef_special'));
     setEditingItemPopular((item.tags || []).includes('popular'));
     setEditingItemDisplayOrder(orderStr);
+    setEditingItemSpecialEnabled(item.special_enabled);
+    setEditingItemSpecialType(specialType);
+    setEditingItemSpecialPercent(specialPercent);
+    setEditingItemSpecialPrice(specialPrice);
+    setEditingItemDurationMode(durationMode);
+    setEditingItemQuickHours(null);
+    setEditingItemAdvancedStart(toDatetimeLocal(item.special_start_at));
+    setEditingItemAdvancedEnd(toDatetimeLocal(item.special_end_at));
 
     // Snapshot for dirty-state detection.
     setOriginalItemName(item.name);
@@ -274,6 +330,11 @@ export default function MenuPage() {
     setOriginalItemDescription(descStr);
     setOriginalItemTags(tagsStr);
     setOriginalItemDisplayOrder(orderStr);
+    setOriginalItemSpecialEnabled(item.special_enabled);
+    setOriginalItemSpecialType(specialType);
+    setOriginalItemSpecialPercent(specialPercent);
+    setOriginalItemSpecialPrice(specialPrice);
+    setOriginalItemSpecialNoExpiry(item.special_no_expiry);
 
     setOverflowMenuOpen(false);
     setQuickActionFeedback(null);
@@ -410,21 +471,76 @@ export default function MenuPage() {
     // Save only the form-editable fields. Quick Actions (available, is_featured,
     // chef_special, popular) are persisted instantly by saveQuickAction and are
     // intentionally excluded here so Save never overwrites their current DB state.
-    const result = await supabase
-      .from('menu_items')
-      .update({
-        name: editingItemName.trim(),
-        price: parseCadPrice(editingItemPrice),
-        description: editingItemDescription.trim() || null,
-        // Preserve user-authored tags; also include current quick-action tag state
-        // (already synced to DB) so the column stays consistent.
-        tags: [
-          ...editingItemTags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'chef_special' && t !== 'popular'),
-          ...(editingItemChefSpecial ? ['chef_special'] : []),
-          ...(editingItemPopular ? ['popular'] : []),
-        ],
-        display_order: parseInt(editingItemDisplayOrder, 10) || 0,
-      })
+    // Compute special offer timestamps at save time (Rule 52)
+    let specialStartAt: string | null = null;
+    let specialEndAt: string | null = null;
+    let specialNoExpiry = false;
+
+    if (editingItemSpecialEnabled) {
+      if (editingItemSpecialType === 'percentage') {
+        const pct = parseFloat(editingItemSpecialPercent);
+        if (!Number.isFinite(pct) || pct < 1 || pct > 99) {
+          setError('Discount percentage must be between 1 and 99.');
+          return;
+        }
+      }
+      if (editingItemSpecialType === 'fixed_price') {
+        const sp = parseCadPrice(editingItemSpecialPrice);
+        if (sp == null || sp <= 0) {
+          setError('Special price must be greater than $0.00.');
+          return;
+        }
+      }
+      if (editingItemDurationMode === 'no_expiry') {
+        specialNoExpiry = true;
+        specialStartAt = new Date().toISOString();
+        specialEndAt = null;
+      } else if (editingItemDurationMode === 'quick' && editingItemQuickHours !== null) {
+        const now = new Date();
+        specialStartAt = now.toISOString();
+        if (editingItemQuickHours === 'eod') {
+          const eod = new Date(now);
+          eod.setHours(23, 59, 59, 0);
+          specialEndAt = eod.toISOString();
+        } else {
+          specialEndAt = new Date(now.getTime() + editingItemQuickHours * 3600 * 1000).toISOString();
+        }
+      } else if (editingItemDurationMode === 'advanced') {
+        specialStartAt = editingItemAdvancedStart ? new Date(editingItemAdvancedStart).toISOString() : null;
+        specialEndAt = editingItemAdvancedEnd ? new Date(editingItemAdvancedEnd).toISOString() : null;
+        if (specialStartAt && specialEndAt && new Date(specialEndAt) <= new Date(specialStartAt)) {
+          setError('End date must be after start date.');
+          return;
+        }
+      }
+    }
+
+    const updatePayload = {
+      name: editingItemName.trim(),
+      price: parseCadPrice(editingItemPrice),
+      description: editingItemDescription.trim() || null,
+      // Preserve user-authored tags; also include current quick-action tag state
+      // (already synced to DB) so the column stays consistent.
+      tags: [
+        ...editingItemTags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'chef_special' && t !== 'popular'),
+        ...(editingItemChefSpecial ? ['chef_special'] : []),
+        ...(editingItemPopular ? ['popular'] : []),
+      ],
+      display_order: parseInt(editingItemDisplayOrder, 10) || 0,
+      special_enabled: editingItemSpecialEnabled,
+      special_type: editingItemSpecialEnabled ? editingItemSpecialType : null,
+      special_percent: editingItemSpecialEnabled && editingItemSpecialType === 'percentage'
+        ? parseFloat(editingItemSpecialPercent) || null
+        : null,
+      special_price: editingItemSpecialEnabled && editingItemSpecialType === 'fixed_price'
+        ? parseCadPrice(editingItemSpecialPrice)
+        : null,
+      special_start_at: specialStartAt,
+      special_end_at: specialEndAt,
+      special_no_expiry: specialNoExpiry,
+    };
+
+    const result = await (supabase.from('menu_items').update(updatePayload as any) as any)
       .eq('id', itemId)
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId);
@@ -682,6 +798,11 @@ export default function MenuPage() {
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <p className="font-black">{item.name}</p>
+                                {item.special_enabled && (
+                                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
+                                    💸 On Special
+                                  </span>
+                                )}
                                 {!item.available && (
                                   <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-black text-red-600">
                                     🚫 Sold Out
@@ -1052,6 +1173,191 @@ export default function MenuPage() {
               <p className="mt-1 text-xs text-stone-400">
                 Lower numbers appear first. Items with the same order appear by creation date.
               </p>
+            </div>
+
+            {/* ── SPECIAL OFFER ─────────────────────────────────────── */}
+            <div>
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-stone-100" />
+                <p className="text-xs font-black uppercase tracking-widest text-stone-300">Special Offer</p>
+                <div className="h-px flex-1 bg-stone-100" />
+              </div>
+
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingItemSpecialEnabled((v) => !v)}
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-sm font-black transition-all active:scale-95 ${
+                    editingItemSpecialEnabled
+                      ? 'bg-red-600 text-white shadow-md'
+                      : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+                  }`}
+                >
+                  <span>{editingItemSpecialEnabled ? '💸 Special Offer Active' : '💸 Enable Special Offer'}</span>
+                  <span className={`h-5 w-9 rounded-full transition-colors ${editingItemSpecialEnabled ? 'bg-white/30' : 'bg-stone-300'} relative`}>
+                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${editingItemSpecialEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </span>
+                </button>
+              </div>
+
+              {editingItemSpecialEnabled && (
+                <div className="mt-4 space-y-4">
+
+                  {/* Discount Type */}
+                  <div>
+                    <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Discount Type</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingItemSpecialType('percentage')}
+                        className={`rounded-xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                          editingItemSpecialType === 'percentage'
+                            ? 'bg-red-600 text-white shadow-md'
+                            : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+                        }`}
+                      >
+                        % Percentage Off
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingItemSpecialType('fixed_price')}
+                        className={`rounded-xl px-3 py-3 text-sm font-black transition-all active:scale-95 ${
+                          editingItemSpecialType === 'fixed_price'
+                            ? 'bg-red-600 text-white shadow-md'
+                            : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+                        }`}
+                      >
+                        $ Fixed Price
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Amount field */}
+                  {editingItemSpecialType === 'percentage' ? (
+                    <div>
+                      <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Discount %</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={editingItemSpecialPercent}
+                          onChange={(e) => setEditingItemSpecialPercent(e.target.value)}
+                          placeholder="20"
+                          min="1"
+                          max="99"
+                          inputMode="numeric"
+                          className="w-28 rounded-xl border border-stone-200 px-3 py-2.5 text-base font-semibold outline-none focus:border-red-500"
+                        />
+                        <span className="text-sm font-black text-stone-400">%</span>
+                        {editingItemSpecialPercent && editingItemPrice && (
+                          <span className="text-sm font-bold text-stone-500">
+                            → ${(parseCadPrice(editingItemPrice) != null
+                              ? calculateSpecialPrice(parseCadPrice(editingItemPrice)!, 'percentage', parseFloat(editingItemSpecialPercent), null)
+                              : 0
+                            ).toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Special Price</p>
+                      <div className="relative w-36">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 font-black text-stone-400">$</span>
+                        <input
+                          type="number"
+                          value={editingItemSpecialPrice}
+                          onChange={(e) => setEditingItemSpecialPrice(e.target.value)}
+                          placeholder="14.99"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          className="w-full rounded-xl border border-stone-200 py-2.5 pl-7 pr-2 text-base font-semibold outline-none focus:border-red-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Duration */}
+                  <div>
+                    <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Duration</p>
+
+                    {/* No Expiry checkbox */}
+                    <button
+                      type="button"
+                      onClick={() => setEditingItemDurationMode(editingItemDurationMode === 'no_expiry' ? 'quick' : 'no_expiry')}
+                      className={`mb-3 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-black transition-all active:scale-95 ${
+                        editingItemDurationMode === 'no_expiry'
+                          ? 'bg-amber-100 text-amber-700 ring-1 ring-amber-300'
+                          : 'bg-stone-50 text-stone-500 ring-1 ring-stone-200'
+                      }`}
+                    >
+                      <span className={`flex h-5 w-5 items-center justify-center rounded border-2 text-xs font-black ${editingItemDurationMode === 'no_expiry' ? 'border-amber-600 bg-amber-600 text-white' : 'border-stone-300'}`}>
+                        {editingItemDurationMode === 'no_expiry' ? '✓' : ''}
+                      </span>
+                      No Expiry — runs until manually turned off
+                    </button>
+
+                    {editingItemDurationMode !== 'no_expiry' && (
+                      <>
+                        {/* Quick Duration buttons */}
+                        <div className="grid grid-cols-3 gap-2">
+                          {([1, 2, 4, 6, 12, 'eod'] as const).map((h) => (
+                            <button
+                              key={String(h)}
+                              type="button"
+                              onClick={() => {
+                                setEditingItemDurationMode('quick');
+                                setEditingItemQuickHours(h);
+                              }}
+                              className={`rounded-xl py-2.5 text-sm font-black transition-all active:scale-95 ${
+                                editingItemDurationMode === 'quick' && editingItemQuickHours === h
+                                  ? 'bg-red-600 text-white shadow-md'
+                                  : 'bg-stone-100 text-stone-600 ring-1 ring-stone-200'
+                              }`}
+                            >
+                              {h === 'eod' ? 'End of Day' : `${h}H`}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Advanced Schedule toggle */}
+                        <button
+                          type="button"
+                          onClick={() => setEditingItemDurationMode(editingItemDurationMode === 'advanced' ? 'quick' : 'advanced')}
+                          className="mt-3 flex items-center gap-1 text-xs font-black text-stone-400 hover:text-stone-600"
+                        >
+                          <span>{editingItemDurationMode === 'advanced' ? '▾' : '▸'}</span>
+                          Advanced Schedule
+                        </button>
+
+                        {editingItemDurationMode === 'advanced' && (
+                          <div className="mt-3 space-y-3 rounded-xl bg-stone-50 p-3 ring-1 ring-stone-200">
+                            <div>
+                              <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Start</p>
+                              <input
+                                type="datetime-local"
+                                value={editingItemAdvancedStart}
+                                onChange={(e) => setEditingItemAdvancedStart(e.target.value)}
+                                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-red-500"
+                              />
+                            </div>
+                            <div>
+                              <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">End</p>
+                              <input
+                                type="datetime-local"
+                                value={editingItemAdvancedEnd}
+                                onChange={(e) => setEditingItemAdvancedEnd(e.target.value)}
+                                className="w-full rounded-xl border border-stone-200 px-3 py-2.5 text-sm font-semibold outline-none focus:border-red-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                </div>
+              )}
             </div>
 
             {/* bottom spacer so last field doesn't hide behind the sticky footer */}

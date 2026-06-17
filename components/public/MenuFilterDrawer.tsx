@@ -10,7 +10,7 @@ import { X } from 'lucide-react';
 // 'chef_special' → item.tags.includes('chef_special')
 // 'popular'      → item.tags.includes('popular')
 
-export type FilterId = 'available' | 'featured' | 'chef_special' | 'popular';
+export type FilterId = 'available' | 'featured' | 'chef_special' | 'popular' | 'on_special';
 
 type FilterDef = { id: FilterId; label: string; emoji: string };
 
@@ -18,7 +18,8 @@ const FILTER_GROUPS: Array<{ group: string; items: FilterDef[] }> = [
   {
     group: 'Availability',
     items: [
-      { id: 'available', label: 'Available Now', emoji: '✓' },
+      { id: 'available',  label: 'Available Now', emoji: '✓' },
+      { id: 'on_special', label: 'On Special',    emoji: '💸' },
     ],
   },
   {
