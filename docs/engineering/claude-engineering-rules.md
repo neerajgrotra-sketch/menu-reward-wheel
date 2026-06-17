@@ -323,3 +323,42 @@ Requirements:
 
 When the public page layout changes, the admin card header must be updated to match.
 The admin card is a live editable preview — not a separate design.
+
+---
+
+## Rule 58 — Menu Item Visual Metadata Must Obey Explicit Badge Hierarchy Priority
+
+Menu item cards have a fixed badge slot system. Each slot holds exactly one badge. Priority order:
+
+**Image overlay — left slot:** Sold Out (suppressed entirely) > On Special > Chef Special > Popular > none
+
+**Image overlay — right slot:** Featured (suppressed when On Special is active)
+
+**Metadata row below title:** Renders Featured / Chef / Popular as lightweight text when On Special occupies the left slot. Suppressed entirely when Sold Out.
+
+Do not add new badges outside this hierarchy without first updating this rule and the `leftBadge` priority enum in `MenuItemCard`.
+
+---
+
+## Rule 59 — Only One Commercial Badge May Occupy Each Image Overlay Position
+
+Each image overlay position (top-left, top-right) holds exactly one badge at a time.
+
+Never stack two badges in the same position. Never introduce a third overlay position without an explicit architecture decision and update to Rule 58.
+
+If a future dietary or promotional badge needs to appear, assign it to the metadata row below the title — not the image overlay.
+
+---
+
+## Rule 60 — Hard Item State Changes Override All Metadata Rendering
+
+Hard state changes (Sold Out, Deleted, Unavailable) must suppress all commercial and promotional metadata.
+
+When `available = false`:
+- All image overlay badges are suppressed at the DOM level (not just visually covered)
+- The metadata row below the title is suppressed
+- The Sold Out overlay renders over the image
+- The card is `opacity-60` and `cursor-default`
+
+Sold Out is not a promotional state. It must dominate all promotional rendering.
+Any future hard state (e.g. "Coming Soon", "Temporarily Unavailable") must follow the same suppression pattern.

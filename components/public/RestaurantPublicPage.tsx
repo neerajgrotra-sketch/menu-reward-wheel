@@ -109,12 +109,6 @@ function PriceBadge({
         <span className="text-sm font-black" style={{ color }}>
           ${Number(effectivePrice).toFixed(2)}
         </span>
-        <span
-          className="rounded-full px-1.5 py-0.5 text-[10px] font-black text-white"
-          style={{ backgroundColor: '#e63939' }}
-        >
-          {discountLabel}
-        </span>
       </div>
     );
   }
@@ -149,7 +143,10 @@ function MenuItemCard({
   const isChefSpecial = (item.tags || []).includes('chef_special');
   const isPopular = (item.tags || []).includes('popular');
   // Left badge slot priority: On Special > Chef Special > Popular
-  const leftBadge = item.special_active
+  // Sold Out suppresses all commercial badges — the overlay communicates state instead.
+  const leftBadge = isSoldOut
+    ? null
+    : item.special_active
     ? 'on_special'
     : isChefSpecial
     ? 'chef_special'
@@ -181,8 +178,8 @@ function MenuItemCard({
         ) : (
           <ItemPlaceholder />
         )}
-        {/* Featured badge — top right */}
-        {item.is_featured && (
+        {/* Featured badge — top right (suppressed when on special; moves below title) */}
+        {item.is_featured && !item.special_active && (
           <span
             className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
             style={{ backgroundColor: accentColor }}
@@ -192,7 +189,7 @@ function MenuItemCard({
         )}
         {/* Merchandising badge — top left (On Special > Chef Special > Popular) */}
         {leftBadge === 'on_special' && (
-          <span className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm" style={{ backgroundColor: '#e63939' }}>
+          <span className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm" style={{ backgroundColor: '#FF6B00' }}>
             💸 {item.discount_label}
           </span>
         )}
@@ -217,6 +214,20 @@ function MenuItemCard({
       </div>
       <div className="p-3">
         <p className="line-clamp-2 text-sm font-black leading-tight text-stone-800">{item.name}</p>
+        {/* Metadata row — surfaces below title when discount takes the top badge slot; suppressed when sold out */}
+        {item.special_active && !isSoldOut && (item.is_featured || isChefSpecial || isPopular) && (
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {item.is_featured && (
+              <span className="text-[10px] font-black" style={{ color: accentColor }}>⭐ Featured</span>
+            )}
+            {isChefSpecial && (
+              <span className="text-[10px] font-black text-purple-600">👨‍🍳 Chef</span>
+            )}
+            {isPopular && (
+              <span className="text-[10px] font-black text-orange-500">🔥 Popular</span>
+            )}
+          </div>
+        )}
         {item.description && (
           <p className="mt-1 line-clamp-2 text-xs text-stone-500">{item.description}</p>
         )}
@@ -370,7 +381,7 @@ function ItemDetailSheet({
                   <span className="text-2xl font-black" style={{ color: brandColor }}>
                     ${Number(item.effective_price).toFixed(2)}
                   </span>
-                  <span className="rounded-full px-2.5 py-1 text-xs font-black text-white" style={{ backgroundColor: '#e63939' }}>
+                  <span className="rounded-full px-2.5 py-1 text-xs font-black text-white" style={{ backgroundColor: '#FF6B00' }}>
                     {item.discount_label}
                   </span>
                 </div>
@@ -386,7 +397,7 @@ function ItemDetailSheet({
           {(item.special_active || item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
             <div className="mt-3 flex flex-wrap gap-2">
               {item.special_active && (
-                <span className="rounded-full px-3 py-1 text-xs font-black text-white" style={{ backgroundColor: '#e63939' }}>
+                <span className="rounded-full px-3 py-1 text-xs font-black text-white" style={{ backgroundColor: '#FF6B00' }}>
                   💸 On Special
                 </span>
               )}
