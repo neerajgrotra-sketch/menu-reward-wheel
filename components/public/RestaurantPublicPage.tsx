@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe, Navigation2 } from 'lucide-react';
+import { Globe, Navigation2, SlidersHorizontal } from 'lucide-react';
+import { MenuFilterDrawer } from '@/components/public/MenuFilterDrawer';
 import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 import { getGameVisual, type GameType } from '@/components/game-visuals/GameVisual';
@@ -776,24 +777,6 @@ function GameEntryModal({
   );
 }
 
-// ─── Filter chips ────────────────────────────────────────────────────────────
-
-type FilterId = 'all' | 'featured' | 'chef_special' | 'popular';
-
-const FILTER_CHIPS: Array<{ id: FilterId; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'featured', label: '⭐ Featured' },
-  { id: 'chef_special', label: '👨‍🍳 Chef Special' },
-  { id: 'popular', label: '🔥 Popular' },
-];
-
-const FILTER_EMPTY: Record<FilterId, string> = {
-  all: "We're putting the finishing touches on our menu. Check back soon!",
-  featured: 'No featured items right now.',
-  chef_special: 'No chef specials right now.',
-  popular: 'No popular items right now.',
-};
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function RestaurantPublicPage({
@@ -814,25 +797,10 @@ export function RestaurantPublicPage({
   const hasPromotion = !!promotion;
   const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
 
-  // ── Filter state ────────────────────────────────────────────────────
-  const [activeFilter, setActiveFilter] = useState<FilterId>('all');
-
-  const filteredSections = useMemo(() => {
-    if (activeFilter === 'all') return sections;
-    return sections
-      .map((section) => ({
-        ...section,
-        items: section.items.filter((item) => {
-          if (activeFilter === 'featured') return item.is_featured;
-          if (activeFilter === 'chef_special') return (item.tags || []).includes('chef_special');
-          if (activeFilter === 'popular') return (item.tags || []).includes('popular');
-          return true;
-        }),
-      }))
-      .filter((section) => section.items.length > 0);
-  }, [sections, activeFilter]);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
 
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const stickyRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
   const [selectedItem, setSelectedItem] = useState<PublicMenuItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -869,19 +837,18 @@ export function RestaurantPublicPage({
   // C1: remember which element triggered the sheet so focus returns on close
   const triggerRef = useRef<HTMLElement | null>(null);
 
-  // Scroll to section (accounts for sticky nav height ~56px)
+  // Scroll to section — offset derived from live sticky bar height to handle any sticky bar height.
   const scrollToSection = useCallback((sectionId: string) => {
     const el = sectionRefs.current.get(sectionId);
     if (!el) return;
-    const offset = 64;
-    const y = el.getBoundingClientRect().top + window.scrollY - offset;
+    const stickyHeight = stickyRef.current?.offsetHeight ?? 120;
+    const y = el.getBoundingClientRect().top + window.scrollY - stickyHeight - 8;
     window.scrollTo({ top: y, behavior: 'smooth' });
   }, []);
 
   // IntersectionObserver for active section tracking.
-  // Re-runs when filteredSections changes so only currently visible sections are observed.
   useEffect(() => {
-    if (filteredSections.length === 0) return;
+    if (sections.length === 0) return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -895,12 +862,7 @@ export function RestaurantPublicPage({
     );
     sectionRefs.current.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [filteredSections]);
-
-  // Keep activeSection in sync with the first visible section whenever the filter changes.
-  useEffect(() => {
-    setActiveSection(filteredSections[0]?.id ?? '');
-  }, [filteredSections]);
+  }, [sections]);
 
   // Scroll active nav pill into view
   const navRef = useRef<HTMLDivElement>(null);
@@ -1101,7 +1063,7 @@ export function RestaurantPublicPage({
       )}
 
       {/* ── Menu ── */}
-      <div className="mt-8 pb-24">
+      <div className="mt-8" style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))' }}>
 
         {/* Empty state — no menu at all */}
         {sections.length === 0 && (
@@ -1114,74 +1076,73 @@ export function RestaurantPublicPage({
           </div>
         )}
 
-        {/* ── Sticky filter chips + category nav ── */}
+        {/* ── Sticky action bar + category nav ── */}
         {sections.length > 0 && (
           <div
+            ref={stickyRef}
             className="sticky top-0 z-30 bg-stone-50"
             style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
           >
-            {/* Filter chips — always visible when menu exists */}
-            <div className="flex gap-2 overflow-x-auto px-4 pb-2 pt-3">
-              {FILTER_CHIPS.map((chip) => {
-                const isActive = activeFilter === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => setActiveFilter(chip.id)}
-                    className="shrink-0 rounded-full px-4 py-2 text-sm font-black shadow-sm transition-colors"
-                    aria-current={isActive ? 'true' : undefined}
-                    style={
-                      isActive
-                        ? { backgroundColor: brandColor, color: '#fff' }
-                        : { backgroundColor: '#fff', color: '#57534e' }
-                    }
-                  >
-                    {chip.label}
-                  </button>
-                );
-              })}
+            {/* Action bar: Filter button only — Search not shipped until backend is ready */}
+            <div className="flex items-center justify-end px-4 pb-2 pt-3">
+              <button
+                type="button"
+                onClick={() => setFilterDrawerOpen(true)}
+                aria-label="Filter menu"
+                className="flex h-11 items-center gap-2 rounded-full bg-white px-4 shadow-sm ring-1 ring-stone-100 active:scale-95"
+                style={{ transition: 'transform 150ms' }}
+              >
+                <SlidersHorizontal className="h-4 w-4 text-stone-600" aria-hidden="true" />
+                <span className="text-sm font-semibold text-stone-600">Filter</span>
+              </button>
             </div>
 
-            {/* Category nav — only shown when 2+ filtered sections exist */}
-            {filteredSections.length > 1 && (
-              <div ref={navRef} className="flex gap-2 overflow-x-auto px-4 pb-3">
-                {filteredSections.map((section) => {
-                  const isActive = activeSection === section.id;
-                  return (
-                    <button
-                      key={section.id}
-                      type="button"
-                      data-nav-id={section.id}
-                      onClick={() => scrollToSection(section.id)}
-                      className="shrink-0 rounded-full px-4 py-2 text-sm font-black shadow-sm transition-colors"
-                      aria-current={isActive ? 'true' : undefined}
-                      style={
-                        isActive
-                          ? { backgroundColor: brandColor, color: '#fff' }
-                          : { backgroundColor: '#fff', color: '#57534e' }
-                      }
-                    >
-                      {section.name}
-                    </button>
-                  );
-                })}
+            {/* Category nav — right-edge gradient fade signals more chips off screen */}
+            {sections.length > 1 && (
+              <div className="relative">
+                <div
+                  ref={navRef}
+                  className="flex gap-2 overflow-x-auto px-4 pb-3"
+                  style={{ scrollbarWidth: 'none' } as React.CSSProperties}
+                >
+                  {sections.map((section) => {
+                    const isActive = activeSection === section.id;
+                    return (
+                      <button
+                        key={section.id}
+                        type="button"
+                        data-nav-id={section.id}
+                        onClick={() => scrollToSection(section.id)}
+                        className="shrink-0 rounded-full px-4 py-3 text-sm font-black shadow-sm active:scale-95"
+                        aria-current={isActive ? 'true' : undefined}
+                        style={{
+                          transition: 'transform 150ms, background-color 150ms, color 150ms',
+                          ...(isActive
+                            ? { backgroundColor: brandColor, color: '#fff' }
+                            : { backgroundColor: '#fff', color: '#57534e' }),
+                        }}
+                      >
+                        {section.name}
+                      </button>
+                    );
+                  })}
+                  {/* Trailing spacer — keeps last chip partially under the gradient fade */}
+                  <div className="w-8 shrink-0" aria-hidden="true" />
+                </div>
+                {/* Gradient overlay — right edge fade signals horizontal scroll affordance */}
+                <div
+                  className="pointer-events-none absolute inset-y-0 right-0 w-12"
+                  style={{ background: 'linear-gradient(to left, #fafaf9, transparent)' }}
+                  aria-hidden="true"
+                />
               </div>
             )}
           </div>
         )}
 
-        {/* Empty state — filter returned no results */}
-        {sections.length > 0 && filteredSections.length === 0 && (
-          <div className="mx-4 mt-6 rounded-3xl bg-white p-8 text-center shadow-md">
-            <p className="text-3xl">🔍</p>
-            <p className="mt-3 text-lg font-black text-stone-700">{FILTER_EMPTY[activeFilter]}</p>
-          </div>
-        )}
-
-        {/* Section list — rendered from filteredSections so items stay in their categories */}
+        {/* Section list */}
         <div className="mt-6 space-y-10 px-4">
-          {filteredSections.map((section) => (
+          {sections.map((section) => (
             <div
               key={section.id}
               data-section-id={section.id}
@@ -1253,6 +1214,13 @@ export function RestaurantPublicPage({
           onClose={handleModalClose}
         />
       )}
+
+      {/* ── Filter Drawer ── */}
+      <MenuFilterDrawer
+        open={filterDrawerOpen}
+        accentColor={accentColor}
+        onClose={() => setFilterDrawerOpen(false)}
+      />
     </div>
   );
 }
