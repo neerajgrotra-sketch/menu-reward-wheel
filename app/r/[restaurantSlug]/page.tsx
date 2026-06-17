@@ -3,6 +3,7 @@ import { createClient as createServiceClient } from '@supabase/supabase-js';
 import type { Metadata } from 'next';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
+import { isSpecialOfferActive, calculateSpecialPrice, getDiscountLabel } from '@/lib/menu/special-offer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,10 @@ export type PublicMenuItem = {
   tags: string[];
   menu_id: string | null;
   display_order: number;
+  // Special Offer Engine — computed server-side at request time (Rule 52)
+  special_active: boolean;
+  effective_price: number | null;
+  discount_label: string | null;
 };
 
 export type PublicSection = {
@@ -261,7 +266,7 @@ export default async function PermanentRestaurantQrPage({
         .order('display_order', { ascending: true }),
       supabase
         .from('menu_items')
-        .select('id,name,description,image_url,price,is_featured,available,tags,menu_id,display_order')
+        .select('id,name,description,image_url,price,is_featured,available,tags,menu_id,display_order,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
         .eq('restaurant_id', restaurant.id)
         .is('deleted_at', null)
         .order('display_order', { ascending: true }),
@@ -273,7 +278,42 @@ export default async function PermanentRestaurantQrPage({
       name: string;
       display_order: number;
     }>;
-    const allItems = (itemsResult.data || []) as PublicMenuItem[];
+
+    // Compute special offer state server-side (Rule 52 — never trust frontend calculations)
+    type RawMenuItem = Omit<PublicMenuItem, 'special_active' | 'effective_price' | 'discount_label'> & {
+      special_enabled: boolean;
+      special_type: string | null;
+      special_percent: number | null;
+      special_price: number | null;
+      special_start_at: string | null;
+      special_end_at: string | null;
+      special_no_expiry: boolean;
+    };
+    const rawItems = (itemsResult.data || []) as RawMenuItem[];
+    const allItems: PublicMenuItem[] = rawItems.map((raw) => {
+      const active = isSpecialOfferActive(raw, now);
+      let effective_price = raw.price;
+      let discount_label: string | null = null;
+      if (active && raw.price != null && raw.special_type) {
+        effective_price = calculateSpecialPrice(raw.price, raw.special_type, raw.special_percent, raw.special_price);
+        discount_label = getDiscountLabel(raw.price, raw.special_type, raw.special_percent, raw.special_price);
+      }
+      return {
+        id: raw.id,
+        name: raw.name,
+        description: raw.description,
+        image_url: raw.image_url,
+        price: raw.price,
+        is_featured: raw.is_featured,
+        available: raw.available,
+        tags: raw.tags,
+        menu_id: raw.menu_id,
+        display_order: raw.display_order,
+        special_active: active,
+        effective_price,
+        discount_label,
+      };
+    });
 
     const sections: PublicSection[] = menus.map((menu) => ({
       id: menu.id,

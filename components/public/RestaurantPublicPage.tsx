@@ -84,8 +84,40 @@ function TagPill({ tag, accentColor }: { tag: string; accentColor: string }) {
   );
 }
 
-function PriceBadge({ price, color }: { price: number | null; color: string }) {
+function PriceBadge({
+  price,
+  effectivePrice,
+  discountLabel,
+  color,
+}: {
+  price: number | null;
+  effectivePrice: number | null;
+  discountLabel: string | null;
+  color: string;
+}) {
   if (price == null) return null;
+  const isOnSpecial = discountLabel != null && effectivePrice != null && effectivePrice > 0 && effectivePrice !== price;
+  if (!isOnSpecial && effectivePrice != null && effectivePrice <= 0) {
+    console.error('[PriceBadge] Invalid effectivePrice', effectivePrice, '— rendering original price.');
+  }
+  if (isOnSpecial) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs font-semibold text-stone-400 line-through">
+          ${Number(price).toFixed(2)}
+        </span>
+        <span className="text-sm font-black" style={{ color }}>
+          ${Number(effectivePrice).toFixed(2)}
+        </span>
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[10px] font-black text-white"
+          style={{ backgroundColor: '#e63939' }}
+        >
+          {discountLabel}
+        </span>
+      </div>
+    );
+  }
   return (
     <span className="text-sm font-black" style={{ color }}>
       ${Number(price).toFixed(2)}
@@ -116,8 +148,14 @@ function MenuItemCard({
   const isSoldOut = !item.available;
   const isChefSpecial = (item.tags || []).includes('chef_special');
   const isPopular = (item.tags || []).includes('popular');
-  // Left badge slot priority: Chef Special > Popular
-  const leftBadge = isChefSpecial ? 'chef_special' : isPopular ? 'popular' : null;
+  // Left badge slot priority: On Special > Chef Special > Popular
+  const leftBadge = item.special_active
+    ? 'on_special'
+    : isChefSpecial
+    ? 'chef_special'
+    : isPopular
+    ? 'popular'
+    : null;
 
   return (
     <button
@@ -152,7 +190,12 @@ function MenuItemCard({
             ⭐ Featured
           </span>
         )}
-        {/* Merchandising badge — top left (Chef Special takes priority over Popular) */}
+        {/* Merchandising badge — top left (On Special > Chef Special > Popular) */}
+        {leftBadge === 'on_special' && (
+          <span className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm" style={{ backgroundColor: '#e63939' }}>
+            💸 {item.discount_label}
+          </span>
+        )}
         {leftBadge === 'chef_special' && (
           <span className="absolute left-2 top-2 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
             👨‍🍳 Chef
@@ -178,7 +221,12 @@ function MenuItemCard({
           <p className="mt-1 line-clamp-2 text-xs text-stone-500">{item.description}</p>
         )}
         <div className="mt-2">
-          <PriceBadge price={item.price} color={brandColor} />
+          <PriceBadge
+            price={item.price}
+            effectivePrice={item.effective_price}
+            discountLabel={item.discount_label}
+            color={brandColor}
+          />
         </div>
       </div>
     </button>
@@ -313,14 +361,35 @@ function ItemDetailSheet({
           </h2>
 
           {item.price != null && (
-            <p className="mt-2 text-2xl font-black" style={{ color: brandColor }}>
-              ${Number(item.price).toFixed(2)}
-            </p>
+            <div className="mt-2">
+              {item.special_active && item.effective_price != null && item.effective_price > 0 && item.effective_price !== item.price ? (
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-lg font-semibold text-stone-400 line-through">
+                    ${Number(item.price).toFixed(2)}
+                  </span>
+                  <span className="text-2xl font-black" style={{ color: brandColor }}>
+                    ${Number(item.effective_price).toFixed(2)}
+                  </span>
+                  <span className="rounded-full px-2.5 py-1 text-xs font-black text-white" style={{ backgroundColor: '#e63939' }}>
+                    {item.discount_label}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-2xl font-black" style={{ color: brandColor }}>
+                  ${Number(item.price).toFixed(2)}
+                </p>
+              )}
+            </div>
           )}
 
           {/* Merchandising + availability badges — mirrors admin Quick Action states */}
-          {(item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
+          {(item.special_active || item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
             <div className="mt-3 flex flex-wrap gap-2">
+              {item.special_active && (
+                <span className="rounded-full px-3 py-1 text-xs font-black text-white" style={{ backgroundColor: '#e63939' }}>
+                  💸 On Special
+                </span>
+              )}
               {item.is_featured && (
                 <span
                   className="rounded-full px-3 py-1 text-xs font-black"
@@ -810,6 +879,7 @@ export function RestaurantPublicPage({
           if (activeFilters.has('featured') && !item.is_featured) return false;
           if (activeFilters.has('chef_special') && !(item.tags || []).includes('chef_special')) return false;
           if (activeFilters.has('popular') && !(item.tags || []).includes('popular')) return false;
+          if (activeFilters.has('on_special') && !item.special_active) return false;
           return true;
         }),
       }))
