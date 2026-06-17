@@ -362,3 +362,43 @@ When `available = false`:
 
 Sold Out is not a promotional state. It must dominate all promotional rendering.
 Any future hard state (e.g. "Coming Soon", "Temporarily Unavailable") must follow the same suppression pattern.
+
+---
+
+## Rule 61 — Menu Cards Must Maintain Deterministic Height Regardless of Metadata Quantity
+
+Every menu item card uses five fixed vertical zones:
+
+- Zone 1: Image — `h-28` (fixed)
+- Zone 2: Item Name — `line-clamp-2 min-h-[48px]`
+- Zone 3: Metadata Pills — `min-h-[40px] max-h-[40px] overflow-hidden`
+- Zone 4: Description — `min-h-[42px]` container with inner `line-clamp-2`
+- Zone 5: Price Row — single line
+
+No zone may resize based on content. All height is reserved even when content is absent.
+
+---
+
+## Rule 62 — Metadata Rendering May Never Alter Card Grid Alignment
+
+Zone 3 (metadata pills) is always rendered in the DOM with fixed `min-h` and `max-h`.
+
+It must never be conditionally mounted or unmounted based on whether tags exist.
+
+`overflow-hidden` on Zone 3 is mandatory — it prevents future dietary tags from expanding the zone.
+
+Any new tag type must be added to Zone 3 as a pill. No new zones may be introduced without updating Rule 61.
+
+---
+
+## Rule 63 — Promotional Badges Must Obey Strict Tier Hierarchy
+
+Three tiers. Each tier has explicit constraints:
+
+**Tier 1 — Image Overlay Left:** Discount only. One badge maximum. Suppressed when Sold Out.
+
+**Tier 2 — Image Overlay Right:** Featured only. One badge maximum. Suppressed when Sold Out or when Discount is active (Featured moves to Zone 3).
+
+**Tier 3 — Zone 3 Pills Row:** Chef Special, Popular, and all dietary tags (Vegetarian, Vegan, Halal, Kosher, Gluten Free, Spicy, Kids Friendly). Also receives Featured when Discount is in Tier 1. Unlimited count, capped by Zone 3 max-height.
+
+Discount badges use `bg-emerald-500` (green = savings signal). Brand orange (`#FF6B00`) is reserved for SpinBite platform identity only and must never be used for promotional discount UI.

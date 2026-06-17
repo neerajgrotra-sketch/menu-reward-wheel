@@ -128,6 +128,10 @@ function ItemPlaceholder() {
 }
 
 // Menu item card — 2-column grid
+// V2 architecture: five deterministic fixed-height zones so every card in the grid
+// aligns regardless of metadata quantity (Rules 61/62).
+// Zone 1: Image h-28 | Zone 2: Name min-h-[48px] | Zone 3: Pills min/max-h-[40px]
+// Zone 4: Description min-h-[42px] | Zone 5: Price row
 function MenuItemCard({
   item,
   brandColor,
@@ -142,24 +146,18 @@ function MenuItemCard({
   const isSoldOut = !item.available;
   const isChefSpecial = (item.tags || []).includes('chef_special');
   const isPopular = (item.tags || []).includes('popular');
-  // Left badge slot priority: On Special > Chef Special > Popular
-  // Sold Out suppresses all commercial badges — the overlay communicates state instead.
-  const leftBadge = isSoldOut
-    ? null
-    : item.special_active
-    ? 'on_special'
-    : isChefSpecial
-    ? 'chef_special'
-    : isPopular
-    ? 'popular'
-    : null;
+
+  // Tier 1 left overlay — Discount only (Rule 58/59).
+  // Chef/Popular removed from overlay; they live exclusively in the Tier 3 pills row.
+  // Sold Out uses full inset overlay and suppresses this slot entirely (Rule 60).
+  const showDiscountBadge = !isSoldOut && item.special_active;
 
   return (
     <button
       type="button"
       onClick={isSoldOut ? undefined : onTap}
       aria-disabled={isSoldOut || undefined}
-      className={`overflow-hidden rounded-2xl bg-white text-left shadow-md ${
+      className={`flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-md ${
         isSoldOut ? 'cursor-default opacity-60' : 'active:scale-95'
       }`}
       style={{
@@ -167,7 +165,8 @@ function MenuItemCard({
         borderTop: item.is_featured ? `3px solid ${accentColor}` : undefined,
       }}
     >
-      <div className="relative h-28 w-full overflow-hidden bg-stone-100">
+      {/* Zone 1 — Image (fixed h-28, never resizes) */}
+      <div className="relative h-28 w-full shrink-0 overflow-hidden bg-stone-100">
         {item.image_url ? (
           <img
             src={item.image_url}
@@ -178,8 +177,8 @@ function MenuItemCard({
         ) : (
           <ItemPlaceholder />
         )}
-        {/* Featured badge — top right (suppressed when on special; moves below title) */}
-        {item.is_featured && !item.special_active && (
+        {/* Tier 2 — Right overlay: Featured (suppressed when on special or sold out; Rule 58) */}
+        {item.is_featured && !item.special_active && !isSoldOut && (
           <span
             className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm"
             style={{ backgroundColor: accentColor }}
@@ -187,23 +186,13 @@ function MenuItemCard({
             ⭐ Featured
           </span>
         )}
-        {/* Merchandising badge — top left (On Special > Chef Special > Popular) */}
-        {leftBadge === 'on_special' && (
-          <span className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-black text-white shadow-sm" style={{ backgroundColor: '#FF6B00' }}>
+        {/* Tier 1 — Left overlay: Discount (green = savings signal, not brand orange; Rule 63) */}
+        {showDiscountBadge && (
+          <span className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
             💸 {item.discount_label}
           </span>
         )}
-        {leftBadge === 'chef_special' && (
-          <span className="absolute left-2 top-2 rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
-            👨‍🍳 Chef
-          </span>
-        )}
-        {leftBadge === 'popular' && (
-          <span className="absolute left-2 top-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
-            🔥 Popular
-          </span>
-        )}
-        {/* Sold Out overlay */}
+        {/* Sold Out — full inset overlay, all badge slots suppressed at DOM level (Rule 60) */}
         {isSoldOut && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
             <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-black text-stone-700 shadow-sm">
@@ -212,25 +201,46 @@ function MenuItemCard({
           </div>
         )}
       </div>
-      <div className="p-3">
-        <p className="line-clamp-2 text-sm font-black leading-tight text-stone-800">{item.name}</p>
-        {/* Metadata row — surfaces below title when discount takes the top badge slot; suppressed when sold out */}
-        {item.special_active && !isSoldOut && (item.is_featured || isChefSpecial || isPopular) && (
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {item.is_featured && (
-              <span className="text-[10px] font-black" style={{ color: accentColor }}>⭐ Featured</span>
-            )}
-            {isChefSpecial && (
-              <span className="text-[10px] font-black text-purple-600">👨‍🍳 Chef</span>
-            )}
-            {isPopular && (
-              <span className="text-[10px] font-black text-orange-500">🔥 Popular</span>
-            )}
-          </div>
-        )}
-        {item.description && (
-          <p className="mt-1 line-clamp-2 text-xs text-stone-500">{item.description}</p>
-        )}
+
+      {/* Card body — fixed vertical zones prevent grid misalignment (Rules 61/62) */}
+      <div className="flex flex-1 flex-col p-3">
+        {/* Zone 2 — Name: 2-line clamp, always occupies 48 px minimum */}
+        <p className="line-clamp-2 min-h-[48px] text-sm font-black leading-tight text-stone-800">
+          {item.name}
+        </p>
+
+        {/* Zone 3 — Metadata Pills: fixed 40 px container, always rendered (Rules 61/62).
+            Chef/Popular always here (Tier 3). Featured moves here when discount is active.
+            overflow-hidden + max-h-[40px] cap accommodates future dietary tags safely. */}
+        <div className="mt-1 flex min-h-[40px] max-h-[40px] flex-wrap content-start gap-1 overflow-hidden">
+          {!isSoldOut && item.is_featured && item.special_active && (
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[10px] font-black leading-none"
+              style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
+            >
+              ⭐ Featured
+            </span>
+          )}
+          {!isSoldOut && isChefSpecial && (
+            <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-black leading-none text-purple-700">
+              👨‍🍳 Chef
+            </span>
+          )}
+          {!isSoldOut && isPopular && (
+            <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-black leading-none text-orange-600">
+              🔥 Popular
+            </span>
+          )}
+        </div>
+
+        {/* Zone 4 — Description: 2-line clamp inside fixed 42 px container */}
+        <div className="mt-1 min-h-[42px]">
+          {item.description && (
+            <p className="line-clamp-2 text-xs text-stone-500">{item.description}</p>
+          )}
+        </div>
+
+        {/* Zone 5 — Price Row */}
         <div className="mt-2">
           <PriceBadge
             price={item.price}
@@ -381,7 +391,7 @@ function ItemDetailSheet({
                   <span className="text-2xl font-black" style={{ color: brandColor }}>
                     ${Number(item.effective_price).toFixed(2)}
                   </span>
-                  <span className="rounded-full px-2.5 py-1 text-xs font-black text-white" style={{ backgroundColor: '#FF6B00' }}>
+                  <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-black text-white">
                     {item.discount_label}
                   </span>
                 </div>
@@ -397,7 +407,7 @@ function ItemDetailSheet({
           {(item.special_active || item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
             <div className="mt-3 flex flex-wrap gap-2">
               {item.special_active && (
-                <span className="rounded-full px-3 py-1 text-xs font-black text-white" style={{ backgroundColor: '#FF6B00' }}>
+                <span className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white">
                   💸 On Special
                 </span>
               )}
