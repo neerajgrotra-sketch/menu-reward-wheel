@@ -102,18 +102,18 @@ function PriceBadge({
   }
   if (isOnSpecial) {
     return (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs font-semibold text-stone-400 line-through">
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-xs text-stone-400 line-through">
           ${Number(price).toFixed(2)}
         </span>
-        <span className="text-sm font-black" style={{ color }}>
+        <span className="text-base font-black" style={{ color }}>
           ${Number(effectivePrice).toFixed(2)}
         </span>
       </div>
     );
   }
   return (
-    <span className="text-sm font-black" style={{ color }}>
+    <span className="text-base font-black" style={{ color }}>
       ${Number(price).toFixed(2)}
     </span>
   );
@@ -128,7 +128,7 @@ function ItemPlaceholder() {
 }
 
 // Menu item card — 2-column grid
-// V3 commerce density: natural card height, collapsed metadata, 1-line description, tight price anchor.
+// V4 commerce density final: h-24 image, no description, micro 20px metadata zone, price-first hierarchy.
 function MenuItemCard({
   item,
   brandColor,
@@ -141,16 +141,15 @@ function MenuItemCard({
   onTap: () => void;
 }) {
   const isSoldOut = !item.available;
-  const isChefSpecial = (item.tags || []).includes('chef_special');
   const isPopular = (item.tags || []).includes('popular');
 
   // Tier 1 left overlay — Discount only (Rule 58/59).
   // Sold Out uses full inset overlay and suppresses this slot entirely (Rule 60).
   const showDiscountBadge = !isSoldOut && item.special_active;
 
-  // Metadata row collapses completely when no labels apply (Part 2).
+  // V4: Featured shows in metadata zone only when item is also on special (Tier 3 rule).
+  // Chef Special removed from public grid card (lives in detail modal only).
   const showFeaturedLabel = !isSoldOut && item.is_featured && item.special_active;
-  const hasMetadata = showFeaturedLabel || (!isSoldOut && (isChefSpecial || isPopular));
 
   return (
     <button
@@ -164,8 +163,8 @@ function MenuItemCard({
         borderTop: item.is_featured ? `3px solid ${accentColor}` : undefined,
       }}
     >
-      {/* Image — h-28 crop, maintains aspect ratio */}
-      <div className="relative h-28 w-full shrink-0 overflow-hidden bg-stone-100">
+      {/* Image — h-24 crop for denser grid (Part 5) */}
+      <div className="relative h-24 w-full shrink-0 overflow-hidden bg-stone-100">
         {item.image_url ? (
           <img
             src={item.image_url}
@@ -185,7 +184,7 @@ function MenuItemCard({
             ⭐ Featured
           </span>
         )}
-        {/* Tier 1 — Left overlay: Discount — no emoji, commerce style (Part 6) */}
+        {/* Tier 1 — Left overlay: Discount — no emoji, commerce style */}
         {showDiscountBadge && (
           <span className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white shadow-sm">
             {item.discount_label}
@@ -208,37 +207,26 @@ function MenuItemCard({
           {item.name}
         </p>
 
-        {/* Metadata labels — collapsed when absent (Part 2 + 3) */}
-        {hasMetadata && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-            {showFeaturedLabel && (
-              <span
-                className="text-[10px] font-bold leading-none"
-                style={{ color: accentColor }}
-              >
-                ⭐ Featured
-              </span>
-            )}
-            {!isSoldOut && isChefSpecial && (
-              <span className="text-[10px] font-bold leading-none text-purple-600">
-                👨‍🍳 Chef
-              </span>
-            )}
-            {!isSoldOut && isPopular && (
-              <span className="text-[10px] font-bold leading-none text-orange-500">
-                🔥 Popular
-              </span>
-            )}
-          </div>
-        )}
+        {/* Metadata zone — always 20px (h-5) for vertical alignment across grid (Part 1).
+            Shows Featured + Popular only; Chef lives in detail modal (Part 3). */}
+        <div className="mt-1 flex h-5 items-center gap-x-1.5 overflow-hidden">
+          {showFeaturedLabel && (
+            <span
+              className="text-[9px] font-semibold leading-none"
+              style={{ color: accentColor }}
+            >
+              ⭐ Featured
+            </span>
+          )}
+          {!isSoldOut && isPopular && (
+            <span className="text-[9px] font-semibold leading-none text-orange-500">
+              🔥 Popular
+            </span>
+          )}
+        </div>
 
-        {/* Description — 1-line truncate, no fixed height (Part 4) */}
-        {item.description && (
-          <p className="mt-1 truncate text-xs text-stone-500">{item.description}</p>
-        )}
-
-        {/* Price — tight anchor immediately below description (Part 5) */}
-        <div className="mt-1">
+        {/* Price — primary conversion element, no description above (Parts 2 + 4) */}
+        <div className="mt-0.5">
           <PriceBadge
             price={item.price}
             effectivePrice={item.effective_price}
