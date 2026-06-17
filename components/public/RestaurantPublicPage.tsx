@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe, Navigation2, Search, SlidersHorizontal } from 'lucide-react';
+import { Globe, Navigation2, SlidersHorizontal } from 'lucide-react';
 import { MenuFilterDrawer } from '@/components/public/MenuFilterDrawer';
 import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
@@ -1083,24 +1083,17 @@ export function RestaurantPublicPage({
             className="sticky top-0 z-30 bg-stone-50"
             style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
           >
-            {/* Action bar: Search (shell) + Filter button */}
-            <div className="flex items-center gap-2 px-4 pb-2 pt-3">
-              <button
-                type="button"
-                aria-label="Search menu (coming soon)"
-                className="flex flex-1 items-center gap-2 rounded-full bg-white px-4 py-2.5 text-left text-sm text-stone-400 shadow-sm ring-1 ring-stone-100"
-              >
-                <Search className="h-4 w-4 shrink-0 text-stone-400" aria-hidden="true" />
-                <span>Search menu…</span>
-              </button>
+            {/* Action bar: Filter button only — Search not shipped until backend is ready */}
+            <div className="flex items-center justify-end px-4 pb-2 pt-3">
               <button
                 type="button"
                 onClick={() => setFilterDrawerOpen(true)}
                 aria-label="Filter menu"
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-stone-100 active:scale-95"
+                className="flex h-11 items-center gap-2 rounded-full bg-white px-4 shadow-sm ring-1 ring-stone-100 active:scale-95"
                 style={{ transition: 'transform 150ms' }}
               >
                 <SlidersHorizontal className="h-4 w-4 text-stone-600" aria-hidden="true" />
+                <span className="text-sm font-semibold text-stone-600">Filter</span>
               </button>
             </div>
 
