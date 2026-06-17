@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Globe, Navigation2, SlidersHorizontal } from 'lucide-react';
-import { MenuFilterDrawer } from '@/components/public/MenuFilterDrawer';
+import { MenuFilterDrawer, type FilterId } from '@/components/public/MenuFilterDrawer';
 import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 import { getGameVisual, type GameType } from '@/components/game-visuals/GameVisual';
@@ -798,6 +798,36 @@ export function RestaurantPublicPage({
   const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
 
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+
+  const filteredSections = useMemo(() => {
+    if (activeFilters.size === 0) return sections;
+    return sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => {
+          if (activeFilters.has('available') && !item.available) return false;
+          if (activeFilters.has('featured') && !item.is_featured) return false;
+          if (activeFilters.has('chef_special') && !(item.tags || []).includes('chef_special')) return false;
+          if (activeFilters.has('popular') && !(item.tags || []).includes('popular')) return false;
+          return true;
+        }),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [sections, activeFilters]);
+
+  function toggleFilter(filterId: FilterId) {
+    setActiveFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(filterId)) next.delete(filterId);
+      else next.add(filterId);
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    setActiveFilters(new Set());
+  }
 
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const stickyRef = useRef<HTMLDivElement>(null);
@@ -846,9 +876,15 @@ export function RestaurantPublicPage({
     window.scrollTo({ top: y, behavior: 'smooth' });
   }, []);
 
-  // IntersectionObserver for active section tracking.
+  // Reset active section to first visible section when filters change.
   useEffect(() => {
-    if (sections.length === 0) return;
+    setActiveSection(filteredSections[0]?.id ?? '');
+  }, [filteredSections]);
+
+  // IntersectionObserver for active section tracking.
+  // Re-registers whenever filteredSections changes so only rendered sections are observed.
+  useEffect(() => {
+    if (filteredSections.length === 0) return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -862,7 +898,7 @@ export function RestaurantPublicPage({
     );
     sectionRefs.current.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [sections]);
+  }, [filteredSections]);
 
   // Scroll active nav pill into view
   const navRef = useRef<HTMLDivElement>(null);
@@ -1083,29 +1119,45 @@ export function RestaurantPublicPage({
             className="sticky top-0 z-30 bg-stone-50"
             style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
           >
-            {/* Action bar: Filter button only — Search not shipped until backend is ready */}
+            {/* Action bar: Filter button — highlights when filters are active */}
             <div className="flex items-center justify-end px-4 pb-2 pt-3">
               <button
                 type="button"
                 onClick={() => setFilterDrawerOpen(true)}
-                aria-label="Filter menu"
-                className="flex h-11 items-center gap-2 rounded-full bg-white px-4 shadow-sm ring-1 ring-stone-100 active:scale-95"
-                style={{ transition: 'transform 150ms' }}
+                aria-label={`Filter menu${activeFilters.size > 0 ? `, ${activeFilters.size} active` : ''}`}
+                className="flex h-11 items-center gap-2 rounded-full px-4 active:scale-95"
+                style={{
+                  transition: 'transform 150ms, background-color 150ms',
+                  backgroundColor: activeFilters.size > 0 ? brandColor : '#fff',
+                  boxShadow: activeFilters.size > 0
+                    ? `0 2px 8px ${brandColor}44`
+                    : '0 1px 3px rgba(0,0,0,0.08)',
+                  border: activeFilters.size > 0 ? 'none' : '1px solid #e7e5e4',
+                }}
               >
-                <SlidersHorizontal className="h-4 w-4 text-stone-600" aria-hidden="true" />
-                <span className="text-sm font-semibold text-stone-600">Filter</span>
+                <SlidersHorizontal
+                  className="h-4 w-4"
+                  style={{ color: activeFilters.size > 0 ? '#fff' : '#57534e' }}
+                  aria-hidden="true"
+                />
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: activeFilters.size > 0 ? '#fff' : '#57534e' }}
+                >
+                  {activeFilters.size > 0 ? `Filter (${activeFilters.size})` : 'Filter'}
+                </span>
               </button>
             </div>
 
-            {/* Category nav — right-edge gradient fade signals more chips off screen */}
-            {sections.length > 1 && (
+            {/* Category nav — shows filtered sections; gradient fade signals scroll affordance */}
+            {filteredSections.length > 1 && (
               <div className="relative">
                 <div
                   ref={navRef}
                   className="flex gap-2 overflow-x-auto px-4 pb-3"
                   style={{ scrollbarWidth: 'none' } as React.CSSProperties}
                 >
-                  {sections.map((section) => {
+                  {filteredSections.map((section) => {
                     const isActive = activeSection === section.id;
                     return (
                       <button
@@ -1140,9 +1192,25 @@ export function RestaurantPublicPage({
           </div>
         )}
 
+        {/* Empty state — active filters matched nothing */}
+        {sections.length > 0 && filteredSections.length === 0 && (
+          <div className="mx-4 mt-6 rounded-3xl bg-white p-8 text-center shadow-md">
+            <p className="text-3xl">🔍</p>
+            <p className="mt-3 text-lg font-black text-stone-700">No items match your filters</p>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="mt-4 rounded-2xl px-6 py-2.5 text-sm font-black text-white active:scale-95"
+              style={{ backgroundColor: brandColor, transition: 'transform 150ms' }}
+            >
+              Clear Filters
+            </button>
+          </div>
+        )}
+
         {/* Section list */}
         <div className="mt-6 space-y-10 px-4">
-          {sections.map((section) => (
+          {filteredSections.map((section) => (
             <div
               key={section.id}
               data-section-id={section.id}
@@ -1219,6 +1287,9 @@ export function RestaurantPublicPage({
       <MenuFilterDrawer
         open={filterDrawerOpen}
         accentColor={accentColor}
+        activeFilters={activeFilters}
+        onToggle={toggleFilter}
+        onReset={resetFilters}
         onClose={() => setFilterDrawerOpen(false)}
       />
     </div>
