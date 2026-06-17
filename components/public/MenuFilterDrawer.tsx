@@ -3,38 +3,30 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
-// ─── Filter group definitions ─────────────────────────────────────────────────
-// These are the future filter categories. Backend/logic not wired yet.
-// Source of truth for display will move to menu_tag_definitions table in a future sprint.
+// ─── Filter definitions ───────────────────────────────────────────────────────
+// Each id maps directly to a field on PublicMenuItem.
+// 'available'    → item.available === true
+// 'featured'     → item.is_featured === true
+// 'chef_special' → item.tags.includes('chef_special')
+// 'popular'      → item.tags.includes('popular')
 
-type FilterEntry = { id: string; label: string; emoji: string };
-type FilterGroup = { label: string; filters: FilterEntry[] };
+export type FilterId = 'available' | 'featured' | 'chef_special' | 'popular';
 
-const FILTER_GROUPS: FilterGroup[] = [
+type FilterDef = { id: FilterId; label: string; emoji: string };
+
+const FILTER_GROUPS: Array<{ group: string; items: FilterDef[] }> = [
   {
-    label: 'Dietary',
-    filters: [
-      { id: 'vegetarian', label: 'Vegetarian', emoji: '🥗' },
-      { id: 'vegan', label: 'Vegan', emoji: '🌱' },
-      { id: 'halal', label: 'Halal', emoji: '☪️' },
-      { id: 'kosher', label: 'Kosher', emoji: '✡️' },
-      { id: 'gluten_free', label: 'Gluten Free', emoji: '🌾' },
+    group: 'Availability',
+    items: [
+      { id: 'available', label: 'Available Now', emoji: '✓' },
     ],
   },
   {
-    label: 'Offers',
-    filters: [
-      { id: 'discounted', label: 'Discounted', emoji: '💰' },
-      { id: 'featured', label: 'Featured', emoji: '⭐' },
+    group: 'Highlights',
+    items: [
+      { id: 'featured',     label: 'Featured',    emoji: '⭐' },
       { id: 'chef_special', label: 'Chef Special', emoji: '👨‍🍳' },
-      { id: 'popular', label: 'Popular', emoji: '🔥' },
-    ],
-  },
-  {
-    label: 'Preferences',
-    filters: [
-      { id: 'spicy', label: 'Spicy', emoji: '🌶️' },
-      { id: 'kids_friendly', label: 'Kids Friendly', emoji: '👶' },
+      { id: 'popular',      label: 'Popular',      emoji: '🔥' },
     ],
   },
 ];
@@ -44,10 +36,16 @@ const FILTER_GROUPS: FilterGroup[] = [
 export function MenuFilterDrawer({
   open,
   accentColor,
+  activeFilters,
+  onToggle,
+  onReset,
   onClose,
 }: {
   open: boolean;
   accentColor: string;
+  activeFilters: Set<string>;
+  onToggle: (filterId: FilterId) => void;
+  onReset: () => void;
   onClose: () => void;
 }) {
   const [visible, setVisible] = useState(false);
@@ -67,7 +65,7 @@ export function MenuFilterDrawer({
     if (visible) closeBtnRef.current?.focus();
   }, [visible]);
 
-  // iOS-safe scroll lock — matches pattern used elsewhere in this app
+  // iOS-safe scroll lock
   useEffect(() => {
     if (!open) return;
     const scrollY = window.scrollY;
@@ -120,7 +118,7 @@ export function MenuFilterDrawer({
 
       {/* Sheet */}
       <div
-        className="absolute bottom-0 left-0 right-0 max-h-[80vh] overflow-y-auto rounded-t-3xl bg-white overscroll-contain"
+        className="absolute bottom-0 left-0 right-0 rounded-t-3xl bg-white overscroll-contain"
         style={{
           transform: visible ? 'translateY(0)' : 'translateY(100%)',
           transition: 'transform 300ms ease-out',
@@ -150,40 +148,52 @@ export function MenuFilterDrawer({
           </button>
         </div>
 
-        {/* Coming soon notice */}
-        <div
-          className="mx-5 mb-5 rounded-2xl px-4 py-3"
-          style={{ backgroundColor: `${accentColor}14` }}
-        >
-          <p className="text-xs font-semibold" style={{ color: accentColor }}>
-            Smart filtering is coming soon — we&apos;re building smarter menu discovery.
-          </p>
-        </div>
-
-        {/* Filter groups (non-interactive shell) */}
-        <div className="space-y-6 px-5 pb-8">
-          {FILTER_GROUPS.map((group) => (
-            <div key={group.label}>
+        {/* Filter groups */}
+        <div className="space-y-5 px-5 pb-6">
+          {FILTER_GROUPS.map(({ group, items }) => (
+            <div key={group}>
               <h3 className="mb-3 text-xs font-black uppercase tracking-widest text-stone-400">
-                {group.label}
+                {group}
               </h3>
               <div className="flex flex-wrap gap-2">
-                {group.filters.map((filter) => (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    disabled
-                    className="rounded-full bg-stone-100 px-4 py-2.5 text-sm font-semibold text-stone-400"
-                    aria-label={`${filter.label} filter (coming soon)`}
-                  >
-                    <span className="mr-1.5" aria-hidden="true">{filter.emoji}</span>
-                    {filter.label}
-                  </button>
-                ))}
+                {items.map((filter) => {
+                  const isActive = activeFilters.has(filter.id);
+                  return (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      onClick={() => onToggle(filter.id)}
+                      aria-pressed={isActive}
+                      className="rounded-full px-4 py-2.5 text-sm font-semibold active:scale-95"
+                      style={{
+                        transition: 'transform 150ms, background-color 150ms, color 150ms',
+                        backgroundColor: isActive ? accentColor : '#f5f5f4',
+                        color: isActive ? '#fff' : '#57534e',
+                      }}
+                    >
+                      <span className="mr-1.5" aria-hidden="true">{filter.emoji}</span>
+                      {filter.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ))}
         </div>
+
+        {/* Reset — only visible when at least one filter is active */}
+        {activeFilters.size > 0 && (
+          <div className="border-t border-stone-100 px-5 py-4">
+            <button
+              type="button"
+              onClick={() => { onReset(); onClose(); }}
+              className="w-full rounded-2xl border border-stone-200 py-3 text-sm font-black text-stone-600 active:scale-95"
+              style={{ transition: 'transform 150ms' }}
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
