@@ -144,6 +144,7 @@ export default function MenuPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
 
   // Form is dirty when any of the manually-editable fields differ from the snapshot
@@ -213,19 +214,22 @@ export default function MenuPage() {
 
   // Refreshes items for a single category without touching the rest of the state.
   // Also refreshes the image URL visible inside an open sheet.
-  async function reloadItemsForMenu(menuId: string) {
-    if (!restaurant) return;
+  // Returns the fresh item list so callers can use it immediately.
+  async function reloadItemsForMenu(menuId: string): Promise<MenuItem[]> {
+    if (!restaurant) return [];
     const result = await supabase
       .from('menu_items')
       .select('id,name,price,description,image_url,is_featured,available,tags,display_order,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId)
       .order('display_order', { ascending: true });
-    if (result.error) { setError(result.error.message); return; }
+    if (result.error) { setError(result.error.message); return []; }
+    const freshItems = (result.data || []) as unknown as MenuItem[];
     setItemsByMenuId((prev) => ({
       ...prev,
-      [menuId]: (result.data || []) as unknown as MenuItem[],
+      [menuId]: freshItems,
     }));
+    return freshItems;
   }
 
   useEffect(() => {
@@ -476,11 +480,10 @@ export default function MenuPage() {
   }
 
   async function saveItem(itemId: string) {
-    if (!restaurant || !editingItemMenuId || !editingItemName.trim()) return;
+    if (!restaurant || !editingItemMenuId || !editingItemName.trim() || isSaving) return;
     const menuId = editingItemMenuId;
-    // Save only the form-editable fields. Quick Actions (available, is_featured,
-    // chef_special, popular) are persisted instantly by saveQuickAction and are
-    // intentionally excluded here so Save never overwrites their current DB state.
+    setError('');
+
     // Compute special offer timestamps at save time (Rule 52)
     let specialStartAt: string | null = null;
     let specialEndAt: string | null = null;
@@ -501,11 +504,17 @@ export default function MenuPage() {
           return;
         }
       }
+
       if (editingItemDurationMode === 'no_expiry') {
         specialNoExpiry = true;
         specialStartAt = new Date().toISOString();
         specialEndAt = null;
-      } else if (editingItemDurationMode === 'quick' && editingItemQuickHours !== null) {
+      } else if (editingItemDurationMode === 'quick') {
+        // Guard: user must have selected a duration preset
+        if (editingItemQuickHours === null) {
+          setError('Please select a duration for this offer (1H, 2H, 4H…).');
+          return;
+        }
         const now = new Date();
         specialStartAt = now.toISOString();
         if (editingItemQuickHours === 'eod') {
@@ -520,6 +529,12 @@ export default function MenuPage() {
         specialEndAt = editingItemAdvancedEnd ? new Date(editingItemAdvancedEnd).toISOString() : null;
         if (specialStartAt && specialEndAt && new Date(specialEndAt) <= new Date(specialStartAt)) {
           setError('End date must be after start date.');
+          return;
+        }
+        // Guard: expired end date means the offer will be invisible on the public menu.
+        // Force the user to pick a valid future window before saving.
+        if (specialEndAt && new Date(specialEndAt) <= new Date()) {
+          setError('This offer\'s end date is in the past — it won\'t appear on your public menu. Please update the schedule or choose a new duration.');
           return;
         }
       }
@@ -550,15 +565,30 @@ export default function MenuPage() {
       special_no_expiry: specialNoExpiry,
     };
 
+    setIsSaving(true);
     const result = await (supabase.from('menu_items').update(updatePayload as any) as any)
       .eq('id', itemId)
       .eq('restaurant_id', restaurant.id)
       .eq('menu_id', menuId);
-    if (result.error) { setError(result.error.message); return; }
-    closeSheet();
-    await reloadItemsForMenu(menuId);
-    setNotice('Item saved');
-    setTimeout(() => setNotice(''), 1500);
+
+    if (result.error) {
+      setError(result.error.message);
+      setIsSaving(false);
+      return;
+    }
+
+    // Reload and re-enter edit mode with fresh DB state so the panel stays open,
+    // dirty resets to false, and the user can see what was actually persisted.
+    const freshItems = await reloadItemsForMenu(menuId);
+    const freshItem = freshItems.find((i) => i.id === itemId) ?? null;
+    if (freshItem) {
+      startEditItem(freshItem, menuId);
+    } else {
+      closeSheet();
+    }
+    setIsSaving(false);
+    setNotice('Saved ✓');
+    setTimeout(() => setNotice(''), 2000);
   }
 
   async function deleteItem(item: MenuItem, menuId: string) {
@@ -961,13 +991,14 @@ export default function MenuPage() {
           ) : undefined
         }
         footer={
-          isDirty && editingItemId ? (
+          (isDirty || isSaving) && editingItemId ? (
             <div className="shrink-0 border-t border-stone-100 px-5 pb-5 pt-3">
               <button
                 onClick={() => saveItem(editingItemId)}
-                className="w-full rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white transition-opacity active:opacity-80"
+                disabled={isSaving}
+                className="w-full rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white transition-opacity active:opacity-80 disabled:opacity-60"
               >
-                Save Changes
+                {isSaving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           ) : undefined
