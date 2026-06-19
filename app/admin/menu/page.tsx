@@ -147,6 +147,16 @@ export default function MenuPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
 
+  // AI image generation state machine
+  type ImageGenState = 'idle' | 'starting' | 'generating' | 'complete' | 'failed';
+  const [imageGenState, setImageGenState] = useState<ImageGenState>('idle');
+  const [imageGenJobId, setImageGenJobId] = useState<string | null>(null);
+  const [imageGenError, setImageGenError] = useState<string | null>(null);
+  type ImageVariant = { assetId: string; url: string; variantIndex: number };
+  const [imageGenVariants, setImageGenVariants] = useState<ImageVariant[]>([]);
+  const [acceptingAssetId, setAcceptingAssetId] = useState<string | null>(null);
+  const imageGenPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Form is dirty when any of the manually-editable fields differ from the snapshot
   // taken when the sheet was opened. Quick Action chips are excluded — they save instantly.
   const isDirty =
@@ -279,17 +289,75 @@ export default function MenuPage() {
     loadMenus(selectedRestaurantId, true);
   }, [selectedRestaurantId]);
 
+  // ── Job recovery: resume polling or restore variants on item reopen ──────
+  // Fires when the restaurant opens (or reopens) the item editor. Checks
+  // whether a background job is still running or completed within the last 24h.
+  // If generating → resume polling. If complete → restore the variant grid.
+  // This prevents credit loss when the sheet is closed or the page is refreshed
+  // during an active generation.
+  useEffect(() => {
+    if (!editingItemId || !restaurant) return;
+
+    let cancelled = false;
+
+    fetch(
+      `/api/admin/generate-food-image/resume?menuItemId=${editingItemId}&restaurantId=${restaurant.id}`,
+    )
+      .then((r) => r.json())
+      .then((data: { status: string; jobId?: string; variants?: { assetId: string; url: string; variantIndex: number }[] }) => {
+        if (cancelled) return;
+        if (data.status === 'generating' && data.jobId) {
+          setImageGenJobId(data.jobId);
+          setImageGenState('generating');
+          startImageGenPolling(data.jobId);
+        } else if (data.status === 'complete' && data.variants && data.variants.length > 0 && data.jobId) {
+          setImageGenJobId(data.jobId);
+          setImageGenVariants(data.variants);
+          setImageGenState('complete');
+        }
+      })
+      .catch(() => {
+        // Recovery is best-effort — a failed check falls back to the idle state.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  // startImageGenPolling is redefined each render but functionally stable;
+  // including it would cause an infinite loop. editingItemId + restaurant.id
+  // are the correct triggers: re-run when the item being edited changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingItemId, restaurant?.id]);
+
   // ── Sheet helpers ──────────────────────────────────────────────────
+
+  function stopImageGenPolling() {
+    if (imageGenPollRef.current) {
+      clearInterval(imageGenPollRef.current);
+      imageGenPollRef.current = null;
+    }
+  }
+
+  function resetImageGenState() {
+    stopImageGenPolling();
+    setImageGenState('idle');
+    setImageGenJobId(null);
+    setImageGenError(null);
+    setImageGenVariants([]);
+    setAcceptingAssetId(null);
+  }
 
   function closeSheet() {
     setSheetOpen(false);
     setOverflowMenuOpen(false);
+    stopImageGenPolling();
     // Delay clearing editor state until the close animation completes so the
     // sheet content doesn't flash empty during the slide-down transition.
     clearTimeout(closeSheetTimeoutRef.current);
     closeSheetTimeoutRef.current = setTimeout(() => {
       setEditingItemId(null);
       setEditingItemMenuId(null);
+      resetImageGenState();
     }, 350);
   }
 
@@ -297,6 +365,7 @@ export default function MenuPage() {
     // Cancel any in-flight close timeout so opening a new item immediately
     // after closing another doesn't clear the freshly-loaded state.
     clearTimeout(closeSheetTimeoutRef.current);
+    resetImageGenState();
 
     const QUICK_ACTION_TAGS = ['chef_special', 'popular'];
     const userTags = (item.tags || []).filter((t) => !QUICK_ACTION_TAGS.includes(t));
@@ -629,6 +698,91 @@ export default function MenuPage() {
     setIsSaving(false);
     setNotice('Saved ✓');
     setTimeout(() => setNotice(''), 2000);
+  }
+
+  function startImageGenPolling(jobId: string) {
+    stopImageGenPolling();
+    let pollCount = 0;
+    const MAX_POLLS = 25;
+
+    imageGenPollRef.current = setInterval(async () => {
+      pollCount++;
+      if (pollCount > MAX_POLLS) {
+        stopImageGenPolling();
+        setImageGenState('failed');
+        setImageGenError('Image generation timed out. Please try again.');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/admin/generate-food-image/status/${jobId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === 'complete') {
+          stopImageGenPolling();
+          setImageGenVariants(data.variants ?? []);
+          setImageGenState('complete');
+        } else if (data.status === 'failed') {
+          stopImageGenPolling();
+          setImageGenState('failed');
+          setImageGenError(data.errorMessage ?? 'Image generation failed. Please try again.');
+        }
+      } catch {
+        // Network hiccup during poll — don't fail, keep polling.
+      }
+    }, 3000);
+  }
+
+  async function generateAIImage() {
+    if (!restaurant || !editingItemId || !editingItemMenuId) return;
+    resetImageGenState();
+    setImageGenState('starting');
+
+    try {
+      const res = await fetch('/api/admin/generate-food-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          menuItemId: editingItemId,
+          itemName: editingItemName,
+          itemDescription: editingItemDescription,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to start image generation.');
+      setImageGenJobId(data.jobId);
+      setImageGenState('generating');
+      startImageGenPolling(data.jobId);
+    } catch (err) {
+      setImageGenState('failed');
+      setImageGenError(err instanceof Error ? err.message : 'Failed to start generation.');
+    }
+  }
+
+  async function acceptImageVariant(assetId: string) {
+    if (!restaurant || !editingItemId || !editingItemMenuId) return;
+    setAcceptingAssetId(assetId);
+    try {
+      const res = await fetch('/api/admin/generate-food-image/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantId: restaurant.id,
+          menuItemId: editingItemId,
+          assetId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to apply image.');
+      await reloadItemsForMenu(editingItemMenuId);
+      resetImageGenState();
+      setNotice('Photo applied ✓');
+      setTimeout(() => setNotice(''), 2000);
+    } catch (err) {
+      setImageGenError(err instanceof Error ? err.message : 'Failed to apply image.');
+    } finally {
+      setAcceptingAssetId(null);
+    }
   }
 
   async function deleteItem(item: MenuItem, menuId: string) {
@@ -1438,6 +1592,100 @@ export default function MenuPage() {
                 onSaved={() => reloadItemsForMenu(editingItemMenuId)}
               />
             )}
+
+            {/* AI Image Generation */}
+            <div className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-black uppercase tracking-wide text-stone-400">AI Photo</p>
+                {imageGenState !== 'idle' && (
+                  <button
+                    type="button"
+                    onClick={resetImageGenState}
+                    className="text-xs font-bold text-stone-400 underline"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {/* Idle — show generate button */}
+              {imageGenState === 'idle' && (
+                <button
+                  type="button"
+                  onClick={generateAIImage}
+                  disabled={!editingItemName.trim()}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6B00] px-4 py-3 text-sm font-black text-white transition-opacity hover:opacity-80 disabled:opacity-40"
+                >
+                  <span>✨</span>
+                  Generate AI Photo
+                </button>
+              )}
+
+              {/* Starting / generating — spinner */}
+              {(imageGenState === 'starting' || imageGenState === 'generating') && (
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <span className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-[#FF6B00] border-t-transparent" />
+                  <p className="text-sm font-bold text-stone-500">
+                    {imageGenState === 'starting' ? 'Starting generation…' : 'Generating 4 variants…'}
+                  </p>
+                  <p className="text-xs text-stone-400">This takes 15–30 seconds</p>
+                </div>
+              )}
+
+              {/* Failed — error + retry */}
+              {imageGenState === 'failed' && (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm font-bold text-red-600">{imageGenError ?? 'Generation failed.'}</p>
+                  <button
+                    type="button"
+                    onClick={generateAIImage}
+                    disabled={!editingItemName.trim()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6B00] px-4 py-3 text-sm font-black text-white transition-opacity hover:opacity-80 disabled:opacity-40"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              )}
+
+              {/* Complete — 4 variant grid (Phase 6: accept buttons added here) */}
+              {imageGenState === 'complete' && imageGenVariants.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <p className="text-xs text-stone-500">Choose the best photo for this item.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {imageGenVariants.map((v) => (
+                      <div key={v.assetId} className="relative overflow-hidden rounded-xl">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={v.url}
+                          alt={`AI variant ${v.variantIndex}`}
+                          className="aspect-square w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => acceptImageVariant(v.assetId)}
+                          disabled={acceptingAssetId !== null}
+                          className="absolute inset-x-0 bottom-0 bg-black/70 py-2 text-xs font-black text-white transition-opacity hover:bg-black/90 disabled:opacity-50"
+                        >
+                          {acceptingAssetId === v.assetId ? 'Applying…' : 'Use This Photo'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={generateAIImage}
+                    disabled={acceptingAssetId !== null || !editingItemName.trim()}
+                    className="text-xs font-bold text-stone-400 underline disabled:opacity-40"
+                  >
+                    Regenerate (new variants)
+                  </button>
+                </div>
+              )}
+
+              {imageGenJobId && (
+                <p className="mt-2 text-[10px] text-stone-300">Job: {imageGenJobId}</p>
+              )}
+            </div>
 
             {/* Tags — chef_special and popular are excluded; managed by Quick Actions chips above */}
             <div>

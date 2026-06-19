@@ -14,6 +14,88 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_generated_assets: {
+        Row: {
+          asset_type: string
+          created_at: string
+          enhanced_prompt: string | null
+          estimated_cost_usd: number | null
+          generation_version: number
+          id: string
+          job_id: string | null
+          menu_item_id: string | null
+          model: string
+          prompt_used: string
+          provider: string
+          restaurant_id: string
+          selected: boolean
+          selected_at: string | null
+          storage_path: string
+          storage_url: string
+          variant_index: number
+        }
+        Insert: {
+          asset_type?: string
+          created_at?: string
+          enhanced_prompt?: string | null
+          estimated_cost_usd?: number | null
+          generation_version?: number
+          id?: string
+          job_id?: string | null
+          menu_item_id?: string | null
+          model: string
+          prompt_used: string
+          provider: string
+          restaurant_id: string
+          selected?: boolean
+          selected_at?: string | null
+          storage_path: string
+          storage_url: string
+          variant_index?: number
+        }
+        Update: {
+          asset_type?: string
+          created_at?: string
+          enhanced_prompt?: string | null
+          estimated_cost_usd?: number | null
+          generation_version?: number
+          id?: string
+          job_id?: string | null
+          menu_item_id?: string | null
+          model?: string
+          prompt_used?: string
+          provider?: string
+          restaurant_id?: string
+          selected?: boolean
+          selected_at?: string | null
+          storage_path?: string
+          storage_url?: string
+          variant_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_generated_assets_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "image_generation_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_generated_assets_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_generated_assets_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaigns: {
         Row: {
           active: boolean | null
@@ -303,6 +385,57 @@ export type Database = {
           },
         ]
       }
+      image_generation_jobs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          menu_item_id: string
+          restaurant_id: string
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          menu_item_id: string
+          restaurant_id: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          menu_item_id?: string
+          restaurant_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_generation_jobs_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "image_generation_jobs_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       intelligence_audit_log: {
         Row: {
           action: string
@@ -571,6 +704,7 @@ export type Database = {
       intelligence_provider_costs: {
         Row: {
           active: boolean
+          cost_per_generation: number | null
           created_at: string
           id: string
           input_cost_per_1m: number
@@ -581,6 +715,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          cost_per_generation?: number | null
           created_at?: string
           id?: string
           input_cost_per_1m: number
@@ -591,6 +726,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          cost_per_generation?: number | null
           created_at?: string
           id?: string
           input_cost_per_1m?: number
@@ -606,6 +742,8 @@ export type Database = {
           created_at: string
           current_month_usage: number
           id: string
+          image_current_month_usage: number
+          image_monthly_limit: number
           monthly_limit: number
           requests_per_minute: number
           restaurant_id: string
@@ -616,6 +754,8 @@ export type Database = {
           created_at?: string
           current_month_usage?: number
           id?: string
+          image_current_month_usage?: number
+          image_monthly_limit?: number
           monthly_limit?: number
           requests_per_minute?: number
           restaurant_id: string
@@ -626,6 +766,8 @@ export type Database = {
           created_at?: string
           current_month_usage?: number
           id?: string
+          image_current_month_usage?: number
+          image_monthly_limit?: number
           monthly_limit?: number
           requests_per_minute?: number
           restaurant_id?: string
@@ -660,6 +802,13 @@ export type Database = {
           price: number | null
           restaurant_id: string | null
           section_id: string | null
+          special_enabled: boolean
+          special_end_at: string | null
+          special_no_expiry: boolean
+          special_percent: number | null
+          special_price: number | null
+          special_start_at: string | null
+          special_type: string | null
           tags: string[]
           updated_at: string
         }
@@ -680,6 +829,13 @@ export type Database = {
           price?: number | null
           restaurant_id?: string | null
           section_id?: string | null
+          special_enabled?: boolean
+          special_end_at?: string | null
+          special_no_expiry?: boolean
+          special_percent?: number | null
+          special_price?: number | null
+          special_start_at?: string | null
+          special_type?: string | null
           tags?: string[]
           updated_at?: string
         }
@@ -700,6 +856,13 @@ export type Database = {
           price?: number | null
           restaurant_id?: string | null
           section_id?: string | null
+          special_enabled?: boolean
+          special_end_at?: string | null
+          special_no_expiry?: boolean
+          special_percent?: number | null
+          special_price?: number | null
+          special_start_at?: string | null
+          special_type?: string | null
           tags?: string[]
           updated_at?: string
         }
@@ -1449,6 +1612,14 @@ export type Database = {
         Returns: undefined
       }
       is_super_admin: { Args: never; Returns: boolean }
+      refund_image_generation_credit: {
+        Args: { p_restaurant_id: string }
+        Returns: undefined
+      }
+      reserve_image_generation_credit: {
+        Args: { p_restaurant_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
@@ -1581,3 +1752,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

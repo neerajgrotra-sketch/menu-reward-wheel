@@ -3,8 +3,10 @@ import type { Database } from '@/lib/supabase/database.types';
 
 // Keys that must be present in rawInput for each feature.
 const REQUIRED_INPUT_KEYS: Record<string, string[]> = {
-  menu_description_generation:      ['item_name'],
-  restaurant_profile_generation:    ['restaurant_name'],
+  menu_description_generation:        ['item_name'],
+  restaurant_profile_generation:      ['restaurant_name'],
+  restaurant_food_image_generation:   ['item_name', 'item_description', 'restaurant_name'],
+  food_image_prompt_enhancement:      ['item_name', 'restaurant_name'],
 };
 
 export class MissingContextError extends Error {
