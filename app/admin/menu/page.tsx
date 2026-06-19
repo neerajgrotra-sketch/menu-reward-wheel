@@ -130,7 +130,10 @@ export default function MenuPage() {
   const [originalItemSpecialType, setOriginalItemSpecialType] = useState<'percentage' | 'fixed_price'>('percentage');
   const [originalItemSpecialPercent, setOriginalItemSpecialPercent] = useState('');
   const [originalItemSpecialPrice, setOriginalItemSpecialPrice] = useState('');
-  const [originalItemSpecialNoExpiry, setOriginalItemSpecialNoExpiry] = useState(false);
+  const [originalItemDurationMode, setOriginalItemDurationMode] = useState<'quick' | 'advanced' | 'no_expiry'>('quick');
+  const [originalItemQuickHours, setOriginalItemQuickHours] = useState<number | 'eod' | null>(null);
+  const [originalItemAdvancedStart, setOriginalItemAdvancedStart] = useState('');
+  const [originalItemAdvancedEnd, setOriginalItemAdvancedEnd] = useState('');
 
   // Transient feedback after a Quick Action instant-save.
   const [quickActionFeedback, setQuickActionFeedback] = useState<string | null>(null);
@@ -155,7 +158,11 @@ export default function MenuPage() {
       editingItemSpecialEnabled !== originalItemSpecialEnabled ||
       editingItemSpecialType !== originalItemSpecialType ||
       editingItemSpecialPercent !== originalItemSpecialPercent ||
-      editingItemSpecialPrice !== originalItemSpecialPrice);
+      editingItemSpecialPrice !== originalItemSpecialPrice ||
+      editingItemDurationMode !== originalItemDurationMode ||
+      editingItemQuickHours !== originalItemQuickHours ||
+      editingItemAdvancedStart !== originalItemAdvancedStart ||
+      editingItemAdvancedEnd !== originalItemAdvancedEnd);
 
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
@@ -334,7 +341,10 @@ export default function MenuPage() {
     setOriginalItemSpecialType(specialType);
     setOriginalItemSpecialPercent(specialPercent);
     setOriginalItemSpecialPrice(specialPrice);
-    setOriginalItemSpecialNoExpiry(item.special_no_expiry);
+    setOriginalItemDurationMode(durationMode);
+    setOriginalItemQuickHours(null);
+    setOriginalItemAdvancedStart(toDatetimeLocal(item.special_start_at));
+    setOriginalItemAdvancedEnd(toDatetimeLocal(item.special_end_at));
 
     setOverflowMenuOpen(false);
     setQuickActionFeedback(null);
