@@ -53,6 +53,9 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
     this.projectId = projectId;
     this.location = location;
     this.model = 'gemini-2.5-flash-image';
+
+    console.log('[google-imagen-debug] env GOOGLE_CLOUD_PROJECT_ID:', this.projectId);
+    console.log('[google-imagen-debug] env GOOGLE_CLOUD_LOCATION:', this.location);
   }
 
   async generateImages(request: ImageProviderRequest): Promise<ImageProviderResponse> {
@@ -116,6 +119,8 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
       },
     };
 
+    console.log('[google-imagen-debug] endpoint:', endpoint);
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -128,6 +133,7 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText);
+      console.error('[google-imagen-debug] raw google response:', errorText);
       throw new Error(`Gemini image API error ${response.status}: ${errorText}`);
     }
 
@@ -151,6 +157,7 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
     let serviceAccount: {
       client_email: string;
       private_key: string;
+      project_id?: string;
     };
 
     try {
@@ -158,6 +165,9 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
     } catch {
       throw new Error('GOOGLE_CLOUD_SERVICE_ACCOUNT_KEY is not valid JSON.');
     }
+
+    console.log('[google-imagen-debug] client_email:', serviceAccount.client_email);
+    console.log('[google-imagen-debug] project_id_from_key:', serviceAccount.project_id);
 
     const scope = 'https://www.googleapis.com/auth/cloud-platform';
     const now = Math.floor(Date.now() / 1000);
@@ -188,6 +198,7 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
     }
 
     const tokenData = (await tokenResponse.json()) as { access_token: string };
+    console.log('[google-imagen-debug] access token acquired');
     return tokenData.access_token;
   }
 
