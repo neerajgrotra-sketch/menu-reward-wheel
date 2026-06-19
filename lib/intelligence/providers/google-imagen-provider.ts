@@ -6,15 +6,34 @@ import type {
 } from './image-provider.interface';
 
 const COST_PER_IMAGE_USD = 0.02;
-const IMAGEN_API_VERSION = 'v1';
+const VERTEX_API_VERSION = 'v1';
 
-interface VertexPrediction {
-  bytesBase64Encoded: string;
+// Per-slot prompt suffixes that drive visual variation across the 4 variants.
+// Index 0 = variant 1 (base prompt, no modification).
+// Suffixes are appended with ", " so they read as natural comma-separated descriptors.
+const VARIANT_SUFFIXES: readonly string[] = [
+  '',
+  ', premium restaurant plating, overhead photography',
+  ', close-up food photography, cinematic lighting',
+  ', food delivery app hero image style, premium presentation',
+];
+
+interface GeminiInlineData {
+  data: string;
   mimeType: string;
 }
 
-interface VertexResponse {
-  predictions: VertexPrediction[];
+interface GeminiPart {
+  text?: string;
+  inlineData?: GeminiInlineData;
+}
+
+interface GeminiCandidate {
+  content: { parts: GeminiPart[] };
+}
+
+interface GeminiResponse {
+  candidates: GeminiCandidate[];
 }
 
 export class GoogleImagenProvider implements ImageIntelligenceProvider {
@@ -33,25 +52,67 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
 
     this.projectId = projectId;
     this.location = location;
-    this.model = 'imagegeneration@006';
+    this.model = 'gemini-2.5-flash-image';
   }
 
   async generateImages(request: ImageProviderRequest): Promise<ImageProviderResponse> {
     const count = Math.min(Math.max(request.count, 1), 4);
+
+    // One token fetch shared across all parallel requests (valid 1 hr).
     const accessToken = await this.getAccessToken();
 
     const endpoint =
-      `https://${this.location}-aiplatform.googleapis.com/${IMAGEN_API_VERSION}` +
+      `https://${this.location}-aiplatform.googleapis.com/${VERTEX_API_VERSION}` +
       `/projects/${this.projectId}/locations/${this.location}` +
-      `/publishers/google/models/${this.model}:predict`;
+      `/publishers/google/models/${this.model}:generateContent`;
 
+    // Fire N independent single-image requests in parallel.
+    // candidateCount > 1 is unsupported/unreliable on gemini-2.5-flash-image;
+    // one request per variant is the only documented path to N images.
+    const slots = Array.from({ length: count }, (_, i) => i + 1);
+    const results = await Promise.allSettled(
+      slots.map((variantIndex) => {
+        const suffix = VARIANT_SUFFIXES[variantIndex - 1] ?? '';
+        const prompt = suffix ? `${request.prompt}${suffix}` : request.prompt;
+        return this.generateSingleImage(prompt, accessToken, endpoint, variantIndex);
+      }),
+    );
+
+    const images: GeneratedImage[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') {
+        images.push(result.value);
+      } else {
+        console.error(
+          `[google-imagen] variant ${i + 1}/${count} failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+        );
+      }
+    }
+
+    if (images.length === 0) {
+      throw new Error(
+        `All ${count} image generation requests failed. Check Gemini API quota and credentials.`,
+      );
+    }
+
+    return {
+      images,
+      estimatedCostUsd: images.length * COST_PER_IMAGE_USD,
+    };
+  }
+
+  private async generateSingleImage(
+    prompt: string,
+    accessToken: string,
+    endpoint: string,
+    variantIndex: number,
+  ): Promise<GeneratedImage> {
     const body = {
-      instances: [{ prompt: request.prompt }],
-      parameters: {
-        sampleCount: count,
-        aspectRatio: '1:1',
-        safetyFilterLevel: 'block_some',
-        personGeneration: 'dont_allow',
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig: { aspectRatio: '1:1' },
       },
     };
 
@@ -67,21 +128,20 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText);
-      throw new Error(`Imagen API error ${response.status}: ${errorText}`);
+      throw new Error(`Gemini image API error ${response.status}: ${errorText}`);
     }
 
-    const data = (await response.json()) as VertexResponse;
-    const predictions = data.predictions ?? [];
+    const data = (await response.json()) as GeminiResponse;
+    const imagePart = (data.candidates?.[0]?.content?.parts ?? []).find((p) => p.inlineData);
 
-    const images: GeneratedImage[] = predictions.map((prediction, i) => ({
-      index: i + 1,
-      providerUrl: `data:${prediction.mimeType};base64,${prediction.bytesBase64Encoded}`,
-      mimeType: prediction.mimeType,
-    }));
+    if (!imagePart?.inlineData) {
+      throw new Error(`Variant ${variantIndex}: no image data in Gemini response`);
+    }
 
     return {
-      images,
-      estimatedCostUsd: count * COST_PER_IMAGE_USD,
+      index: variantIndex,
+      providerUrl: `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`,
+      mimeType: imagePart.inlineData.mimeType,
     };
   }
 
