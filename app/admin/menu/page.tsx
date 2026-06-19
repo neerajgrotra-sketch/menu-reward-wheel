@@ -309,10 +309,29 @@ export default function MenuPage() {
     const specialPercent = item.special_percent != null ? String(item.special_percent) : '';
     const specialPrice = item.special_price != null ? String(item.special_price) : '';
 
-    // Determine duration mode from existing DB state
+    // Determine duration mode from existing DB state.
+    // When both timestamps exist, try to reverse-engineer which quick preset was used
+    // so the correct button renders highlighted on reopen.
     let durationMode: 'quick' | 'advanced' | 'no_expiry' = 'quick';
+    let restoredQuickHours: number | 'eod' | null = null;
+
     if (item.special_no_expiry) {
       durationMode = 'no_expiry';
+    } else if (item.special_start_at && item.special_end_at) {
+      const startMs = new Date(item.special_start_at).getTime();
+      const endDate = new Date(item.special_end_at);
+      const durationHours = Math.round((endDate.getTime() - startMs) / (1000 * 60 * 60));
+      const isEod = endDate.getHours() === 23 && endDate.getMinutes() === 59 && endDate.getSeconds() === 59;
+
+      if (isEod) {
+        durationMode = 'quick';
+        restoredQuickHours = 'eod';
+      } else if (([1, 2, 4, 6, 12] as number[]).includes(durationHours)) {
+        durationMode = 'quick';
+        restoredQuickHours = durationHours;
+      } else {
+        durationMode = 'advanced';
+      }
     } else if (item.special_start_at || item.special_end_at) {
       durationMode = 'advanced';
     }
@@ -341,7 +360,7 @@ export default function MenuPage() {
     setEditingItemSpecialPercent(specialPercent);
     setEditingItemSpecialPrice(specialPrice);
     setEditingItemDurationMode(durationMode);
-    setEditingItemQuickHours(null);
+    setEditingItemQuickHours(restoredQuickHours);
     setEditingItemAdvancedStart(toDatetimeLocal(item.special_start_at));
     setEditingItemAdvancedEnd(toDatetimeLocal(item.special_end_at));
 
@@ -356,7 +375,7 @@ export default function MenuPage() {
     setOriginalItemSpecialPercent(specialPercent);
     setOriginalItemSpecialPrice(specialPrice);
     setOriginalItemDurationMode(durationMode);
-    setOriginalItemQuickHours(null);
+    setOriginalItemQuickHours(restoredQuickHours);
     setOriginalItemAdvancedStart(toDatetimeLocal(item.special_start_at));
     setOriginalItemAdvancedEnd(toDatetimeLocal(item.special_end_at));
 
