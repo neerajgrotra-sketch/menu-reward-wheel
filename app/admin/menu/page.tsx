@@ -165,6 +165,16 @@ export default function MenuPage() {
       editingItemAdvancedStart !== originalItemAdvancedStart ||
       editingItemAdvancedEnd !== originalItemAdvancedEnd);
 
+  // When a special is enabled, a duration must be selected before save is allowed.
+  // True when special is OFF (no duration needed) or exactly one valid path is configured.
+  const hasValidDuration =
+    !editingItemSpecialEnabled ||
+    editingItemDurationMode === 'no_expiry' ||
+    (editingItemDurationMode === 'quick' && editingItemQuickHours !== null) ||
+    (editingItemDurationMode === 'advanced' &&
+      !!editingItemAdvancedStart &&
+      !!editingItemAdvancedEnd);
+
   const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
 
   // Live item snapshot used inside the sheet (image URL, latest display values).
@@ -525,18 +535,29 @@ export default function MenuPage() {
           specialEndAt = new Date(now.getTime() + editingItemQuickHours * 3600 * 1000).toISOString();
         }
       } else if (editingItemDurationMode === 'advanced') {
-        specialStartAt = editingItemAdvancedStart ? new Date(editingItemAdvancedStart).toISOString() : null;
-        specialEndAt = editingItemAdvancedEnd ? new Date(editingItemAdvancedEnd).toISOString() : null;
-        if (specialStartAt && specialEndAt && new Date(specialEndAt) <= new Date(specialStartAt)) {
+        // Guard: both start and end are required in advanced mode.
+        if (!editingItemAdvancedStart || !editingItemAdvancedEnd) {
+          setError('Choose a promotion duration: No Expiry, Quick Duration, or Advanced Schedule with both start and end dates.');
+          return;
+        }
+        specialStartAt = new Date(editingItemAdvancedStart).toISOString();
+        specialEndAt = new Date(editingItemAdvancedEnd).toISOString();
+        if (new Date(specialEndAt) <= new Date(specialStartAt)) {
           setError('End date must be after start date.');
           return;
         }
         // Guard: expired end date means the offer will be invisible on the public menu.
-        // Force the user to pick a valid future window before saving.
-        if (specialEndAt && new Date(specialEndAt) <= new Date()) {
+        if (new Date(specialEndAt) <= new Date()) {
           setError('This offer\'s end date is in the past — it won\'t appear on your public menu. Please update the schedule or choose a new duration.');
           return;
         }
+      }
+
+      // Belt-and-suspenders: if special is enabled but no valid duration path produced
+      // any timestamps or no-expiry flag, block the save to prevent a dead offer.
+      if (!specialNoExpiry && !specialStartAt) {
+        setError('Choose a promotion duration: No Expiry, Quick Duration, or Advanced Schedule.');
+        return;
       }
     }
 
@@ -995,8 +1016,8 @@ export default function MenuPage() {
             <div className="shrink-0 border-t border-stone-100 px-5 pb-5 pt-3">
               <button
                 onClick={() => saveItem(editingItemId)}
-                disabled={isSaving}
-                className="w-full rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white transition-opacity active:opacity-80 disabled:opacity-60"
+                disabled={isSaving || !hasValidDuration}
+                className="w-full rounded-xl bg-green-600 px-3 py-3.5 text-sm font-black text-white transition-opacity active:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSaving ? 'Saving…' : 'Save Changes'}
               </button>
@@ -1252,7 +1273,8 @@ export default function MenuPage() {
 
                     {/* Duration */}
                     <div>
-                      <p className="mb-2 text-xs font-black uppercase tracking-wide text-stone-400">Duration</p>
+                      <p className="mb-1 text-xs font-black uppercase tracking-wide text-stone-400">Duration</p>
+                      <p className="mb-3 text-xs text-stone-400">Select how long this offer should remain active.</p>
 
                       <button
                         type="button"
