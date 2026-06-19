@@ -112,7 +112,7 @@ export class GoogleImagenProvider implements ImageIntelligenceProvider {
     variantIndex: number,
   ): Promise<GeneratedImage> {
     const body = {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         responseModalities: ['IMAGE'],
         imageConfig: { aspectRatio: '1:1' },
