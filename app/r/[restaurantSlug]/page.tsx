@@ -258,7 +258,7 @@ export default async function PermanentRestaurantQrPage({
         ? fetchPromotionForCard(supabase, restaurant, now)
         : Promise.resolve([null, [], new Set<string>()]);
 
-    const [menusResult, itemsResult, [activePromotion, promotionRewards]] = await Promise.all([
+    const [menusResult, itemsResult, [activePromotion, promotionRewards], capabilityResult] = await Promise.all([
       supabase
         .from('menus')
         .select('id,name,display_order')
@@ -271,7 +271,15 @@ export default async function PermanentRestaurantQrPage({
         .is('deleted_at', null)
         .order('display_order', { ascending: true }),
       promotionFetch,
+      supabase
+        .from('restaurant_capabilities')
+        .select('enabled')
+        .eq('restaurant_id', restaurant.id)
+        .eq('capability_name', 'ordering')
+        .maybeSingle(),
     ]);
+
+    const orderingEnabled = capabilityResult.data?.enabled === true;
 
     const menus = (menusResult.data || []) as Array<{
       id: string;
@@ -328,6 +336,7 @@ export default async function PermanentRestaurantQrPage({
         sections={sections}
         promotion={activePromotion}
         promotionRewards={promotionRewards}
+        orderingEnabled={orderingEnabled}
       />
     );
   }
