@@ -7,6 +7,9 @@ import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
 import { getGameVisual, type GameType } from '@/components/game-visuals/GameVisual';
 import { getGameMeta } from '@/lib/games/game-registry';
+import { useCart } from '@/hooks/useCart';
+import { CartBar } from '@/components/public/CartBar';
+import { CartSheet } from '@/components/public/CartSheet';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -134,11 +137,13 @@ function MenuItemCard({
   brandColor,
   accentColor,
   onTap,
+  onAddToCart,
 }: {
   item: PublicMenuItem;
   brandColor: string;
   accentColor: string;
   onTap: () => void;
+  onAddToCart?: () => void;
 }) {
   const isSoldOut = !item.available;
   const isPopular = (item.tags || []).includes('popular');
@@ -225,14 +230,28 @@ function MenuItemCard({
           )}
         </div>
 
-        {/* Price — primary conversion element, no description above (Parts 2 + 4) */}
-        <div className="mt-0.5">
+        {/* Price + add-to-cart row */}
+        <div className="mt-0.5 flex items-center justify-between gap-1">
           <PriceBadge
             price={item.price}
             effectivePrice={item.effective_price}
             discountLabel={item.discount_label}
             color={brandColor}
           />
+          {onAddToCart && !isSoldOut && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddToCart();
+              }}
+              aria-label={`Add ${item.name} to cart`}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white shadow-sm active:scale-90"
+              style={{ backgroundColor: brandColor }}
+            >
+              <span className="text-base font-black leading-none">+</span>
+            </button>
+          )}
         </div>
       </div>
     </button>
@@ -859,11 +878,13 @@ export function RestaurantPublicPage({
   sections,
   promotion,
   promotionRewards,
+  orderingEnabled = false,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
   promotion?: PublicPromotion | null;
   promotionRewards?: PublicReward[];
+  orderingEnabled?: boolean;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -904,6 +925,9 @@ export function RestaurantPublicPage({
   function resetFilters() {
     setActiveFilters(new Set());
   }
+
+  const cart = useCart();
+  const [cartSheetOpen, setCartSheetOpen] = useState(false);
 
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const stickyRef = useRef<HTMLDivElement>(null);
@@ -1318,6 +1342,16 @@ export function RestaurantPublicPage({
                       brandColor={brandColor}
                       accentColor={accentColor}
                       onTap={() => openSheet(item)}
+                      onAddToCart={orderingEnabled ? () => cart.addItem(
+                        {
+                          menu_item_id: item.id,
+                          name: item.name,
+                          price: item.price ?? 0,
+                          effective_price: item.effective_price ?? item.price ?? 0,
+                          special_active: item.special_active,
+                        },
+                        restaurant.id,
+                      ) : undefined}
                     />
                   ))}
                 </div>
@@ -1368,6 +1402,25 @@ export function RestaurantPublicPage({
         onReset={resetFilters}
         onClose={() => setFilterDrawerOpen(false)}
       />
+
+      {/* ── Cart Bar + Sheet (ordering only) ── */}
+      {orderingEnabled && cart.itemCount > 0 && (
+        <CartBar
+          itemCount={cart.itemCount}
+          subtotal={cart.subtotal}
+          brandColor={brandColor}
+          onOpen={() => setCartSheetOpen(true)}
+        />
+      )}
+      {orderingEnabled && (
+        <CartSheet
+          open={cartSheetOpen}
+          cart={cart}
+          restaurantId={restaurant.id}
+          brandColor={brandColor}
+          onClose={() => setCartSheetOpen(false)}
+        />
+      )}
     </div>
   );
 }
