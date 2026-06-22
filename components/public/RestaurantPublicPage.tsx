@@ -265,14 +265,28 @@ function ItemDetailSheet({
   brandColor,
   accentColor,
   onClose,
+  orderingEnabled = false,
+  cart,
+  restaurantId,
 }: {
   item: PublicMenuItem;
   visible: boolean;
   brandColor: string;
   accentColor: string;
   onClose: () => void;
+  orderingEnabled?: boolean;
+  cart?: ReturnType<typeof useCart>;
+  restaurantId?: string;
 }) {
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const [panelQty, setPanelQty] = useState(1);
+  const [panelInstructions, setPanelInstructions] = useState('');
+
+  // Reset ordering state when a different item is opened
+  useEffect(() => {
+    setPanelQty(1);
+    setPanelInstructions('');
+  }, [item.id]);
 
   // C1: Focus close button when sheet opens so keyboard users land in the dialog
   useEffect(() => {
@@ -280,7 +294,6 @@ function ItemDetailSheet({
   }, [visible]);
 
   // B1: iOS-safe scroll lock — position:fixed preserves scroll on Mobile Safari
-  // document.body.overflow = 'hidden' alone does not block scrolling on iOS Safari
   useEffect(() => {
     if (!visible) return;
     const scrollY = window.scrollY;
@@ -306,7 +319,7 @@ function ItemDetailSheet({
     }
     if (e.key !== 'Tab') return;
     const focusable = e.currentTarget.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      'a[href], button:not([disabled]), textarea, input, [tabindex]:not([tabindex="-1"])'
     );
     if (focusable.length === 0) return;
     const first = focusable[0];
@@ -317,6 +330,33 @@ function ItemDetailSheet({
       if (document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   }
+
+  function handleAddToCart() {
+    if (!cart || !restaurantId) return;
+    const existing = cart.items.find((i) => i.menu_item_id === item.id);
+    const newTotal = (existing?.quantity ?? 0) + panelQty;
+    if (!existing) {
+      cart.addItem(
+        {
+          menu_item_id: item.id,
+          name: item.name,
+          price: item.price ?? 0,
+          effective_price: item.effective_price ?? item.price ?? 0,
+          special_active: item.special_active,
+        },
+        restaurantId,
+      );
+    }
+    cart.updateQuantity(item.id, newTotal);
+    if (panelInstructions.trim()) {
+      cart.updateInstructions(item.id, panelInstructions.trim());
+    }
+    onClose();
+  }
+
+  const displayPrice = (item.special_active && item.effective_price != null)
+    ? item.effective_price
+    : (item.price ?? 0);
 
   return (
     // C3: aria-labelledby ties the dialog title to this container for screen readers
@@ -334,128 +374,198 @@ function ItemDetailSheet({
         onClick={onClose}
       />
 
-      {/* Sheet */}
+      {/* Sheet — flex column so scrollable body and sticky CTA coexist */}
       <div
-        className="absolute bottom-0 left-0 right-0 max-h-[88vh] overflow-y-auto rounded-t-3xl bg-white overscroll-contain"
+        className="absolute bottom-0 left-0 right-0 max-h-[88vh] flex flex-col rounded-t-3xl bg-white"
         style={{
           transform: visible ? 'translateY(0)' : 'translateY(100%)',
           transition: 'transform 300ms ease-out',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Drag handle */}
-        <div className="flex justify-center pt-3 pb-1">
-          <div className="h-1 w-10 rounded-full bg-stone-300" />
-        </div>
-
-        {/* B2: 44×44px close button meets minimum touch target */}
-        <div className="flex items-center justify-between px-5 pt-1">
-          <div />
-          <button
-            ref={closeBtnRef}
-            type="button"
-            onClick={onClose}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600"
-            aria-label="Close"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
-        </div>
-
-        {/* Image */}
-        {item.image_url ? (
-          <div className="mx-5 mt-3 overflow-hidden rounded-2xl bg-stone-100">
-            <img
-              src={item.image_url}
-              alt={item.name}
-              className="max-h-64 w-full object-cover"
-              loading="lazy"
-            />
+        {/* ── Non-scrolling header ── */}
+        <div className="shrink-0">
+          {/* Drag handle */}
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="h-1 w-10 rounded-full bg-stone-300" />
           </div>
-        ) : (
-          <div className="mx-5 mt-3 flex h-40 items-center justify-center rounded-2xl bg-stone-100 text-5xl">
-            🍽️
+
+          {/* B2: 44×44px close button meets minimum touch target */}
+          <div className="flex items-center justify-between px-5 pt-1">
+            <div />
+            <button
+              ref={closeBtnRef}
+              type="button"
+              onClick={onClose}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600"
+              aria-label="Close"
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Scrollable body ── */}
+        <div className="flex-1 overflow-y-auto overscroll-contain">
+          {/* Image */}
+          {item.image_url ? (
+            <div className="mx-5 mt-3 overflow-hidden rounded-2xl bg-stone-100">
+              <img
+                src={item.image_url}
+                alt={item.name}
+                className="max-h-64 w-full object-cover"
+                loading="lazy"
+              />
+            </div>
+          ) : (
+            <div className="mx-5 mt-3 flex h-40 items-center justify-center rounded-2xl bg-stone-100 text-5xl">
+              🍽️
+            </div>
+          )}
+
+          {/* Content */}
+          <div className="px-5 pb-8 pt-5">
+            {/* C3: id matches aria-labelledby on the dialog */}
+            <h2 id="item-sheet-title" className="text-2xl font-black leading-tight text-stone-900">
+              {item.name}
+            </h2>
+
+            {item.price != null && (
+              <div className="mt-2">
+                {item.special_active && item.effective_price != null && item.effective_price > 0 && item.effective_price !== item.price ? (
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-lg font-semibold text-stone-400 line-through">
+                      ${Number(item.price).toFixed(2)}
+                    </span>
+                    <span className="text-2xl font-black" style={{ color: brandColor }}>
+                      ${Number(item.effective_price).toFixed(2)}
+                    </span>
+                    <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-black text-white">
+                      {item.discount_label}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-2xl font-black" style={{ color: brandColor }}>
+                    ${Number(item.price).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Merchandising + availability badges — mirrors admin Quick Action states */}
+            {(item.special_active || item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {item.special_active && (
+                  <span className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white">
+                    💸 On Special
+                  </span>
+                )}
+                {item.is_featured && (
+                  <span
+                    className="rounded-full px-3 py-1 text-xs font-black"
+                    style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
+                  >
+                    ⭐ Featured
+                  </span>
+                )}
+                {(item.tags || []).includes('chef_special') && (
+                  <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black text-purple-700">
+                    👨‍🍳 Chef Special
+                  </span>
+                )}
+                {(item.tags || []).includes('popular') && (
+                  <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-600">
+                    🔥 Popular
+                  </span>
+                )}
+                {!item.available && (
+                  <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-600">
+                    🚫 Sold Out
+                  </span>
+                )}
+              </div>
+            )}
+
+            {item.description && (
+              <p className="mt-3 text-sm leading-relaxed text-stone-600">{item.description}</p>
+            )}
+
+            {/* User-authored tags — chef_special and popular are shown as badges above */}
+            {(item.tags || []).filter((t) => t !== 'chef_special' && t !== 'popular').length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(item.tags || [])
+                  .filter((t) => t !== 'chef_special' && t !== 'popular')
+                  .map((tag) => (
+                    <TagPill key={tag} tag={tag} accentColor={accentColor} />
+                  ))}
+              </div>
+            )}
+
+            {/* ── Ordering section (quantity + instructions) ── */}
+            {orderingEnabled && item.available && (
+              <div className="mt-6 border-t border-stone-100 pt-5">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-black text-stone-700">Quantity</p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPanelQty((q) => Math.max(1, q - 1))}
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-lg font-black text-stone-700 active:bg-stone-200"
+                      aria-label="Decrease quantity"
+                    >
+                      −
+                    </button>
+                    <span className="w-6 text-center text-base font-black text-stone-900">
+                      {panelQty}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPanelQty((q) => Math.min(99, q + 1))}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-white text-lg font-black active:opacity-80"
+                      style={{ backgroundColor: brandColor }}
+                      aria-label="Increase quantity"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  value={panelInstructions}
+                  onChange={(e) => setPanelInstructions(e.target.value)}
+                  placeholder="Special instructions — e.g. no onions, extra sauce"
+                  maxLength={200}
+                  rows={2}
+                  className="mt-3 w-full resize-none rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-1"
+                  style={{ '--tw-ring-color': brandColor } as React.CSSProperties}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Sticky ordering CTA ── */}
+        {orderingEnabled && (
+          <div
+            className="shrink-0 border-t border-stone-100 bg-white px-5 py-4"
+            style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
+          >
+            {item.available ? (
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                className="w-full rounded-2xl py-4 text-base font-black text-white shadow-lg active:opacity-80"
+                style={{ backgroundColor: brandColor }}
+              >
+                Add to Order — ${(displayPrice * panelQty).toFixed(2)}
+              </button>
+            ) : (
+              <div className="flex items-center justify-center rounded-2xl bg-stone-100 py-4">
+                <span className="text-sm font-black text-stone-400">Currently unavailable</span>
+              </div>
+            )}
           </div>
         )}
-
-        {/* Content */}
-        <div className="px-5 pb-10 pt-5">
-          {/* C3: id matches aria-labelledby on the dialog */}
-          <h2 id="item-sheet-title" className="text-2xl font-black leading-tight text-stone-900">
-            {item.name}
-          </h2>
-
-          {item.price != null && (
-            <div className="mt-2">
-              {item.special_active && item.effective_price != null && item.effective_price > 0 && item.effective_price !== item.price ? (
-                <div className="flex flex-wrap items-baseline gap-2">
-                  <span className="text-lg font-semibold text-stone-400 line-through">
-                    ${Number(item.price).toFixed(2)}
-                  </span>
-                  <span className="text-2xl font-black" style={{ color: brandColor }}>
-                    ${Number(item.effective_price).toFixed(2)}
-                  </span>
-                  <span className="rounded-full bg-emerald-500 px-2.5 py-1 text-xs font-black text-white">
-                    {item.discount_label}
-                  </span>
-                </div>
-              ) : (
-                <p className="text-2xl font-black" style={{ color: brandColor }}>
-                  ${Number(item.price).toFixed(2)}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Merchandising + availability badges — mirrors admin Quick Action states */}
-          {(item.special_active || item.is_featured || (item.tags || []).includes('chef_special') || (item.tags || []).includes('popular') || !item.available) && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {item.special_active && (
-                <span className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-black text-white">
-                  💸 On Special
-                </span>
-              )}
-              {item.is_featured && (
-                <span
-                  className="rounded-full px-3 py-1 text-xs font-black"
-                  style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
-                >
-                  ⭐ Featured
-                </span>
-              )}
-              {(item.tags || []).includes('chef_special') && (
-                <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-black text-purple-700">
-                  👨‍🍳 Chef Special
-                </span>
-              )}
-              {(item.tags || []).includes('popular') && (
-                <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-black text-orange-600">
-                  🔥 Popular
-                </span>
-              )}
-              {!item.available && (
-                <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-600">
-                  🚫 Sold Out
-                </span>
-              )}
-            </div>
-          )}
-
-          {item.description && (
-            <p className="mt-3 text-sm leading-relaxed text-stone-600">{item.description}</p>
-          )}
-
-          {/* User-authored tags — chef_special and popular are shown as badges above */}
-          {(item.tags || []).filter((t) => t !== 'chef_special' && t !== 'popular').length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {(item.tags || [])
-                .filter((t) => t !== 'chef_special' && t !== 'popular')
-                .map((tag) => (
-                  <TagPill key={tag} tag={tag} accentColor={accentColor} />
-                ))}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );
@@ -1369,6 +1479,9 @@ export function RestaurantPublicPage({
           brandColor={brandColor}
           accentColor={accentColor}
           onClose={closeSheet}
+          orderingEnabled={orderingEnabled}
+          cart={cart}
+          restaurantId={restaurant.id}
         />
       )}
 
