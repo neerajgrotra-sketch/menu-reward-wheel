@@ -94,11 +94,50 @@ Before building features:
 
 Claude must read:
 
-/docs/architecture/spinbite-target-architecture-v2.md
+/docs/architecture/spinbite-platform-architecture-v3.md
 
 All new work must align with target architecture.
 
 No feature may violate architecture.
+
+---
+
+## Rule 26 — Mandatory Architecture Pre-Audit (Platform Invariant #11)
+
+No AI session, Claude session, engineer, or developer may implement:
+
+- Architecture changes
+- New features
+- Schema modifications
+- New API routes
+- Security decisions
+- Capability flags
+- Restaurant configuration changes
+
+Without first reading in full:
+
+```
+docs/architecture/spinbite-platform-architecture-v3.md
+```
+
+All implementation decisions must remain consistent with:
+
+- Multi-tenant ownership model (`owner_id` is always explicit at insert time)
+- Security boundaries (service role stays server-side; no open RLS on platform tables)
+- Provider abstraction rules (prompts in DB; provider is data not code)
+- Capability model (all capabilities are per restaurant, never global)
+- All 11 platform invariants in the Appendix of the architecture document
+
+This document is the single source of truth.
+
+If a proposed change conflicts with the architecture document:
+
+1. Stop.
+2. Report the conflict explicitly.
+3. Do not proceed until the conflict is resolved via an explicit architecture decision.
+4. Update the architecture document before implementing.
+
+No exception for urgency. No exception for "small" changes.
 
 ---
 

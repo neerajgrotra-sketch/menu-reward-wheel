@@ -20,12 +20,6 @@ export default function AuthPage() {
       return;
     }
 
-    await supabase
-      .from('restaurants')
-      .update({ owner_id: user.id })
-      .is('owner_id', null)
-      .eq('contact_email', user.email || email.trim());
-
     const { data } = await supabase
       .from('restaurants')
       .select('id')

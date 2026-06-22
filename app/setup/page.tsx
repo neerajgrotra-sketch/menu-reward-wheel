@@ -68,14 +68,7 @@ export default function SetupPage() {
   }, [router]);
 
   async function saveRestaurant() {
-    const supabase = createClient();
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData.user;
-
-    if (!user) {
-      router.push('/auth');
-      return;
-    }
+    if (saving) return;
 
     const restaurantName = name.trim();
     if (!restaurantName) {
@@ -85,6 +78,16 @@ export default function SetupPage() {
 
     setSaving(true);
     setError('');
+
+    const supabase = createClient();
+    const { data: userData } = await supabase.auth.getUser();
+    const user = userData.user;
+
+    if (!user) {
+      setSaving(false);
+      router.push('/auth');
+      return;
+    }
 
     const payload = {
       name: restaurantName,
@@ -109,6 +112,24 @@ export default function SetupPage() {
         return;
       }
       router.push('/admin/restaurants');
+      return;
+    }
+
+    // Guard: block duplicate names under the same owner
+    const { data: existing } = await supabase
+      .from('restaurants')
+      .select('id, name')
+      .eq('owner_id', user.id)
+      .is('deleted_at', null);
+
+    const normalizedNew = restaurantName.toLowerCase().trim();
+    const duplicate = (existing ?? []).find(
+      (r) => r.name.toLowerCase().trim() === normalizedNew,
+    );
+
+    if (duplicate) {
+      setError('A restaurant with this name already exists. Use a distinct name for each location (e.g. "Punjabi By Nature Oakville").');
+      setSaving(false);
       return;
     }
 

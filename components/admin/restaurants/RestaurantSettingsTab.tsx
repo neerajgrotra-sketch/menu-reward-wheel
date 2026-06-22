@@ -17,9 +17,10 @@ type ToggleRowProps = {
   description: string;
   checked: boolean;
   onChange: (v: boolean) => void;
+  disabled?: boolean;
 };
 
-function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
+function ToggleRow({ label, description, checked, onChange, disabled }: ToggleRowProps) {
   return (
     <div className="flex items-start justify-between gap-4 rounded-2xl border border-stone-100 p-4">
       <div className="min-w-0">
@@ -31,7 +32,8 @@ function ToggleRow({ label, description, checked, onChange }: ToggleRowProps) {
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-[#FF6B00] focus:ring-offset-2 ${checked ? 'bg-[#FF6B00]' : 'bg-stone-200'}`}
+        disabled={disabled}
+        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-[#FF6B00] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${checked ? 'bg-[#FF6B00]' : 'bg-stone-200'}`}
       >
         <span
           className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`}
@@ -52,21 +54,54 @@ export function RestaurantSettingsTab({ restaurantId, restaurantName, supabase, 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<MessageState | null>(null);
 
+  // Ordering capability — separate table, saves immediately on toggle
+  const [orderingEnabled, setOrderingEnabled] = useState(false);
+  const [orderingSaving, setOrderingSaving] = useState(false);
+  const [orderingMessage, setOrderingMessage] = useState<MessageState | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const { data } = await supabase
-        .from('restaurant_settings')
-        .select('*')
-        .eq('restaurant_id', restaurantId);
+      const [settingsResult, capResult] = await Promise.all([
+        supabase.from('restaurant_settings').select('*').eq('restaurant_id', restaurantId),
+        (supabase as any)
+          .from('restaurant_capabilities')
+          .select('enabled')
+          .eq('restaurant_id', restaurantId)
+          .eq('capability_name', 'ordering')
+          .maybeSingle(),
+      ]);
       if (!cancelled) {
-        setForm(rowsToSettingsForm(data ?? []));
+        setForm(rowsToSettingsForm(settingsResult.data ?? []));
+        setOrderingEnabled((capResult.data as { enabled: boolean } | null)?.enabled === true);
         setLoading(false);
       }
     }
     load();
     return () => { cancelled = true; };
   }, [restaurantId, supabase]);
+
+  async function handleToggleOrdering(enabled: boolean) {
+    if (orderingSaving) return;
+    setOrderingSaving(true);
+    setOrderingMessage(null);
+
+    const { error } = await (supabase as any)
+      .from('restaurant_capabilities')
+      .upsert(
+        { restaurant_id: restaurantId, capability_name: 'ordering', enabled },
+        { onConflict: 'restaurant_id,capability_name' },
+      );
+
+    setOrderingSaving(false);
+    if (error) {
+      setOrderingMessage({ type: 'error', text: `Failed to save: ${error.message}` });
+    } else {
+      setOrderingEnabled(enabled);
+      setOrderingMessage({ type: 'success', text: enabled ? 'Online ordering enabled.' : 'Online ordering disabled.' });
+      setTimeout(() => setOrderingMessage(null), 2500);
+    }
+  }
 
   const patch = (p: Partial<SettingsForm>) => setForm(f => ({ ...f, ...p }));
 
@@ -164,6 +199,27 @@ export function RestaurantSettingsTab({ restaurantId, restaurantName, supabase, 
       >
         {saving ? 'Saving…' : 'Save Settings'}
       </button>
+
+      {/* Ordering */}
+      <div>
+        <p className="text-xs font-black uppercase tracking-wide text-stone-500">Ordering</p>
+        <div className="mt-2 space-y-2">
+          <ToggleRow
+            label="Enable Online Ordering"
+            description={orderingEnabled
+              ? 'Customers can add items to cart and place orders directly from QR menu.'
+              : 'Customers can browse menu but cannot place orders.'}
+            checked={orderingEnabled}
+            onChange={handleToggleOrdering}
+            disabled={orderingSaving}
+          />
+          {orderingMessage && (
+            <p className={`rounded-xl p-3 text-sm font-bold ${orderingMessage.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+              {orderingMessage.text}
+            </p>
+          )}
+        </div>
+      </div>
 
       {/* Danger Zone */}
       <div className="rounded-2xl border border-red-100 p-4">
