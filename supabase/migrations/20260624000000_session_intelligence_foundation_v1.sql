@@ -184,7 +184,7 @@ BEGIN
       SELECT jsonb_agg(elem)
       FROM (
         SELECT elem
-        FROM jsonb_array_elements(v_log) elem
+        FROM jsonb_array_elements(v_log) WITH ORDINALITY AS t(elem, ordinality)
         ORDER BY ordinality DESC
         LIMIT 200
       ) sub
@@ -240,7 +240,7 @@ $$;
 -- Backward compatible: existing orders.session_id (text) left untouched
 
 ALTER TABLE public.orders
-  ADD COLUMN IF NOT EXISTS visit_session_id uuid REFERENCES public.visit_sessions(id) SET NULL;
+  ADD COLUMN IF NOT EXISTS visit_session_id uuid REFERENCES public.visit_sessions(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS orders_visit_session_idx
   ON public.orders (visit_session_id)
