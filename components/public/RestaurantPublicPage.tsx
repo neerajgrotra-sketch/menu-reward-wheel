@@ -992,6 +992,7 @@ export function RestaurantPublicPage({
   visitSessionId = null,
   touchpointName = null,
   onItemViewed,
+  onOrderPlaced,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
@@ -1001,6 +1002,7 @@ export function RestaurantPublicPage({
   visitSessionId?: string | null;
   touchpointName?: string | null;
   onItemViewed?: (itemId?: string) => void;
+  onOrderPlaced?: () => void;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -1546,6 +1548,7 @@ export function RestaurantPublicPage({
           onClose={() => setCartSheetOpen(false)}
           visitSessionId={visitSessionId}
           tableLabel={touchpointName}
+          onOrderPlaced={onOrderPlaced}
         />
       )}
     </div>

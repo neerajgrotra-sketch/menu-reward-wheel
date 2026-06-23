@@ -11,6 +11,7 @@ type CartSheetProps = {
   onClose: () => void;
   visitSessionId?: string | null;
   tableLabel?: string | null;
+  onOrderPlaced?: () => void;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
@@ -19,7 +20,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visitSessionId, tableLabel }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visitSessionId, tableLabel, onOrderPlaced }: CartSheetProps) {
   const [customerName, setCustomerName] = useState('');
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
@@ -92,6 +93,8 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
       setConfirmedOrderId(data.order.id);
       setOrderState('success');
       cart.clearCart();
+      // Task 5: tell parent to immediately re-fetch session orders
+      onOrderPlaced?.();
     } catch {
       setOrderState('error');
       setErrorMessage('Network error. Please try again.');
