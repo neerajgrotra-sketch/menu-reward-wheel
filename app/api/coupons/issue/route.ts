@@ -29,6 +29,8 @@ export async function POST(request: Request) {
     // UUID of the play_sessions row — links this coupon to the session that produced it.
     // Nullable: coupons issued before the play_session FK migration will have null here.
     const play_session_id = body?.play_session_id || null;
+    // UUID of visit_sessions row — session intelligence attribution (Task 14)
+    const visit_session_id = body?.visit_session_id || null;
 
     if (!promotion_id || !promotion_reward_id || !restaurant_id || !coupon_code) {
       return NextResponse.json({ error: 'Missing required coupon fields.' }, { status: 400 });
@@ -92,6 +94,26 @@ export async function POST(request: Request) {
     if (error) {
       console.error('[coupon-issue] insert failed', error.message, { play_session_id });
       return NextResponse.json({ error: 'Coupon could not be saved. Please ask staff for help.' }, { status: 500 });
+    }
+
+    // Task 14: Increment coupons_issued on visit_session — best effort
+    if (visit_session_id) {
+      Promise.all([
+        supabase.rpc('increment_session_counters', {
+          p_session_id: visit_session_id,
+          p_coupons_delta: 1,
+        }),
+        supabase.rpc('append_session_interaction', {
+          p_session_id: visit_session_id,
+          p_event: {
+            event: 'coupon_issued',
+            coupon_code,
+            ts: new Date().toISOString(),
+          },
+        }),
+      ]).catch((err: unknown) => {
+        console.error('[coupon-issue] session attribution failed', err);
+      });
     }
 
     return NextResponse.json({ coupon: data });

@@ -63,10 +63,11 @@ function generateTouchpointCode(): string {
 
 interface Props {
   restaurantId: string;
+  restaurantSlug?: string;
   supabase: AppSupabaseClient;
 }
 
-export function RestaurantTablesTab({ restaurantId, supabase }: Props) {
+export function RestaurantTablesTab({ restaurantId, restaurantSlug, supabase }: Props) {
   const [touchpoints, setTouchpoints] = useState<Touchpoint[]>([]);
   const [loading, setLoading]         = useState(true);
   const [pageError, setPageError]     = useState('');
@@ -301,14 +302,25 @@ export function RestaurantTablesTab({ restaurantId, supabase }: Props) {
                     >
                       Delete
                     </button>
-                    <button
-                      type="button"
-                      disabled
-                      title="Coming Soon — Phase C"
-                      className="cursor-not-allowed rounded-xl bg-stone-100 px-3 py-2 text-xs font-black text-stone-400"
-                    >
-                      QR
-                    </button>
+                    {restaurantSlug ? (
+                      <a
+                        href={`/admin/restaurants/${restaurantId}/qr/${tp.id}/print`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-xl bg-stone-800 px-3 py-2 text-xs font-black text-white hover:bg-stone-700"
+                      >
+                        QR
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        title="QR generation requires restaurant slug"
+                        className="cursor-not-allowed rounded-xl bg-stone-100 px-3 py-2 text-xs font-black text-stone-400"
+                      >
+                        QR
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

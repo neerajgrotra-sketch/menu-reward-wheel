@@ -989,19 +989,29 @@ export function RestaurantPublicPage({
   promotion,
   promotionRewards,
   orderingEnabled = false,
+  visitSessionId = null,
+  touchpointName = null,
+  onItemViewed,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
   promotion?: PublicPromotion | null;
   promotionRewards?: PublicReward[];
   orderingEnabled?: boolean;
+  visitSessionId?: string | null;
+  touchpointName?: string | null;
+  onItemViewed?: (itemId?: string) => void;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
   const heroFallbackGradient = `linear-gradient(135deg, ${brandColor} 0%, ${darken(brandColor, 40)} 100%)`;
 
   const hasPromotion = !!promotion;
-  const playUrl = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
+  // Append vsid to play URL when in a session context so promotion interactions are attributed
+  const playUrlBase = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
+  const playUrl = playUrlBase && visitSessionId
+    ? `${playUrlBase}?vsid=${visitSessionId}`
+    : playUrlBase;
 
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
@@ -1122,6 +1132,8 @@ export function RestaurantPublicPage({
     // C1: capture trigger element before mounting sheet
     triggerRef.current = document.activeElement as HTMLElement ?? null;
     setSelectedItem(item);
+    // Notify session layer for menu_items_viewed analytics (Task 9)
+    onItemViewed?.(item.id);
     // Double rAF: ensure DOM is painted before CSS transition triggers
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
@@ -1532,6 +1544,8 @@ export function RestaurantPublicPage({
           restaurantId={restaurant.id}
           brandColor={brandColor}
           onClose={() => setCartSheetOpen(false)}
+          visitSessionId={visitSessionId}
+          tableLabel={touchpointName}
         />
       )}
     </div>

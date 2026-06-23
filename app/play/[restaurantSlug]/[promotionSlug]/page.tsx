@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
 import SaveRewardPanel, { shouldShowIdentityPanel } from '@/components/CustomerIdentityScreen';
@@ -109,6 +109,7 @@ async function issueCoupon(params: {
   coupon_code: string;
   customer_session_id: string;
   play_session_id: string;
+  visit_session_id: string | null;
 }) {
   const response = await fetch('/api/coupons/issue', {
     method: 'POST',
@@ -236,6 +237,8 @@ function AlreadyPlayedView({
 
 export default function PromotionPlayPage() {
   const { restaurantSlug, promotionSlug } = useParams() as { restaurantSlug: string; promotionSlug: string };
+  const searchParams = useSearchParams();
+  const visitSessionId = searchParams.get('vsid');
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [promotion, setPromotion] = useState<Promotion | null>(null);
   const [rewards, setRewards] = useState<Reward[]>([]);
@@ -284,7 +287,13 @@ export default function PromotionPlayPage() {
         promotionSlug,
       );
 
-      const response = await fetch(`/api/public/promotion-play?restaurantSlug=${encodeURIComponent(restaurantSlug)}&promotionSlug=${encodeURIComponent(promotionSlug)}&sessionToken=${encodeURIComponent(sessionToken)}`, {
+      const playUrl = new URL('/api/public/promotion-play', window.location.origin);
+      playUrl.searchParams.set('restaurantSlug', restaurantSlug);
+      playUrl.searchParams.set('promotionSlug', promotionSlug);
+      playUrl.searchParams.set('sessionToken', sessionToken);
+      if (visitSessionId) playUrl.searchParams.set('vsid', visitSessionId);
+
+      const response = await fetch(playUrl.toString(), {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
@@ -347,7 +356,7 @@ export default function PromotionPlayPage() {
     }
 
     load();
-  }, [restaurantSlug, promotionSlug]);
+  }, [restaurantSlug, promotionSlug, visitSessionId]);
 
   function playGame() {
     if (!canPlay || !promotion || !restaurant) return;
@@ -374,6 +383,7 @@ export default function PromotionPlayPage() {
           coupon_code: code,
           customer_session_id: getCustomerSessionId(),
           play_session_id: playSessionId,
+          visit_session_id: visitSessionId,
         });
         redemptionId = issued?.id || null;
       } catch (err: any) {

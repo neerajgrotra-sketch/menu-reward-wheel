@@ -9,6 +9,8 @@ type CartSheetProps = {
   restaurantId: string;
   brandColor: string;
   onClose: () => void;
+  visitSessionId?: string | null;
+  tableLabel?: string | null;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
@@ -17,7 +19,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visitSessionId, tableLabel }: CartSheetProps) {
   const [customerName, setCustomerName] = useState('');
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
@@ -57,6 +59,11 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose }: Car
     setErrorMessage('');
 
     try {
+      // When in a session, use touchpoint name as table identifier; skip manual input
+      const resolvedTableIdentifier = visitSessionId
+        ? (tableLabel ?? null)
+        : (tableIdentifier.trim() || null);
+
       const res = await fetch('/api/public/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,7 +74,8 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose }: Car
             quantity: i.quantity,
           })),
           customer_name: customerName.trim() || null,
-          table_identifier: tableIdentifier.trim() || null,
+          table_identifier: resolvedTableIdentifier,
+          visit_session_id: visitSessionId ?? null,
           idempotency_key: idempotencyKeyRef.current,
         }),
       });
@@ -125,7 +133,12 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose }: Car
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
-          <h2 className="text-lg font-black text-stone-800">Your Order</h2>
+          <div>
+            <h2 className="text-lg font-black text-stone-800">Your Order</h2>
+            {visitSessionId && tableLabel && (
+              <p className="text-xs font-semibold text-stone-400">{tableLabel}</p>
+            )}
+          </div>
           <button
             type="button"
             onClick={handleClose}
@@ -252,20 +265,23 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose }: Car
                       style={{ '--tw-ring-color': brandColor } as React.CSSProperties}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-stone-500 mb-1">
-                      Table / Location (optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={tableIdentifier}
-                      onChange={(e) => setTableIdentifier(e.target.value)}
-                      placeholder="e.g. Table 5, Patio, Counter"
-                      maxLength={80}
-                      className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-1"
-                      style={{ '--tw-ring-color': brandColor } as React.CSSProperties}
-                    />
-                  </div>
+                  {/* Hide manual table input when ordering from a session QR — table is known */}
+                  {!visitSessionId && (
+                    <div>
+                      <label className="block text-xs font-semibold text-stone-500 mb-1">
+                        Table / Location (optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={tableIdentifier}
+                        onChange={(e) => setTableIdentifier(e.target.value)}
+                        placeholder="e.g. Table 5, Patio, Counter"
+                        maxLength={80}
+                        className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-1"
+                        style={{ '--tw-ring-color': brandColor } as React.CSSProperties}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
