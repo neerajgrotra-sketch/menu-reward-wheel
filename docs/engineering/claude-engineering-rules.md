@@ -441,3 +441,59 @@ Three tiers. Each tier has explicit constraints:
 **Tier 3 — Zone 3 Pills Row:** Chef Special, Popular, and all dietary tags (Vegetarian, Vegan, Halal, Kosher, Gluten Free, Spicy, Kids Friendly). Also receives Featured when Discount is in Tier 1. Unlimited count, capped by Zone 3 max-height.
 
 Discount badges use `bg-emerald-500` (green = savings signal). Brand orange (`#FF6B00`) is reserved for SpinBite platform identity only and must never be used for promotional discount UI.
+
+---
+
+## Rule 31 — Never Architect Around Restaurant Tables
+
+Tables are one touchpoint type, not the architecture.
+
+The canonical entity is `restaurant_touchpoints`.
+
+Future types include: `table`, `patio`, `counter`, `pickup`, `kiosk`, `bar`, `waiting_area`.
+
+Forbidden:
+- Creating a `restaurant_tables` table
+- Adding table-specific columns (e.g. `table_number`, `table_name`) to the orders table
+- Building admin UI that only understands tables (must understand touchpoints)
+- Naming QR routes, slugs, or URL params as "table" in a hard-coded way
+
+Always design for the touchpoint abstraction, not the physical table.
+
+---
+
+## Rule 32 — Orders Must Eventually Attach to Touchpoint Entities
+
+The existing `orders.table_identifier` (text) is a legacy field from ordering engine v1.
+
+It is display-only and must not be treated as a structured reference.
+
+Future orders architecture:
+- `orders.touchpoint_id uuid FK → restaurant_touchpoints(id)` is the structured reference
+- `orders.table_identifier` may be retained for human-readable display (denormalized from `touchpoint.name` at write time)
+- Never add new code that relies on `table_identifier` as a data source for business logic
+- Any new feature that needs to know where an order came from must use `touchpoint_id`
+
+When `touchpoint_id` migration ships, both fields coexist — `touchpoint_id` is authoritative.
+
+---
+
+## Rule 33 — QR Codes Identify Touchpoints, Not Restaurants
+
+Restaurant-level QR codes (`/r/{slug}`) encode the restaurant only.
+
+Table and location QR codes must encode a touchpoint reference:
+
+```
+/r/{restaurantSlug}?tp={public_code}
+```
+
+Use `?tp=` (touchpoint) not `?table=`. The param name must not assume type.
+
+Forbidden:
+- Using `?table=` as a permanent URL param name
+- Hardcoding "table" into QR URL generation functions
+- Generating table QR codes that point to a global slug namespace (`/t/{slug}`)
+
+The `public_code` field on `restaurant_touchpoints` is the URL-safe identifier.
+It is stable once printed. Changing it invalidates physical QR codes — warn the user.
