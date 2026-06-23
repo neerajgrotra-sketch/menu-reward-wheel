@@ -365,6 +365,7 @@ export default function RestaurantsPage() {
                     {tab === 'tables' && (
                       <RestaurantTablesTab
                         restaurantId={r.id}
+                        restaurantSlug={r.slug}
                         supabase={supabase}
                       />
                     )}

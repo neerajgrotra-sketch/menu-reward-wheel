@@ -63,7 +63,8 @@ type OrderRequest = {
   items: OrderItemInput[];
   table_identifier?: string | null;
   customer_name?: string | null;
-  session_id?: string | null;
+  session_id?: string | null;          // legacy text field — accepted but not used
+  visit_session_id?: string | null;    // FK to visit_sessions — canonical session linkage
   idempotency_key: string;
 };
 
@@ -111,8 +112,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
     }
 
-    const { restaurant_id, items, table_identifier, customer_name, session_id, idempotency_key } =
-      body;
+    const {
+      restaurant_id,
+      items,
+      table_identifier,
+      customer_name,
+      session_id,
+      visit_session_id,
+      idempotency_key,
+    } = body;
 
     // 3. Required field presence
     if (!restaurant_id || !idempotency_key || !Array.isArray(items) || items.length === 0) {
@@ -287,17 +295,32 @@ export async function POST(req: NextRequest) {
 
     const nextOrderNumber = counterData as number;
 
-    // 13. Insert order
+    // 13. Validate visit_session_id if provided
+    let resolvedSessionId: string | null = null;
+    if (visit_session_id) {
+      const { data: sessionRow } = await supabase
+        .from('visit_sessions')
+        .select('id')
+        .eq('id', visit_session_id)
+        .eq('restaurant_id', restaurant_id)
+        .eq('status', 'active')
+        .maybeSingle();
+      // Only attach if session is active and belongs to this restaurant
+      resolvedSessionId = sessionRow?.id ?? null;
+    }
+
+    // 14. Insert order
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
         restaurant_id,
         order_number: nextOrderNumber,
         status: 'pending',
-        order_origin: 'direct_link',
+        order_origin: resolvedSessionId ? 'restaurant_qr' : 'direct_link',
         table_identifier: table_identifier ?? null,
         customer_name: customer_name ?? null,
         session_id: session_id ?? null,
+        visit_session_id: resolvedSessionId,
         idempotency_key,
         subtotal,
       })
@@ -322,7 +345,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 14. Insert order items
+    // 15. Insert order items
     const orderItems = resolvedItems.map((ri) => ({
       order_id: order.id,
       restaurant_id,
@@ -342,6 +365,35 @@ export async function POST(req: NextRequest) {
         { error: 'Order created but items failed to save.' },
         { status: 500 },
       );
+    }
+
+    // 16. Update session analytics — best effort, never blocks order confirmation
+    if (resolvedSessionId) {
+      const sid = resolvedSessionId;
+      Promise.resolve(
+        supabase.rpc('increment_session_counters', {
+          p_session_id: sid,
+          p_orders_delta: 1,
+          p_spend_delta: subtotal,
+        }),
+      )
+        .then(() =>
+          Promise.resolve(
+            supabase.rpc('append_session_interaction', {
+              p_session_id: sid,
+              p_event: {
+                event: 'order_submitted',
+                order_id: order.id,
+                order_number: nextOrderNumber,
+                subtotal,
+                ts: new Date().toISOString(),
+              },
+            }),
+          ),
+        )
+        .catch((err: unknown) => {
+          console.error('[spinbite:orders] session counter update failed', err);
+        });
     }
 
     console.log('[spinbite:orders] created', {

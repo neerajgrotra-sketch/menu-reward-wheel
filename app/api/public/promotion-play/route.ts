@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     const promotionSlug = searchParams.get('promotionSlug');
 
     let sessionToken = searchParams.get('sessionToken');
+    const visitSessionId = searchParams.get('vsid') || null;
 
     if (!sessionToken) {
       sessionToken = crypto.randomUUID();
@@ -204,6 +205,35 @@ export async function GET(request: NextRequest) {
     });
 
     const maxSpins = Math.max(1, promotion.max_spins ?? 1);
+
+    // Task 14: Session promotion attribution — best effort, never blocks response
+    if (visitSessionId && isNewSession) {
+      Promise.all([
+        supabase.rpc('increment_session_counters', {
+          p_session_id: visitSessionId,
+          p_promotion_delta: 1,
+        }),
+        supabase
+          .from('visit_sessions')
+          .update({
+            last_promotion_played: promotion.id,
+            last_activity_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', visitSessionId)
+          .eq('status', 'active'),
+        supabase.rpc('append_session_interaction', {
+          p_session_id: visitSessionId,
+          p_event: {
+            event: 'promotion_played',
+            promotion_id: promotion.id,
+            ts: new Date().toISOString(),
+          },
+        }),
+      ]).catch((err: unknown) => {
+        console.error('[spinbite:promotion-play] session attribution failed', err);
+      });
+    }
 
     return NextResponse.json({
       restaurant,
