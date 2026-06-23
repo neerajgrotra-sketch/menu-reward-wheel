@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS public.restaurant_touchpoints (
   type              text        NOT NULL DEFAULT 'table',
 
   -- Short URL-safe code embedded in QR codes and public URLs
-  -- Unique per restaurant (not globally) — a restaurant can have its own "t1"
+  -- Scoped to restaurant — two restaurants may independently use "t1"
   -- Generated from name at create time; stable once printed
-  public_code       text        NOT NULL,
+  touchpoint_code   text        NOT NULL,
 
   -- Optional grouping label for multi-section venues (e.g. "Main Floor", "Rooftop")
   section_name      text,
@@ -57,9 +57,8 @@ CREATE TABLE IF NOT EXISTS public.restaurant_touchpoints (
     occupancy_status IN ('available', 'occupied', 'cleaning', 'reserved')
   ),
 
-  -- public_code is unique per restaurant — two restaurants may share 't1'
-  -- but a single restaurant cannot have two touchpoints with the same code
-  UNIQUE (restaurant_id, public_code),
+  -- touchpoint_code is scoped to restaurant — uniqueness is per-restaurant, not global
+  UNIQUE (restaurant_id, touchpoint_code),
 
   -- name uniqueness per restaurant — prevents duplicate display labels
   UNIQUE (restaurant_id, name)
@@ -70,9 +69,9 @@ CREATE INDEX touchpoints_restaurant_active_order_idx
   ON public.restaurant_touchpoints (restaurant_id, active, display_order)
   WHERE deleted_at IS NULL;
 
--- Lookup path: resolve public_code from QR URL to touchpoint row
+-- Lookup path: resolve touchpoint_code from QR URL to touchpoint row
 CREATE INDEX touchpoints_restaurant_code_idx
-  ON public.restaurant_touchpoints (restaurant_id, public_code)
+  ON public.restaurant_touchpoints (restaurant_id, touchpoint_code)
   WHERE deleted_at IS NULL AND active = true;
 
 ALTER TABLE public.restaurant_touchpoints ENABLE ROW LEVEL SECURITY;

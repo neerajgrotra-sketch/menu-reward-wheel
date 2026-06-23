@@ -485,7 +485,7 @@ Restaurant-level QR codes (`/r/{slug}`) encode the restaurant only.
 Table and location QR codes must encode a touchpoint reference:
 
 ```
-/r/{restaurantSlug}?tp={public_code}
+/r/{restaurantSlug}?tp={touchpoint_code}
 ```
 
 Use `?tp=` (touchpoint) not `?table=`. The param name must not assume type.
@@ -495,5 +495,6 @@ Forbidden:
 - Hardcoding "table" into QR URL generation functions
 - Generating table QR codes that point to a global slug namespace (`/t/{slug}`)
 
-The `public_code` field on `restaurant_touchpoints` is the URL-safe identifier.
+The `touchpoint_code` field on `restaurant_touchpoints` is the URL-safe identifier.
+It is scoped to the restaurant — uniqueness is `UNIQUE(restaurant_id, touchpoint_code)`, not global.
 It is stable once printed. Changing it invalidates physical QR codes — warn the user.
