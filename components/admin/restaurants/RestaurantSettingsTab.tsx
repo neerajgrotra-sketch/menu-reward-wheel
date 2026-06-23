@@ -59,10 +59,15 @@ export function RestaurantSettingsTab({ restaurantId, restaurantName, supabase, 
   const [orderingSaving, setOrderingSaving] = useState(false);
   const [orderingMessage, setOrderingMessage] = useState<MessageState | null>(null);
 
+  // Table management capability — same pattern
+  const [tableManagementEnabled, setTableManagementEnabled] = useState(false);
+  const [tableManagementSaving, setTableManagementSaving] = useState(false);
+  const [tableManagementMessage, setTableManagementMessage] = useState<MessageState | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const [settingsResult, capResult] = await Promise.all([
+      const [settingsResult, orderingCapResult, tableCapResult] = await Promise.all([
         supabase.from('restaurant_settings').select('*').eq('restaurant_id', restaurantId),
         (supabase as any)
           .from('restaurant_capabilities')
@@ -70,16 +75,45 @@ export function RestaurantSettingsTab({ restaurantId, restaurantName, supabase, 
           .eq('restaurant_id', restaurantId)
           .eq('capability_name', 'ordering')
           .maybeSingle(),
+        (supabase as any)
+          .from('restaurant_capabilities')
+          .select('enabled')
+          .eq('restaurant_id', restaurantId)
+          .eq('capability_name', 'table_management')
+          .maybeSingle(),
       ]);
       if (!cancelled) {
         setForm(rowsToSettingsForm(settingsResult.data ?? []));
-        setOrderingEnabled((capResult.data as { enabled: boolean } | null)?.enabled === true);
+        setOrderingEnabled((orderingCapResult.data as { enabled: boolean } | null)?.enabled === true);
+        setTableManagementEnabled((tableCapResult.data as { enabled: boolean } | null)?.enabled === true);
         setLoading(false);
       }
     }
     load();
     return () => { cancelled = true; };
   }, [restaurantId, supabase]);
+
+  async function handleToggleTableManagement(enabled: boolean) {
+    if (tableManagementSaving) return;
+    setTableManagementSaving(true);
+    setTableManagementMessage(null);
+
+    const { error } = await (supabase as any)
+      .from('restaurant_capabilities')
+      .upsert(
+        { restaurant_id: restaurantId, capability_name: 'table_management', enabled },
+        { onConflict: 'restaurant_id,capability_name' },
+      );
+
+    setTableManagementSaving(false);
+    if (error) {
+      setTableManagementMessage({ type: 'error', text: `Failed to save: ${error.message}` });
+    } else {
+      setTableManagementEnabled(enabled);
+      setTableManagementMessage({ type: 'success', text: enabled ? 'Table management enabled.' : 'Table management disabled.' });
+      setTimeout(() => setTableManagementMessage(null), 2500);
+    }
+  }
 
   async function handleToggleOrdering(enabled: boolean) {
     if (orderingSaving) return;
@@ -216,6 +250,27 @@ export function RestaurantSettingsTab({ restaurantId, restaurantName, supabase, 
           {orderingMessage && (
             <p className={`rounded-xl p-3 text-sm font-bold ${orderingMessage.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
               {orderingMessage.text}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Table Management */}
+      <div>
+        <p className="text-xs font-black uppercase tracking-wide text-stone-500">Table Management</p>
+        <div className="mt-2 space-y-2">
+          <ToggleRow
+            label="Enable Table Management"
+            description={tableManagementEnabled
+              ? 'Tables are visible in the Tables tab and available for QR assignment.'
+              : 'Table management is disabled for this restaurant.'}
+            checked={tableManagementEnabled}
+            onChange={handleToggleTableManagement}
+            disabled={tableManagementSaving}
+          />
+          {tableManagementMessage && (
+            <p className={`rounded-xl p-3 text-sm font-bold ${tableManagementMessage.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+              {tableManagementMessage.text}
             </p>
           )}
         </div>

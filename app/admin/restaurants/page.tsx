@@ -9,11 +9,12 @@ import { RestaurantProfileTab } from '@/components/admin/restaurants/RestaurantP
 import { RestaurantContactTab } from '@/components/admin/restaurants/RestaurantContactTab';
 import { RestaurantSettingsTab } from '@/components/admin/restaurants/RestaurantSettingsTab';
 import { RestaurantQrTab } from '@/components/admin/restaurants/RestaurantQrTab';
+import { RestaurantTablesTab } from '@/components/admin/restaurants/RestaurantTablesTab';
 import { HeroImageUploader } from '@/components/admin/restaurants/HeroImageUploader';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TabId = 'profile' | 'contact' | 'settings' | 'qr';
+type TabId = 'profile' | 'contact' | 'settings' | 'tables' | 'qr';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -186,6 +187,7 @@ export default function RestaurantsPage() {
     { id: 'profile',  label: 'Profile'  },
     { id: 'contact',  label: 'Contact'  },
     { id: 'settings', label: 'Settings' },
+    { id: 'tables',   label: 'Tables'   },
     { id: 'qr',       label: 'QR'       },
   ];
 
@@ -358,6 +360,12 @@ export default function RestaurantsPage() {
                         restaurantName={r.name}
                         supabase={supabase}
                         onDeleteRequest={() => handleDeleteRequest(r)}
+                      />
+                    )}
+                    {tab === 'tables' && (
+                      <RestaurantTablesTab
+                        restaurantId={r.id}
+                        supabase={supabase}
                       />
                     )}
                     {tab === 'qr' && (
