@@ -993,6 +993,8 @@ export function RestaurantPublicPage({
   touchpointName = null,
   onItemViewed,
   onOrderPlaced,
+  sessionOrderCount = 0,
+  onMyOrdersClick,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
@@ -1003,6 +1005,8 @@ export function RestaurantPublicPage({
   touchpointName?: string | null;
   onItemViewed?: (itemId?: string) => void;
   onOrderPlaced?: () => void;
+  sessionOrderCount?: number;
+  onMyOrdersClick?: () => void;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -1343,8 +1347,25 @@ export function RestaurantPublicPage({
             className="sticky top-0 z-30 bg-stone-50"
             style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
           >
-            {/* Action bar: Filter button — highlights when filters are active */}
-            <div className="flex items-center justify-end px-4 pb-2 pt-3">
+            {/* Action bar: My Orders + Filter */}
+            <div className="flex items-center justify-end gap-2 px-4 pb-2 pt-3">
+              {sessionOrderCount > 0 && onMyOrdersClick && (
+                <button
+                  type="button"
+                  onClick={onMyOrdersClick}
+                  aria-label={`My Orders, ${sessionOrderCount} order${sessionOrderCount !== 1 ? 's' : ''}`}
+                  className="flex h-11 items-center gap-2 rounded-full px-4 active:scale-95"
+                  style={{
+                    transition: 'transform 150ms',
+                    backgroundColor: brandColor,
+                    boxShadow: `0 2px 8px ${brandColor}44`,
+                  }}
+                >
+                  <span className="text-sm font-semibold text-white">
+                    My Orders ({sessionOrderCount})
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setFilterDrawerOpen(true)}

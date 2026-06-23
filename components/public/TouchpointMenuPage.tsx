@@ -353,33 +353,16 @@ export function TouchpointMenuPage({
 
   return (
     <div>
-      {/* Task 3: Session ribbon — upgrades to "My Orders (N)" button when orders exist */}
+      {/* Session ribbon — informational only: touchpoint location */}
       {showSession && (
-        hasOrders ? (
-          <button
-            type="button"
-            onClick={() => setOrdersDrawerOpen(true)}
-            className="sticky top-0 z-30 flex w-full items-center justify-between px-4 py-2 text-white shadow-sm"
-            style={{ backgroundColor: brandColor }}
-          >
-            <div className="flex items-center gap-2 text-xs font-black">
-              <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
-              {touchpointLabel}
-            </div>
-            <div className="flex items-center gap-1.5 rounded-full bg-white/25 px-2.5 py-1 text-xs font-black">
-              My Orders ({sessionOrders.length})
-            </div>
-          </button>
-        ) : (
-          <div
-            className="sticky top-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-black text-white shadow-sm"
-            style={{ backgroundColor: brandColor }}
-          >
-            <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
-            {touchpointLabel}
-            <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
-          </div>
-        )
+        <div
+          className="sticky top-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-black text-white shadow-sm"
+          style={{ backgroundColor: brandColor }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+          {touchpointLabel}
+          <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+        </div>
       )}
 
       {/* Main public menu — passes session context down */}
@@ -393,6 +376,8 @@ export function TouchpointMenuPage({
         touchpointName={touchpointLabel}
         onItemViewed={handleItemViewed}
         onOrderPlaced={handleOrderPlaced}
+        sessionOrderCount={sessionOrders.length}
+        onMyOrdersClick={() => setOrdersDrawerOpen(true)}
       />
 
       {/* Task 4: Orders drawer */}
