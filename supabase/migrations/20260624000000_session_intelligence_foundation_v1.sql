@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS public.visit_sessions (
 
   -- ── AI / Promotion forward compat ────────────────────────────────────────────
   assigned_ai_agent       text,                    -- reserved; null in v1
-  last_promotion_played   uuid          REFERENCES public.promotions(id) SET NULL,
+  last_promotion_played   uuid          REFERENCES public.promotions(id) ON DELETE SET NULL,
 
   -- ── Session access + interaction timeline ─────────────────────────────────
   -- 6-digit numeric code generated on session creation; surfaced for staff reference
