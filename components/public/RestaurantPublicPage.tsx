@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Globe, Navigation2, SlidersHorizontal } from 'lucide-react';
+import { Globe, Navigation2, ShoppingCart, SlidersHorizontal } from 'lucide-react';
 import { MenuFilterDrawer, type FilterId } from '@/components/public/MenuFilterDrawer';
 import confetti from 'canvas-confetti';
 import type { PublicRestaurant, PublicSection, PublicMenuItem, PublicPromotion, PublicReward } from '@/app/r/[restaurantSlug]/page';
@@ -1357,11 +1357,13 @@ export function RestaurantPublicPage({
                   className="flex h-11 items-center gap-2 rounded-full px-4 active:scale-95"
                   style={{
                     transition: 'transform 150ms',
-                    backgroundColor: brandColor,
-                    boxShadow: `0 2px 8px ${brandColor}44`,
+                    backgroundColor: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e7e5e4',
                   }}
                 >
-                  <span className="text-sm font-semibold text-white">
+                  <ShoppingCart className="h-4 w-4 text-stone-600" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-stone-700">
                     My Orders ({sessionOrderCount})
                   </span>
                 </button>

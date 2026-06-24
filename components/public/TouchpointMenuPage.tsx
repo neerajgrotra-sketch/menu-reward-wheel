@@ -226,6 +226,9 @@ export function TouchpointMenuPage({
   // ── Orders state (Task 2) ───────────────────────────────────────────────────
   const [sessionOrders, setSessionOrders] = useState<SessionOrder[]>([]);
   const [ordersDrawerOpen, setOrdersDrawerOpen] = useState(false);
+  // Optimistic flag: set true when CartSheet fires onOrderPlaced so My Orders
+  // button appears instantly without waiting for fetchOrders to resolve.
+  const [hasOptimisticOrder, setHasOptimisticOrder] = useState(false);
 
   // ── View tracking ───────────────────────────────────────────────────────────
   const viewBatchRef = useRef(0);
@@ -258,6 +261,7 @@ export function TouchpointMenuPage({
         } catch { /* ignore */ }
         setVisitSessionId(null);
         setSessionOrders([]);
+        setHasOptimisticOrder(false);
         setSessionActive(false);
         setOrdersDrawerOpen(false);
         return;
@@ -265,6 +269,8 @@ export function TouchpointMenuPage({
 
       const orders: SessionOrder[] = data.orders ?? [];
       setSessionOrders(orders);
+      // Once we have real server data, the optimistic flag is no longer needed
+      if (orders.length > 0) setHasOptimisticOrder(false);
       try {
         sessionStorage.setItem(oKey, JSON.stringify(orders));
       } catch { /* ignore */ }
@@ -319,8 +325,10 @@ export function TouchpointMenuPage({
     return () => clearInterval(poll);
   }, [visitSessionId, fetchOrders]);
 
-  // ── Task 5: onOrderPlaced — immediately refresh orders after checkout ────────
+  // ── Task 5: onOrderPlaced — optimistic update + immediate server refresh ─────
   const handleOrderPlaced = useCallback(() => {
+    // Show My Orders button immediately without waiting for fetchOrders to resolve
+    setHasOptimisticOrder(true);
     if (visitSessionId) fetchOrders(visitSessionId);
   }, [visitSessionId, fetchOrders]);
 
@@ -376,7 +384,7 @@ export function TouchpointMenuPage({
         touchpointName={touchpointLabel}
         onItemViewed={handleItemViewed}
         onOrderPlaced={handleOrderPlaced}
-        sessionOrderCount={sessionOrders.length}
+        sessionOrderCount={hasOptimisticOrder ? Math.max(1, sessionOrders.length) : sessionOrders.length}
         onMyOrdersClick={() => setOrdersDrawerOpen(true)}
       />
 
