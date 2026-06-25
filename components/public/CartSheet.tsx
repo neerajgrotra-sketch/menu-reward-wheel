@@ -12,6 +12,7 @@ type CartSheetProps = {
   visitSessionId?: string | null;
   tableLabel?: string | null;
   onOrderPlaced?: () => void;
+  sessionConnecting?: boolean;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
@@ -20,7 +21,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visitSessionId, tableLabel, onOrderPlaced }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visitSessionId, tableLabel, onOrderPlaced, sessionConnecting = false }: CartSheetProps) {
   const [customerName, setCustomerName] = useState('');
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
@@ -311,11 +312,15 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
                 <button
                   type="button"
                   onClick={handlePlaceOrder}
-                  disabled={orderState === 'submitting'}
+                  disabled={orderState === 'submitting' || sessionConnecting}
                   className="w-full rounded-2xl py-4 text-base font-black text-white shadow-lg active:opacity-80 disabled:opacity-60"
                   style={{ backgroundColor: brandColor }}
                 >
-                  {orderState === 'submitting' ? 'Placing Order…' : 'Place Order'}
+                  {orderState === 'submitting'
+                    ? 'Placing Order…'
+                    : sessionConnecting
+                      ? `Connecting to ${tableLabel ?? 'table'}…`
+                      : 'Place Order'}
                 </button>
               </div>
             )}

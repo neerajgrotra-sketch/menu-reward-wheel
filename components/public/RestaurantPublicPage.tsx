@@ -995,6 +995,7 @@ export function RestaurantPublicPage({
   onOrderPlaced,
   sessionOrderCount = 0,
   onMyOrdersClick,
+  sessionConnecting = false,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
@@ -1007,6 +1008,7 @@ export function RestaurantPublicPage({
   onOrderPlaced?: () => void;
   sessionOrderCount?: number;
   onMyOrdersClick?: () => void;
+  sessionConnecting?: boolean;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -1572,6 +1574,7 @@ export function RestaurantPublicPage({
           visitSessionId={visitSessionId}
           tableLabel={touchpointName}
           onOrderPlaced={onOrderPlaced}
+          sessionConnecting={sessionConnecting}
         />
       )}
     </div>

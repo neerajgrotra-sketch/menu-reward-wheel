@@ -369,6 +369,9 @@ export function TouchpointMenuPage({
     : touchpoint.name;
 
   const showSession = !!visitSessionId && sessionActive;
+  // True while the session handshake is pending or the table session has ended.
+  // Used to disable Place Order and show a connecting label in CartSheet.
+  const sessionConnecting = !visitSessionId || !sessionActive;
   const hasOrders = sessionOrders.length > 0;
 
   return (
@@ -397,6 +400,7 @@ export function TouchpointMenuPage({
         onItemViewed={handleItemViewed}
         onOrderPlaced={handleOrderPlaced}
         sessionOrderCount={hasOptimisticOrder ? sessionOrders.length + 1 : sessionOrders.length}
+        sessionConnecting={sessionConnecting}
         onMyOrdersClick={() => {
           setOrdersDrawerOpen(true);
           // Fetch fresh orders each time the drawer opens so the customer
