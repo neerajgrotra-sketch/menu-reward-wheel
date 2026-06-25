@@ -237,20 +237,27 @@ export function TouchpointMenuPage({
   // ── fetchOrders — always fetches from server, no local cache ─────────────────
   const fetchOrders = useCallback(async (sid: string) => {
     setOrdersFetching(true);
+    console.log('[STEP_3_FETCH_ORDERS_START]', sid);
     console.log('[MYORDERS][DRAWER_FETCH]', { sid });
     try {
       const res = await fetch(`/api/public/sessions/${sid}/orders`);
+      console.log('[TRACE_1_STATUS]', res.status);
       if (!res.ok) return;
       const data = await res.json() as {
         orders?: SessionOrder[];
         session_status?: string;
         orders_count?: number;
       };
+      console.log('[STEP_4_FETCH_RESPONSE]', { session_status: data.session_status, orders: data.orders?.length });
+      console.log('[TRACE_2_RAW_RESPONSE]', data);
+      console.log('[SESSION_STATUS_FROM_API]', data.session_status);
 
       if (data.session_status && data.session_status !== 'active') {
         try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
         setConfirmedSessionId(null);
+        console.log('[STEP_5_CLEAR_ORDERS]');
         setSessionOrders([]);
+        console.log('[STEP_5_PHASE_CHANGE]', 'session_ended (status_check)');
         setSessionPhase('session_ended');
         setOrdersDrawerOpen(false);
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: 'session_status', status: data.session_status });
@@ -258,8 +265,10 @@ export function TouchpointMenuPage({
       }
 
       const orders = data.orders ?? [];
+      console.log('[TRACE_3_ORDERS_BEFORE_SET]', orders);
+      console.log('[STEP_5_SET_ORDERS]', orders.length);
       setSessionOrders(orders);
-      console.log('[MYORDERS][SERVER_ORDER_COUNT]', { orders_len: orders.length });
+      console.log('[TRACE_4_SET_SESSION_ORDERS]', orders.length);
     } catch { /* network error — silent */ }
     finally {
       setOrdersFetching(false);
@@ -272,6 +281,7 @@ export function TouchpointMenuPage({
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
 
+    console.log('[STEP_5_PHASE_CHANGE]', 'resolving');
     setSessionPhase('resolving');
     setConfirmedSessionId(null);
 
@@ -299,6 +309,7 @@ export function TouchpointMenuPage({
 
         if (!res.ok) {
           console.log('[SESSION][PHASE_TRANSITION]', { to: 'resolve_failed', reason: 'non_ok_response' });
+          console.log('[STEP_5_PHASE_CHANGE]', 'resolve_failed (non_ok)');
           setSessionPhase('resolve_failed');
           return;
         }
@@ -310,6 +321,7 @@ export function TouchpointMenuPage({
         try { sessionStorage.setItem(sKey, sessionId); } catch { /* ignore */ }
 
         setConfirmedSessionId(sessionId);
+        console.log('[STEP_5_PHASE_CHANGE]', 'confirmed');
         setSessionPhase('confirmed');
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'confirmed', confirmedSessionId: sessionId });
         fetchOrders(sessionId);
@@ -318,6 +330,7 @@ export function TouchpointMenuPage({
         clearTimeout(timeout);
         const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout_3000ms' : 'network_error';
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'resolve_failed', reason });
+        console.log('[STEP_5_PHASE_CHANGE]', `resolve_failed (${reason})`);
         setSessionPhase('resolve_failed');
       }
     }
@@ -363,6 +376,8 @@ export function TouchpointMenuPage({
 
   // ── Order placed — refetch immediately from server ───────────────────────────
   const handleOrderPlaced = useCallback(() => {
+    console.log('[STEP_2_ON_ORDER_PLACED]');
+    console.log('[FETCH_ORDERS_CALLED]', confirmedSessionId);
     if (confirmedSessionId) {
       console.log('[MYORDERS][ORDER_PLACED_REFETCH]', { confirmedSessionId });
       fetchOrders(confirmedSessionId);
@@ -373,7 +388,9 @@ export function TouchpointMenuPage({
   const handleSessionEnded = useCallback(() => {
     try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
     setConfirmedSessionId(null);
+    console.log('[STEP_5_CLEAR_ORDERS]');
     setSessionOrders([]);
+    console.log('[STEP_5_PHASE_CHANGE]', 'session_ended (409)');
     setSessionPhase('session_ended');
     console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: '409_session_invalid' });
   }, [sKey]);
@@ -401,6 +418,15 @@ export function TouchpointMenuPage({
   const touchpointLabel = touchpoint.section_name
     ? `${touchpoint.section_name} — ${touchpoint.name}`
     : touchpoint.name;
+
+  const ordersLength = sessionOrders.length;
+  const showMyOrders = sessionPhase === 'confirmed' && ordersLength > 0;
+  console.log('[TRACE_5_RENDER]', {
+    sessionPhase,
+    ordersCount: ordersLength,
+    sessionOrdersLength: sessionOrders.length,
+    showMyOrders,
+  });
 
   return (
     <div>

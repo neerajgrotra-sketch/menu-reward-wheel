@@ -1357,6 +1357,7 @@ export function RestaurantPublicPage({
           >
             {/* Action bar: My Orders + Filter */}
             <div className="flex items-center justify-end gap-2 px-4 pb-2 pt-3">
+              {(console.log('[STEP_6_RENDER]', { sessionConfirmed, sessionOrderCount, hasOnClick: !!onMyOrdersClick }), null)}
               {sessionConfirmed === true && sessionOrderCount > 0 && onMyOrdersClick && (
                 <button
                   type="button"

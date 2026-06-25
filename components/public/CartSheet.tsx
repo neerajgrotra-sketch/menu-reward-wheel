@@ -101,6 +101,8 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
         return;
       }
 
+      console.log('[STEP_1_ORDER_SUCCESS]');
+      console.log('[ORDER_SUCCESS]', data);
       setConfirmedOrderNumber(data.order.order_number);
       setConfirmedOrderId(data.order.id);
       setOrderState('success');
