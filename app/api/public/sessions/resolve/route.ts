@@ -159,6 +159,17 @@ export async function POST(req: NextRequest) {
             })
             .eq('id', existingSession.id)
             .eq('status', 'active');
+        } else {
+          // Same device reconnecting (refresh/navigate) — reset the stale clock so
+          // sessions don't expire mid-visit for customers who stop browsing after ordering.
+          await supabase
+            .from('visit_sessions')
+            .update({
+              last_activity_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingSession.id)
+            .eq('status', 'active');
         }
 
         // Append qr_scan event to interaction log

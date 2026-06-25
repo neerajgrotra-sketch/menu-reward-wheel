@@ -219,7 +219,6 @@ export function TouchpointMenuPage({
 }: Props) {
   // ── Session state ───────────────────────────────────────────────────────────
   const [visitSessionId, setVisitSessionId] = useState<string | null>(null);
-  const [sessionResolved, setSessionResolved] = useState(false);
   // Task 7: false when restaurant ends the session
   const [sessionActive, setSessionActive] = useState(true);
 
@@ -229,6 +228,10 @@ export function TouchpointMenuPage({
   // Optimistic flag: set true when CartSheet fires onOrderPlaced so My Orders
   // button appears instantly without waiting for fetchOrders to resolve.
   const [hasOptimisticOrder, setHasOptimisticOrder] = useState(false);
+
+  // Tracks the sequence of fetchOrders calls so stale responses never overwrite
+  // a more-recent result (race condition: resolve-fetch vs handleOrderPlaced-fetch).
+  const fetchOrdersSeqRef = useRef(0);
 
   // ── View tracking ───────────────────────────────────────────────────────────
   const viewBatchRef = useRef(0);
@@ -246,11 +249,16 @@ export function TouchpointMenuPage({
     } catch { /* sessionStorage unavailable */ }
   }, [oKey]);
 
-  // ── Task 7: fetchOrders — also handles session invalidation ─────────────────
+  // ── fetchOrders — also handles session invalidation ─────────────────────────
   const fetchOrders = useCallback(async (sid: string) => {
+    // Claim a sequence number. Any response that arrives after a newer call
+    // was started is discarded — prevents a stale resolve-fetch from wiping
+    // out orders that a later handleOrderPlaced-fetch already wrote.
+    const seq = ++fetchOrdersSeqRef.current;
     try {
       const res = await fetch(`/api/public/sessions/${sid}/orders`);
       if (!res.ok) return;
+      if (seq !== fetchOrdersSeqRef.current) return; // superseded by a newer call
       const data = await res.json() as { orders?: SessionOrder[]; session_status?: string };
 
       if (data.session_status && data.session_status !== 'active') {
@@ -285,6 +293,13 @@ export function TouchpointMenuPage({
       let knownSessionId: string | null = null;
       try { knownSessionId = sessionStorage.getItem(sKey); } catch { /* ignore */ }
 
+      // Optimistically restore cached session identity before the server round-trip.
+      // This eliminates the "new session" visual flash on refresh and ensures any
+      // order placed during resolve latency is sent with the correct session ID.
+      if (knownSessionId && !cancelled) {
+        setVisitSessionId(knownSessionId);
+      }
+
       try {
         const res = await fetch('/api/public/sessions/resolve', {
           method: 'POST',
@@ -305,13 +320,10 @@ export function TouchpointMenuPage({
 
         if (!cancelled) {
           setVisitSessionId(sessionId);
-          setSessionResolved(true);
-          // Task 1: Immediately fetch orders so returning customers see their history
+          // Immediately fetch orders so returning customers see their history
           fetchOrders(sessionId);
         }
-      } catch {
-        if (!cancelled) setSessionResolved(true);
-      }
+      } catch { /* network error — session resolve failed, optimistic ID (if any) remains */ }
     }
 
     resolve();
@@ -356,7 +368,7 @@ export function TouchpointMenuPage({
     ? `${touchpoint.section_name} — ${touchpoint.name}`
     : touchpoint.name;
 
-  const showSession = sessionResolved && !!visitSessionId && sessionActive;
+  const showSession = !!visitSessionId && sessionActive;
   const hasOrders = sessionOrders.length > 0;
 
   return (
@@ -384,8 +396,14 @@ export function TouchpointMenuPage({
         touchpointName={touchpointLabel}
         onItemViewed={handleItemViewed}
         onOrderPlaced={handleOrderPlaced}
-        sessionOrderCount={hasOptimisticOrder ? Math.max(1, sessionOrders.length) : sessionOrders.length}
-        onMyOrdersClick={() => setOrdersDrawerOpen(true)}
+        sessionOrderCount={hasOptimisticOrder ? sessionOrders.length + 1 : sessionOrders.length}
+        onMyOrdersClick={() => {
+          setOrdersDrawerOpen(true);
+          // Fetch fresh orders each time the drawer opens so the customer
+          // always sees the latest state, even if the background fetch
+          // from handleOrderPlaced hasn't completed yet.
+          if (visitSessionId) fetchOrders(visitSessionId);
+        }}
       />
 
       {/* Task 4: Orders drawer */}
