@@ -234,10 +234,12 @@ export function TouchpointMenuPage({
   // button appears instantly without waiting for fetchOrders to resolve.
   const [hasOptimisticOrder, setHasOptimisticOrder] = useState(false);
 
-  // Tracks which session the latest fetchOrders call targets. Responses for an
-  // old session that arrive after visitSessionId has changed are discarded.
-  // Same-session concurrent fetches are all accepted — orders only grow.
+  // Two-layer guard for fetchOrders responses:
+  //   fetchSessionRef — rejects cross-session responses (session changed mid-flight)
+  //   fetchSeqRef     — rejects stale same-session responses (later fetch started first)
+  // When the session changes, both reset so the new session's seq starts at 0.
   const fetchSessionRef = useRef<string | null>(null);
+  const fetchSeqRef = useRef(0);
 
   // ── View tracking ───────────────────────────────────────────────────────────
   const viewBatchRef = useRef(0);
@@ -277,18 +279,24 @@ export function TouchpointMenuPage({
 
   // ── fetchOrders — also handles session invalidation ─────────────────────────
   const fetchOrders = useCallback(async (sid: string) => {
-    // Mark this session as the active fetch target. Responses for an old session
-    // that arrive after visitSessionId changed are discarded. Concurrent fetches
-    // for the SAME session are all accepted — orders only grow, so whichever
-    // response arrives last wins without data loss.
-    fetchSessionRef.current = sid;
+    // Layer 1: session guard — reset sequence when session changes.
+    if (fetchSessionRef.current !== sid) {
+      fetchSeqRef.current = 0;
+      fetchSessionRef.current = sid;
+    }
+    // Layer 2: sequence guard — only the latest in-flight fetch for this session
+    // may commit to state. Prevents an older request with fewer orders (captured
+    // before a new order was placed) from overwriting a newer request's result.
+    const seq = ++fetchSeqRef.current;
     setOrdersFetching(true);
-    console.log('[my-orders] fetch started', { sid });
+    console.log('[my-orders] fetch started', { sid, seq });
     try {
       const res = await fetch(`/api/public/sessions/${sid}/orders`);
       if (!res.ok) return;
-      // Discard only if the session changed while this request was in-flight
+      // Discard cross-session responses
       if (fetchSessionRef.current !== sid) return;
+      // Discard stale same-session responses — a newer fetch already started
+      if (seq !== fetchSeqRef.current) return;
       const data = await res.json() as { orders?: SessionOrder[]; session_status?: string };
 
       if (data.session_status && data.session_status !== 'active') {
@@ -319,9 +327,10 @@ export function TouchpointMenuPage({
       } catch { /* ignore */ }
     } catch { /* network error — silent, analytics never block */ }
     finally {
-      // Clear the fetching flag only if this session is still the active one.
-      // If visitSessionId changed, the new fetchOrders call owns the flag.
-      if (fetchSessionRef.current === sid) setOrdersFetching(false);
+      // Only the latest in-flight fetch for this session clears the loading flag.
+      if (fetchSessionRef.current === sid && seq === fetchSeqRef.current) {
+        setOrdersFetching(false);
+      }
     }
   }, [sKey, oKey]);
 
