@@ -296,6 +296,8 @@ export async function POST(req: NextRequest) {
     const nextOrderNumber = counterData as number;
 
     // 13. Validate visit_session_id if provided
+    // Rule 4: if a session ID is supplied but is not active, reject with 409.
+    // Never silently detach the session and insert an orphan order.
     let resolvedSessionId: string | null = null;
     if (visit_session_id) {
       const { data: sessionRow } = await supabase
@@ -305,8 +307,15 @@ export async function POST(req: NextRequest) {
         .eq('restaurant_id', restaurant_id)
         .eq('status', 'active')
         .maybeSingle();
-      // Only attach if session is active and belongs to this restaurant
-      resolvedSessionId = sessionRow?.id ?? null;
+
+      if (!sessionRow) {
+        console.warn('[SESSION][ORDER_REJECTED]', { visit_session_id, restaurant_id, reason: 'session_not_active' });
+        return NextResponse.json(
+          { error: 'SESSION_INVALID', message: 'Dining session is no longer active.' },
+          { status: 409 },
+        );
+      }
+      resolvedSessionId = sessionRow.id;
     }
 
     // 14. Insert order
@@ -367,33 +376,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 16. Update session analytics — best effort, never blocks order confirmation
+    // 16. Update session analytics
+    // increment_session_counters is awaited so orders_count is authoritative before 201 returns.
+    // append_session_interaction is fire-and-forget (analytics, non-blocking).
     if (resolvedSessionId) {
       const sid = resolvedSessionId;
-      Promise.resolve(
-        supabase.rpc('increment_session_counters', {
-          p_session_id: sid,
-          p_orders_delta: 1,
-          p_spend_delta: subtotal,
-        }),
-      )
-        .then(() =>
-          Promise.resolve(
-            supabase.rpc('append_session_interaction', {
-              p_session_id: sid,
-              p_event: {
-                event: 'order_submitted',
-                order_id: order.id,
-                order_number: nextOrderNumber,
-                subtotal,
-                ts: new Date().toISOString(),
-              },
-            }),
-          ),
-        )
-        .catch((err: unknown) => {
-          console.error('[spinbite:orders] session counter update failed', err);
-        });
+      const { error: incrErr } = await supabase.rpc('increment_session_counters', {
+        p_session_id: sid,
+        p_orders_delta: 1,
+        p_spend_delta: subtotal,
+      });
+      if (incrErr) {
+        console.error('[SESSION][COUNTER_UPDATE_FAILED]', incrErr.message);
+      }
+      Promise.resolve(supabase.rpc('append_session_interaction', {
+        p_session_id: sid,
+        p_event: {
+          event: 'order_submitted',
+          order_id: order.id,
+          order_number: nextOrderNumber,
+          subtotal,
+          ts: new Date().toISOString(),
+        },
+      })).catch((err: unknown) => {
+        console.error('[spinbite:orders] session interaction log failed', err);
+      });
     }
 
     console.log('[spinbite:orders] created', {

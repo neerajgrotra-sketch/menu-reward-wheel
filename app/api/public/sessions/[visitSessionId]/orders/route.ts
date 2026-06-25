@@ -31,7 +31,7 @@ export async function GET(
     // Verify session exists (UUID is the capability token — possession = access)
     const { data: session, error: sessionError } = await supabase
       .from('visit_sessions')
-      .select('id, status, restaurant_id')
+      .select('id, status, restaurant_id, orders_count')
       .eq('id', visitSessionId)
       .maybeSingle();
 
@@ -59,7 +59,8 @@ export async function GET(
     console.log('[session-orders-api] orders count', orderList.length);
     console.log('[session-orders-api] order numbers returned', orderList.map((o) => o.order_number));
 
-    return NextResponse.json({ orders: orderList, session_status: session.status });
+    console.log('[ORDERS][SESSION_ORDERS_FETCHED]', { visitSessionId, orders_count: session.orders_count, returned: orderList.length });
+    return NextResponse.json({ orders: orderList, session_status: session.status, orders_count: session.orders_count ?? 0 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });

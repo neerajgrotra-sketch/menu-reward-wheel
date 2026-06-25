@@ -498,3 +498,35 @@ Forbidden:
 The `touchpoint_code` field on `restaurant_touchpoints` is the URL-safe identifier.
 It is scoped to the restaurant — uniqueness is `UNIQUE(restaurant_id, touchpoint_code)`, not global.
 It is stable once printed. Changing it invalidates physical QR codes — warn the user.
+
+
+---
+
+## Rule 34 — Browser Cache Is Never Authoritative Session State
+
+`sessionStorage` visit session data is a candidate hint only — never an active session identifier.
+
+The backend resolve endpoint (`POST /api/public/sessions/resolve`) is the sole authority for active dining session identity.
+
+`confirmedSessionId` is only ever set from a successful resolve response.
+
+No component may use a cached session ID for transactional actions (ordering, coupon issuance, analytics attribution, My Orders) without a confirmed session.
+
+Specific prohibitions:
+
+- Never call `setState(cachedSessionId)` before backend validation
+- Never allow `add to cart`, `place order`, `My Orders`, or coupon issuance while `sessionPhase !== 'confirmed'`
+- Never silently degrade an invalid `visit_session_id` to `null` in the orders API — return `409 SESSION_INVALID`
+- Never insert an order with a detached `visit_session_id = null` when a session was provided but invalid
+
+Session phase state machine:
+
+```
+'resolving'      → backend round-trip in-flight (3s timeout)
+'confirmed'      → backend returned active session; confirmedSessionId is set
+'session_ended'  → session completed or abandoned
+'resolve_failed' → timeout or network error; show retry
+```
+
+Passive engagement (menu browse, promotions, AI) is always allowed.
+Transactional actions require `sessionPhase === 'confirmed'`.

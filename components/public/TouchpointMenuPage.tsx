@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
 import type {
   PublicRestaurant,
@@ -11,6 +12,8 @@ import type {
 import type { PublicTouchpoint } from '@/app/r/[restaurantSlug]/[touchpointCode]/page';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export type SessionPhase = 'resolving' | 'confirmed' | 'session_ended' | 'resolve_failed';
 
 type SessionOrder = {
   id: string;
@@ -32,13 +35,12 @@ type SessionOrder = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SS_PREFIX = 'spinbite_vs_';
-const POLL_MS = 15_000;
 const TICK_MS = 30_000;
+const RESOLVE_TIMEOUT_MS = 3_000;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function sessionKey(code: string) { return `${SS_PREFIX}${code}`; }
-function ordersKey(code: string)  { return `${SS_PREFIX}${code}_orders`; }
 
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
@@ -69,7 +71,6 @@ function relativeTime(iso: string): string {
 }
 
 // ─── Orders Drawer ─────────────────────────────────────────────────────────────
-// Task 4: Full-screen drawer showing all session orders
 
 function OrdersDrawer({
   orders,
@@ -84,7 +85,6 @@ function OrdersDrawer({
   onClose: () => void;
   fetching: boolean;
 }) {
-  // Local tick for relative-time re-renders without prop drilling
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), TICK_MS);
@@ -92,7 +92,6 @@ function OrdersDrawer({
   }, []);
   void tick;
 
-  // iOS scroll lock while drawer is open
   useEffect(() => {
     const scrollY = window.scrollY;
     document.body.style.overflow = 'hidden';
@@ -112,17 +111,13 @@ function OrdersDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
 
-      {/* Sheet */}
       <div className="relative z-10 flex max-h-[85dvh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl">
-        {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="h-1 w-10 rounded-full bg-stone-300" />
         </div>
 
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-stone-100 px-5 py-3">
           <div>
             <h2 className="text-lg font-black text-stone-900">My Orders</h2>
@@ -138,7 +133,6 @@ function OrdersDrawer({
           </button>
         </div>
 
-        {/* Summary bar */}
         {orders.length > 0 && (
           <div className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-5 py-2.5">
             <p className="text-xs font-semibold text-stone-500">
@@ -150,7 +144,6 @@ function OrdersDrawer({
           </div>
         )}
 
-        {/* Order list */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 pb-8">
           {orders.length === 0 && fetching ? (
             <p className="py-12 text-center text-sm text-stone-400">Loading orders…</p>
@@ -162,7 +155,6 @@ function OrdersDrawer({
                 key={order.id}
                 className="rounded-2xl border border-stone-100 bg-white p-4 shadow-sm"
               >
-                {/* Order header */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-black text-stone-900">
@@ -177,7 +169,6 @@ function OrdersDrawer({
                   </p>
                 </div>
 
-                {/* Items */}
                 <div className="mt-2 space-y-0.5">
                   {order.order_items.map((item) => (
                     <p key={item.id} className="text-xs text-stone-600">
@@ -186,7 +177,6 @@ function OrdersDrawer({
                   ))}
                 </div>
 
-                {/* Subtotal */}
                 <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-2">
                   <p className="text-xs font-semibold text-stone-400">Subtotal</p>
                   <p className="text-sm font-black text-stone-800">
@@ -221,25 +211,21 @@ export function TouchpointMenuPage({
   orderingEnabled,
   touchpoint,
 }: Props) {
-  // ── Session state ───────────────────────────────────────────────────────────
-  const [visitSessionId, setVisitSessionId] = useState<string | null>(null);
-  // Task 7: false when restaurant ends the session
-  const [sessionActive, setSessionActive] = useState(true);
+  // ── Session state machine ───────────────────────────────────────────────────
+  // Rule 1: Browser cache is NEVER authoritative. Backend is the sole authority.
+  // Rule 2: candidateSessionId is read from sessionStorage as a hint ONLY, never put in state.
+  // Rule 3: All transactional actions blocked until sessionPhase === 'confirmed'.
+  const [sessionPhase, setSessionPhase] = useState<SessionPhase>('resolving');
+  const [confirmedSessionId, setConfirmedSessionId] = useState<string | null>(null);
+  const [resolveAttempt, setResolveAttempt] = useState(0);
 
-  // ── Orders state (Task 2) ───────────────────────────────────────────────────
+  // ── Orders state ─────────────────────────────────────────────────────────────
+  // ordersCount comes from the DB orders_count column — authoritative counter.
+  // sessionOrders is the full order list for the drawer.
   const [sessionOrders, setSessionOrders] = useState<SessionOrder[]>([]);
+  const [ordersCount, setOrdersCount] = useState(0);
   const [ordersDrawerOpen, setOrdersDrawerOpen] = useState(false);
   const [ordersFetching, setOrdersFetching] = useState(false);
-  // Optimistic flag: set true when CartSheet fires onOrderPlaced so My Orders
-  // button appears instantly without waiting for fetchOrders to resolve.
-  const [hasOptimisticOrder, setHasOptimisticOrder] = useState(false);
-
-  // Two-layer guard for fetchOrders responses:
-  //   fetchSessionRef — rejects cross-session responses (session changed mid-flight)
-  //   fetchSeqRef     — rejects stale same-session responses (later fetch started first)
-  // When the session changes, both reset so the new session's seq starts at 0.
-  const fetchSessionRef = useRef<string | null>(null);
-  const fetchSeqRef = useRef(0);
 
   // ── View tracking ───────────────────────────────────────────────────────────
   const viewBatchRef = useRef(0);
@@ -247,107 +233,57 @@ export function TouchpointMenuPage({
 
   const brandColor = restaurant.brand_color || '#FF6B00';
   const sKey = sessionKey(touchpoint.touchpoint_code);
-  const oKey = ordersKey(touchpoint.touchpoint_code);
 
-  // ── Restore cached orders on mount — only if cache belongs to the same session ─
-  // Cache is stored as { sessionId, orders } so stale orders from a previous
-  // session at the same table are not shown after a new session is created.
-  useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(oKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      const knownSessionId = sessionStorage.getItem(sKey);
-
-      if (Array.isArray(parsed)) {
-        // Legacy format written before this fix — restore unconditionally once
-        console.log('[my-orders] restored cache count (legacy)', parsed.length);
-        setSessionOrders(parsed as SessionOrder[]);
-      } else if (
-        parsed && typeof parsed === 'object' && 'sessionId' in parsed && 'orders' in parsed &&
-        Array.isArray((parsed as { orders: unknown }).orders)
-      ) {
-        const { sessionId, orders } = parsed as { sessionId: string; orders: SessionOrder[] };
-        // Only restore if the cached session matches the last-known session in storage
-        if (knownSessionId && sessionId === knownSessionId) {
-          console.log('[my-orders] restored cache count', orders.length);
-          setSessionOrders(orders);
-        }
-      }
-    } catch { /* sessionStorage unavailable */ }
-  }, [oKey, sKey]);
-
-  // ── fetchOrders — also handles session invalidation ─────────────────────────
+  // ── fetchOrders — always fetches from server, no local cache ─────────────────
   const fetchOrders = useCallback(async (sid: string) => {
-    // Layer 1: session guard — reset sequence when session changes.
-    if (fetchSessionRef.current !== sid) {
-      fetchSeqRef.current = 0;
-      fetchSessionRef.current = sid;
-    }
-    // Layer 2: sequence guard — only the latest in-flight fetch for this session
-    // may commit to state. Prevents an older request with fewer orders (captured
-    // before a new order was placed) from overwriting a newer request's result.
-    const seq = ++fetchSeqRef.current;
     setOrdersFetching(true);
-    console.log('[my-orders] fetch started', { sid, seq });
+    console.log('[MYORDERS][DRAWER_FETCH]', { sid });
     try {
       const res = await fetch(`/api/public/sessions/${sid}/orders`);
       if (!res.ok) return;
-      // Discard cross-session responses
-      if (fetchSessionRef.current !== sid) return;
-      // Discard stale same-session responses — a newer fetch already started
-      if (seq !== fetchSeqRef.current) return;
-      const data = await res.json() as { orders?: SessionOrder[]; session_status?: string };
+      const data = await res.json() as {
+        orders?: SessionOrder[];
+        session_status?: string;
+        orders_count?: number;
+      };
 
       if (data.session_status && data.session_status !== 'active') {
-        // Restaurant ended the session — clear all session state
-        try {
-          sessionStorage.removeItem(sKey);
-          sessionStorage.removeItem(oKey);
-        } catch { /* ignore */ }
-        setVisitSessionId(null);
+        try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
+        setConfirmedSessionId(null);
         setSessionOrders([]);
-        setHasOptimisticOrder(false);
-        setSessionActive(false);
+        setOrdersCount(0);
+        setSessionPhase('session_ended');
         setOrdersDrawerOpen(false);
+        console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: 'session_status', status: data.session_status });
         return;
       }
 
-      const orders: SessionOrder[] = data.orders ?? [];
-      console.log('[my-orders] server orders count', orders.length);
+      const orders = data.orders ?? [];
+      const count = data.orders_count ?? 0;
       setSessionOrders(orders);
-      // Server data is authoritative — always clear the optimistic flag so the
-      // button count matches real data, even when the server returns an empty list.
-      setHasOptimisticOrder(false);
-      console.log('[my-orders] state set count', orders.length);
-      try {
-        // Store with sessionId so the cache restore can reject stale data from
-        // a previous session at the same table.
-        sessionStorage.setItem(oKey, JSON.stringify({ sessionId: sid, orders }));
-      } catch { /* ignore */ }
-    } catch { /* network error — silent, analytics never block */ }
+      setOrdersCount(count);
+      console.log('[MYORDERS][SERVER_ORDER_COUNT]', { orders_count: count, orders_len: orders.length });
+    } catch { /* network error — silent */ }
     finally {
-      // Only the latest in-flight fetch for this session clears the loading flag.
-      if (fetchSessionRef.current === sid && seq === fetchSeqRef.current) {
-        setOrdersFetching(false);
-      }
+      setOrdersFetching(false);
     }
-  }, [sKey, oKey]);
+  }, [sKey]);
 
-  // ── Session resolution on mount ──────────────────────────────────────────────
+  // ── Session resolution — runs on mount and on explicit retry ─────────────────
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), RESOLVE_TIMEOUT_MS);
+
+    setSessionPhase('resolving');
+    setConfirmedSessionId(null);
 
     async function resolve() {
-      let knownSessionId: string | null = null;
-      try { knownSessionId = sessionStorage.getItem(sKey); } catch { /* ignore */ }
+      // candidateSessionId is a hint ONLY — never assigned to state directly
+      let candidateSessionId: string | null = null;
+      try { candidateSessionId = sessionStorage.getItem(sKey); } catch { /* ignore */ }
 
-      // Optimistically restore cached session identity before the server round-trip.
-      // This eliminates the "new session" visual flash on refresh and ensures any
-      // order placed during resolve latency is sent with the correct session ID.
-      if (knownSessionId && !cancelled) {
-        setVisitSessionId(knownSessionId);
-      }
+      console.log('[SESSION][RESOLVE_START]', { candidateSessionId, attempt: resolveAttempt });
 
       try {
         const res = await fetch('/api/public/sessions/resolve', {
@@ -356,59 +292,111 @@ export function TouchpointMenuPage({
           body: JSON.stringify({
             restaurant_id: restaurant.id,
             touchpoint_id: touchpoint.id,
-            known_session_id: knownSessionId,
+            known_session_id: candidateSessionId,
           }),
+          signal: controller.signal,
         });
 
-        if (!res.ok || cancelled) return;
+        clearTimeout(timeout);
+        if (cancelled) return;
+
+        if (!res.ok) {
+          console.log('[SESSION][PHASE_TRANSITION]', { to: 'resolve_failed', reason: 'non_ok_response' });
+          setSessionPhase('resolve_failed');
+          return;
+        }
 
         const data = await res.json() as { visit_session_id: string };
         const sessionId = data.visit_session_id;
 
+        // Write confirmed session to cache so future resolves can send the correct hint
         try { sessionStorage.setItem(sKey, sessionId); } catch { /* ignore */ }
 
-        if (!cancelled) {
-          setVisitSessionId(sessionId);
-          // Immediately fetch orders so returning customers see their history
-          fetchOrders(sessionId);
-        }
-      } catch { /* network error — session resolve failed, optimistic ID (if any) remains */ }
+        setConfirmedSessionId(sessionId);
+        setSessionPhase('confirmed');
+        console.log('[SESSION][PHASE_TRANSITION]', { to: 'confirmed', confirmedSessionId: sessionId });
+        fetchOrders(sessionId);
+      } catch (err) {
+        if (cancelled) return;
+        clearTimeout(timeout);
+        const reason = err instanceof Error && err.name === 'AbortError' ? 'timeout_3000ms' : 'network_error';
+        console.log('[SESSION][PHASE_TRANSITION]', { to: 'resolve_failed', reason });
+        setSessionPhase('resolve_failed');
+      }
     }
 
     resolve();
-    return () => { cancelled = true; };
-  }, [restaurant.id, touchpoint.id, sKey, fetchOrders]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  // resolveAttempt is the retry counter — incrementing it re-runs this effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurant.id, touchpoint.id, sKey, resolveAttempt, fetchOrders]);
 
-  // ── Polling after session is known ──────────────────────────────────────────
+  // ── Supabase realtime subscription — order INSERT/UPDATE triggers a server refetch ─
   useEffect(() => {
-    if (!visitSessionId) return;
-    const poll = setInterval(() => fetchOrders(visitSessionId), POLL_MS);
-    return () => clearInterval(poll);
-  }, [visitSessionId, fetchOrders]);
+    if (!confirmedSessionId) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`session-orders-${confirmedSessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `visit_session_id=eq.${confirmedSessionId}`,
+        },
+        () => {
+          console.log('[MYORDERS][REALTIME_EVENT]', { confirmedSessionId });
+          fetchOrders(confirmedSessionId);
+        },
+      )
+      .subscribe();
 
-  // ── Task 5: onOrderPlaced — optimistic update + immediate server refresh ─────
+    return () => { supabase.removeChannel(channel); };
+  }, [confirmedSessionId, fetchOrders]);
+
+  // ── Retry resolve ────────────────────────────────────────────────────────────
+  const retryResolve = useCallback(() => {
+    setResolveAttempt((n) => n + 1);
+  }, []);
+
+  // ── Order placed — refetch immediately from server ───────────────────────────
   const handleOrderPlaced = useCallback(() => {
-    // Show My Orders button immediately without waiting for fetchOrders to resolve
-    setHasOptimisticOrder(true);
-    console.log('[my-orders] optimistic flag state', true);
-    if (visitSessionId) fetchOrders(visitSessionId);
-  }, [visitSessionId, fetchOrders]);
+    if (confirmedSessionId) {
+      console.log('[MYORDERS][ORDER_PLACED_REFETCH]', { confirmedSessionId });
+      fetchOrders(confirmedSessionId);
+    }
+  }, [confirmedSessionId, fetchOrders]);
+
+  // ── Session ended (from 409 in CartSheet) ───────────────────────────────────
+  const handleSessionEnded = useCallback(() => {
+    try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
+    setConfirmedSessionId(null);
+    setSessionOrders([]);
+    setOrdersCount(0);
+    setSessionPhase('session_ended');
+    console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: '409_session_invalid' });
+  }, [sKey]);
 
   // ── Debounced item view tracking ─────────────────────────────────────────────
   const handleItemViewed = useCallback((itemId?: string) => {
-    if (!visitSessionId) return;
+    if (!confirmedSessionId) return;
     viewBatchRef.current += 1;
     if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
     viewTimerRef.current = setTimeout(() => {
       const count = viewBatchRef.current;
       viewBatchRef.current = 0;
-      fetch(`/api/public/sessions/${visitSessionId}/track`, {
+      fetch(`/api/public/sessions/${confirmedSessionId}/track`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items_viewed_count: count, event_type: 'item_view', item_id: itemId }),
-      }).catch(() => {/* analytics — silent */});
+      }).catch(() => { /* analytics — silent */ });
     }, 3_000);
-  }, [visitSessionId]);
+  }, [confirmedSessionId]);
 
   useEffect(() => {
     return () => { if (viewTimerRef.current) clearTimeout(viewTimerRef.current); };
@@ -418,16 +406,10 @@ export function TouchpointMenuPage({
     ? `${touchpoint.section_name} — ${touchpoint.name}`
     : touchpoint.name;
 
-  const showSession = !!visitSessionId && sessionActive;
-  // True while the session handshake is pending or the table session has ended.
-  // Used to disable Place Order and show a connecting label in CartSheet.
-  const sessionConnecting = !visitSessionId || !sessionActive;
-  const hasOrders = sessionOrders.length > 0;
-
   return (
     <div>
-      {/* Session ribbon — informational only: touchpoint location */}
-      {showSession && (
+      {/* Session ribbon — shown only when session is confirmed */}
+      {sessionPhase === 'confirmed' && (
         <div
           className="sticky top-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-black text-white shadow-sm"
           style={{ backgroundColor: brandColor }}
@@ -438,29 +420,64 @@ export function TouchpointMenuPage({
         </div>
       )}
 
-      {/* Main public menu — passes session context down */}
+      {/* Connecting banner */}
+      {sessionPhase === 'resolving' && (
+        <div className="sticky top-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 bg-stone-100 shadow-sm">
+          <span className="h-1.5 w-1.5 rounded-full bg-stone-400 animate-pulse" />
+          <span className="text-xs font-semibold text-stone-500">
+            Connecting to {touchpointLabel}…
+          </span>
+        </div>
+      )}
+
+      {/* Resolve failed banner + retry */}
+      {sessionPhase === 'resolve_failed' && (
+        <div className="sticky top-0 z-30 flex items-center justify-center gap-3 px-4 py-1.5 bg-red-50 shadow-sm">
+          <span className="text-xs font-semibold text-red-600">
+            Unable to connect to table session.
+          </span>
+          <button
+            type="button"
+            onClick={retryResolve}
+            className="rounded-full bg-red-100 px-3 py-1 text-xs font-black text-red-700 active:bg-red-200"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Session ended banner */}
+      {sessionPhase === 'session_ended' && (
+        <div className="sticky top-0 z-30 flex items-center justify-center px-4 py-1.5 bg-amber-50 shadow-sm">
+          <span className="text-xs font-semibold text-amber-700">
+            Your dining session has ended. Please rescan the QR code to order.
+          </span>
+        </div>
+      )}
+
+      {/* Main public menu — always renders regardless of session phase.
+          Promotions, menu browsing, and AI recommendations are always accessible.
+          Transactional actions are gated by sessionConfirmed inside RestaurantPublicPage. */}
       <RestaurantPublicPage
         restaurant={restaurant}
         sections={sections}
         promotion={promotion}
         promotionRewards={promotionRewards}
         orderingEnabled={orderingEnabled}
-        visitSessionId={visitSessionId}
+        confirmedSessionId={confirmedSessionId}
         touchpointName={touchpointLabel}
         onItemViewed={handleItemViewed}
         onOrderPlaced={handleOrderPlaced}
-        sessionOrderCount={hasOptimisticOrder ? sessionOrders.length + 1 : sessionOrders.length}
-        sessionConnecting={sessionConnecting}
+        sessionOrderCount={ordersCount}
+        sessionConfirmed={sessionPhase === 'confirmed'}
         onMyOrdersClick={() => {
           setOrdersDrawerOpen(true);
-          // Fetch fresh orders each time the drawer opens so the customer
-          // always sees the latest state, even if the background fetch
-          // from handleOrderPlaced hasn't completed yet.
-          if (visitSessionId) fetchOrders(visitSessionId);
+          if (confirmedSessionId) fetchOrders(confirmedSessionId);
+          console.log('[MYORDERS][RENDER]', { ordersCount, sessionPhase, confirmedSessionId });
         }}
+        onSessionEnded={handleSessionEnded}
       />
 
-      {/* Task 4: Orders drawer */}
       {ordersDrawerOpen && (
         <OrdersDrawer
           orders={sessionOrders}

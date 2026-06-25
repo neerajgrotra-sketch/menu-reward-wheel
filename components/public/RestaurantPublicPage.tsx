@@ -989,26 +989,29 @@ export function RestaurantPublicPage({
   promotion,
   promotionRewards,
   orderingEnabled = false,
-  visitSessionId = null,
+  confirmedSessionId = null,
   touchpointName = null,
   onItemViewed,
   onOrderPlaced,
   sessionOrderCount = 0,
   onMyOrdersClick,
-  sessionConnecting = false,
+  sessionConfirmed,
+  onSessionEnded,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
   promotion?: PublicPromotion | null;
   promotionRewards?: PublicReward[];
   orderingEnabled?: boolean;
-  visitSessionId?: string | null;
+  confirmedSessionId?: string | null;
   touchpointName?: string | null;
   onItemViewed?: (itemId?: string) => void;
   onOrderPlaced?: () => void;
   sessionOrderCount?: number;
   onMyOrdersClick?: () => void;
-  sessionConnecting?: boolean;
+  // undefined = no session context (direct URL); false = resolving/failed/ended; true = active
+  sessionConfirmed?: boolean;
+  onSessionEnded?: () => void;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -1017,8 +1020,11 @@ export function RestaurantPublicPage({
   const hasPromotion = !!promotion;
   // Append vsid to play URL when in a session context so promotion interactions are attributed
   const playUrlBase = promotion ? `/play/${restaurant.slug}/${promotion.slug}` : '';
-  const playUrl = playUrlBase && visitSessionId
-    ? `${playUrlBase}?vsid=${visitSessionId}`
+  // Transactional actions require a confirmed session (or no session context on direct-URL pages)
+  const transactionAllowed = sessionConfirmed !== false;
+
+  const playUrl = playUrlBase && confirmedSessionId
+    ? `${playUrlBase}?vsid=${confirmedSessionId}`
     : playUrlBase;
 
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -1351,7 +1357,7 @@ export function RestaurantPublicPage({
           >
             {/* Action bar: My Orders + Filter */}
             <div className="flex items-center justify-end gap-2 px-4 pb-2 pt-3">
-              {sessionOrderCount > 0 && onMyOrdersClick && (
+              {sessionConfirmed === true && sessionOrderCount > 0 && onMyOrdersClick && (
                 <button
                   type="button"
                   onClick={onMyOrdersClick}
@@ -1491,7 +1497,7 @@ export function RestaurantPublicPage({
                       brandColor={brandColor}
                       accentColor={accentColor}
                       onTap={() => openSheet(item)}
-                      onAddToCart={orderingEnabled ? () => cart.addItem(
+                      onAddToCart={orderingEnabled && transactionAllowed ? () => cart.addItem(
                         {
                           menu_item_id: item.id,
                           name: item.name,
@@ -1518,7 +1524,7 @@ export function RestaurantPublicPage({
           brandColor={brandColor}
           accentColor={accentColor}
           onClose={closeSheet}
-          orderingEnabled={orderingEnabled}
+          orderingEnabled={orderingEnabled && transactionAllowed}
           cart={cart}
           restaurantId={restaurant.id}
         />
@@ -1571,10 +1577,11 @@ export function RestaurantPublicPage({
           restaurantId={restaurant.id}
           brandColor={brandColor}
           onClose={() => setCartSheetOpen(false)}
-          visitSessionId={visitSessionId}
+          confirmedSessionId={confirmedSessionId}
           tableLabel={touchpointName}
           onOrderPlaced={onOrderPlaced}
-          sessionConnecting={sessionConnecting}
+          sessionConnecting={sessionConfirmed === false}
+          onSessionEnded={onSessionEnded}
         />
       )}
     </div>

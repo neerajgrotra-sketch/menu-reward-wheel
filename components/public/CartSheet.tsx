@@ -9,9 +9,10 @@ type CartSheetProps = {
   restaurantId: string;
   brandColor: string;
   onClose: () => void;
-  visitSessionId?: string | null;
+  confirmedSessionId?: string | null;
   tableLabel?: string | null;
   onOrderPlaced?: () => void;
+  onSessionEnded?: () => void;
   sessionConnecting?: boolean;
 };
 
@@ -21,7 +22,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visitSessionId, tableLabel, onOrderPlaced, sessionConnecting = false }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false }: CartSheetProps) {
   const [customerName, setCustomerName] = useState('');
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
@@ -61,8 +62,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
     setErrorMessage('');
 
     try {
-      // When in a session, use touchpoint name as table identifier; skip manual input
-      const resolvedTableIdentifier = visitSessionId
+      const resolvedTableIdentifier = confirmedSessionId
         ? (tableLabel ?? null)
         : (tableIdentifier.trim() || null);
 
@@ -77,10 +77,21 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
           })),
           customer_name: customerName.trim() || null,
           table_identifier: resolvedTableIdentifier,
-          visit_session_id: visitSessionId ?? null,
+          visit_session_id: confirmedSessionId ?? null,
           idempotency_key: idempotencyKeyRef.current,
         }),
       });
+
+      // Rule 4: 409 SESSION_INVALID means the session ended between confirmation and order placement
+      if (res.status === 409) {
+        const errData = await res.json().catch(() => ({})) as { error?: string };
+        if (errData.error === 'SESSION_INVALID') {
+          setOrderState('error');
+          setErrorMessage('Your table session has ended. Please rescan the QR code to continue ordering.');
+          onSessionEnded?.();
+          return;
+        }
+      }
 
       const data = await res.json();
 
@@ -94,7 +105,6 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
       setConfirmedOrderId(data.order.id);
       setOrderState('success');
       cart.clearCart();
-      // Task 5: tell parent to immediately re-fetch session orders
       onOrderPlaced?.();
     } catch {
       setOrderState('error');
@@ -139,7 +149,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
         <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
           <div>
             <h2 className="text-lg font-black text-stone-800">Your Order</h2>
-            {visitSessionId && tableLabel && (
+            {confirmedSessionId && tableLabel && (
               <p className="text-xs font-semibold text-stone-400">{tableLabel}</p>
             )}
           </div>
@@ -269,8 +279,8 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, visit
                       style={{ '--tw-ring-color': brandColor } as React.CSSProperties}
                     />
                   </div>
-                  {/* Hide manual table input when ordering from a session QR — table is known */}
-                  {!visitSessionId && (
+                  {/* Hide manual table input when in a confirmed session — table is known */}
+                  {!confirmedSessionId && (
                     <div>
                       <label className="block text-xs font-semibold text-stone-500 mb-1">
                         Table / Location (optional)
