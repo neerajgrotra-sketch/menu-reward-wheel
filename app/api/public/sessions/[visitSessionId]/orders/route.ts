@@ -39,6 +39,8 @@ export async function GET(
       return NextResponse.json({ error: 'Session not found.' }, { status: 404 });
     }
 
+    console.log('[session-orders-api] sessionId', visitSessionId);
+
     // Fetch all orders for this session, with items
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
@@ -53,7 +55,11 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch session orders.' }, { status: 500 });
     }
 
-    return NextResponse.json({ orders: orders ?? [], session_status: session.status });
+    const orderList = orders ?? [];
+    console.log('[session-orders-api] orders count', orderList.length);
+    console.log('[session-orders-api] order numbers returned', orderList.map((o) => o.order_number));
+
+    return NextResponse.json({ orders: orderList, session_status: session.status });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });

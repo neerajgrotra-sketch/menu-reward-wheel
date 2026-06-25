@@ -76,11 +76,13 @@ function OrdersDrawer({
   brandColor,
   touchpointLabel,
   onClose,
+  fetching,
 }: {
   orders: SessionOrder[];
   brandColor: string;
   touchpointLabel: string;
   onClose: () => void;
+  fetching: boolean;
 }) {
   // Local tick for relative-time re-renders without prop drilling
   const [tick, setTick] = useState(0);
@@ -150,7 +152,9 @@ function OrdersDrawer({
 
         {/* Order list */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 pb-8">
-          {orders.length === 0 ? (
+          {orders.length === 0 && fetching ? (
+            <p className="py-12 text-center text-sm text-stone-400">Loading orders…</p>
+          ) : orders.length === 0 ? (
             <p className="py-12 text-center text-sm text-stone-400">No orders placed yet.</p>
           ) : (
             orders.slice().reverse().map((order) => (
@@ -225,13 +229,15 @@ export function TouchpointMenuPage({
   // ── Orders state (Task 2) ───────────────────────────────────────────────────
   const [sessionOrders, setSessionOrders] = useState<SessionOrder[]>([]);
   const [ordersDrawerOpen, setOrdersDrawerOpen] = useState(false);
+  const [ordersFetching, setOrdersFetching] = useState(false);
   // Optimistic flag: set true when CartSheet fires onOrderPlaced so My Orders
   // button appears instantly without waiting for fetchOrders to resolve.
   const [hasOptimisticOrder, setHasOptimisticOrder] = useState(false);
 
-  // Tracks the sequence of fetchOrders calls so stale responses never overwrite
-  // a more-recent result (race condition: resolve-fetch vs handleOrderPlaced-fetch).
-  const fetchOrdersSeqRef = useRef(0);
+  // Tracks which session the latest fetchOrders call targets. Responses for an
+  // old session that arrive after visitSessionId has changed are discarded.
+  // Same-session concurrent fetches are all accepted — orders only grow.
+  const fetchSessionRef = useRef<string | null>(null);
 
   // ── View tracking ───────────────────────────────────────────────────────────
   const viewBatchRef = useRef(0);
@@ -241,24 +247,48 @@ export function TouchpointMenuPage({
   const sKey = sessionKey(touchpoint.touchpoint_code);
   const oKey = ordersKey(touchpoint.touchpoint_code);
 
-  // ── Task 2: Restore cached orders immediately on mount (no flicker) ─────────
+  // ── Restore cached orders on mount — only if cache belongs to the same session ─
+  // Cache is stored as { sessionId, orders } so stale orders from a previous
+  // session at the same table are not shown after a new session is created.
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(oKey);
-      if (raw) setSessionOrders(JSON.parse(raw) as SessionOrder[]);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      const knownSessionId = sessionStorage.getItem(sKey);
+
+      if (Array.isArray(parsed)) {
+        // Legacy format written before this fix — restore unconditionally once
+        console.log('[my-orders] restored cache count (legacy)', parsed.length);
+        setSessionOrders(parsed as SessionOrder[]);
+      } else if (
+        parsed && typeof parsed === 'object' && 'sessionId' in parsed && 'orders' in parsed &&
+        Array.isArray((parsed as { orders: unknown }).orders)
+      ) {
+        const { sessionId, orders } = parsed as { sessionId: string; orders: SessionOrder[] };
+        // Only restore if the cached session matches the last-known session in storage
+        if (knownSessionId && sessionId === knownSessionId) {
+          console.log('[my-orders] restored cache count', orders.length);
+          setSessionOrders(orders);
+        }
+      }
     } catch { /* sessionStorage unavailable */ }
-  }, [oKey]);
+  }, [oKey, sKey]);
 
   // ── fetchOrders — also handles session invalidation ─────────────────────────
   const fetchOrders = useCallback(async (sid: string) => {
-    // Claim a sequence number. Any response that arrives after a newer call
-    // was started is discarded — prevents a stale resolve-fetch from wiping
-    // out orders that a later handleOrderPlaced-fetch already wrote.
-    const seq = ++fetchOrdersSeqRef.current;
+    // Mark this session as the active fetch target. Responses for an old session
+    // that arrive after visitSessionId changed are discarded. Concurrent fetches
+    // for the SAME session are all accepted — orders only grow, so whichever
+    // response arrives last wins without data loss.
+    fetchSessionRef.current = sid;
+    setOrdersFetching(true);
+    console.log('[my-orders] fetch started', { sid });
     try {
       const res = await fetch(`/api/public/sessions/${sid}/orders`);
       if (!res.ok) return;
-      if (seq !== fetchOrdersSeqRef.current) return; // superseded by a newer call
+      // Discard only if the session changed while this request was in-flight
+      if (fetchSessionRef.current !== sid) return;
       const data = await res.json() as { orders?: SessionOrder[]; session_status?: string };
 
       if (data.session_status && data.session_status !== 'active') {
@@ -276,13 +306,23 @@ export function TouchpointMenuPage({
       }
 
       const orders: SessionOrder[] = data.orders ?? [];
+      console.log('[my-orders] server orders count', orders.length);
       setSessionOrders(orders);
-      // Once we have real server data, the optimistic flag is no longer needed
-      if (orders.length > 0) setHasOptimisticOrder(false);
+      // Server data is authoritative — always clear the optimistic flag so the
+      // button count matches real data, even when the server returns an empty list.
+      setHasOptimisticOrder(false);
+      console.log('[my-orders] state set count', orders.length);
       try {
-        sessionStorage.setItem(oKey, JSON.stringify(orders));
+        // Store with sessionId so the cache restore can reject stale data from
+        // a previous session at the same table.
+        sessionStorage.setItem(oKey, JSON.stringify({ sessionId: sid, orders }));
       } catch { /* ignore */ }
     } catch { /* network error — silent, analytics never block */ }
+    finally {
+      // Clear the fetching flag only if this session is still the active one.
+      // If visitSessionId changed, the new fetchOrders call owns the flag.
+      if (fetchSessionRef.current === sid) setOrdersFetching(false);
+    }
   }, [sKey, oKey]);
 
   // ── Session resolution on mount ──────────────────────────────────────────────
@@ -341,6 +381,7 @@ export function TouchpointMenuPage({
   const handleOrderPlaced = useCallback(() => {
     // Show My Orders button immediately without waiting for fetchOrders to resolve
     setHasOptimisticOrder(true);
+    console.log('[my-orders] optimistic flag state', true);
     if (visitSessionId) fetchOrders(visitSessionId);
   }, [visitSessionId, fetchOrders]);
 
@@ -417,6 +458,7 @@ export function TouchpointMenuPage({
           brandColor={brandColor}
           touchpointLabel={touchpointLabel}
           onClose={() => setOrdersDrawerOpen(false)}
+          fetching={ordersFetching}
         />
       )}
     </div>
