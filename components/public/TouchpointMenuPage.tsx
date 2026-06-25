@@ -220,10 +220,10 @@ export function TouchpointMenuPage({
   const [resolveAttempt, setResolveAttempt] = useState(0);
 
   // ── Orders state ─────────────────────────────────────────────────────────────
-  // ordersCount comes from the DB orders_count column — authoritative counter.
-  // sessionOrders is the full order list for the drawer.
+  // sessionOrders is fetched fresh from the orders table on every relevant event.
+  // Button count and drawer count both derive from sessionOrders.length so they
+  // are always identical. visit_sessions.orders_count is analytics-only.
   const [sessionOrders, setSessionOrders] = useState<SessionOrder[]>([]);
-  const [ordersCount, setOrdersCount] = useState(0);
   const [ordersDrawerOpen, setOrdersDrawerOpen] = useState(false);
   const [ordersFetching, setOrdersFetching] = useState(false);
 
@@ -251,7 +251,6 @@ export function TouchpointMenuPage({
         try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
         setConfirmedSessionId(null);
         setSessionOrders([]);
-        setOrdersCount(0);
         setSessionPhase('session_ended');
         setOrdersDrawerOpen(false);
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: 'session_status', status: data.session_status });
@@ -259,10 +258,8 @@ export function TouchpointMenuPage({
       }
 
       const orders = data.orders ?? [];
-      const count = data.orders_count ?? 0;
       setSessionOrders(orders);
-      setOrdersCount(count);
-      console.log('[MYORDERS][SERVER_ORDER_COUNT]', { orders_count: count, orders_len: orders.length });
+      console.log('[MYORDERS][SERVER_ORDER_COUNT]', { orders_len: orders.length });
     } catch { /* network error — silent */ }
     finally {
       setOrdersFetching(false);
@@ -377,7 +374,6 @@ export function TouchpointMenuPage({
     try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
     setConfirmedSessionId(null);
     setSessionOrders([]);
-    setOrdersCount(0);
     setSessionPhase('session_ended');
     console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: '409_session_invalid' });
   }, [sKey]);
@@ -468,12 +464,12 @@ export function TouchpointMenuPage({
         touchpointName={touchpointLabel}
         onItemViewed={handleItemViewed}
         onOrderPlaced={handleOrderPlaced}
-        sessionOrderCount={ordersCount}
+        sessionOrderCount={sessionOrders.length}
         sessionConfirmed={sessionPhase === 'confirmed'}
         onMyOrdersClick={() => {
           setOrdersDrawerOpen(true);
           if (confirmedSessionId) fetchOrders(confirmedSessionId);
-          console.log('[MYORDERS][RENDER]', { ordersCount, sessionPhase, confirmedSessionId });
+          console.log('[MYORDERS][RENDER]', { ordersLen: sessionOrders.length, sessionPhase, confirmedSessionId });
         }}
         onSessionEnded={handleSessionEnded}
       />
