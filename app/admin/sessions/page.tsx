@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type { SessionIntelligence, TimelineEntry, ViewedItem, OrderedItem } from '@/lib/session-intelligence';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,11 +55,190 @@ function formatDuration(startIso: string, endIso: string | null): string {
   return `${hrs}h ${mins % 60}m`;
 }
 
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatMs(ms: number | null): string {
+  if (ms === null) return '—';
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+}
+
+function formatSeconds(sec: number | null): string {
+  if (sec === null) return '—';
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function formatPercent(ratio: number | null): string {
+  if (ratio === null) return '—';
+  return `${Math.round(ratio * 100)}%`;
+}
+
 const TAB_LABELS: Record<SessionStatus, string> = {
   active: 'Active',
   completed: 'Completed',
   abandoned: 'Abandoned',
 };
+
+// ─── Event type colors ────────────────────────────────────────────────────────
+
+function eventDot(eventType: string): string {
+  if (eventType === 'MENU_OPENED') return 'bg-emerald-400';
+  if (eventType === 'ITEM_VIEWED') return 'bg-blue-400';
+  if (eventType === 'ORDER_PLACED') return 'bg-orange-400';
+  if (eventType === 'SESSION_ENDED') return 'bg-stone-400';
+  if (eventType.startsWith('PROMOTION')) return 'bg-violet-400';
+  if (eventType.includes('CART')) return 'bg-amber-400';
+  return 'bg-stone-300';
+}
+
+// ─── Intelligence Panel ───────────────────────────────────────────────────────
+
+function MetricChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col items-center rounded-xl bg-stone-50 px-3 py-2 text-center">
+      <span className="text-sm font-black text-stone-900">{value}</span>
+      <span className="text-[10px] font-semibold text-stone-400 leading-tight mt-0.5">{label}</span>
+    </div>
+  );
+}
+
+function TimelinePanel({ timeline }: { timeline: TimelineEntry[] }) {
+  if (timeline.length === 0) {
+    return (
+      <p className="text-xs text-stone-400 italic">No behavioral events recorded yet.</p>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      {timeline.map((entry) => (
+        <div key={entry.id} className="flex items-start gap-2.5">
+          <span className="mt-1.5 shrink-0 text-[10px] font-semibold text-stone-400 w-12 text-right leading-tight">
+            {formatTime(entry.timestamp)}
+          </span>
+          <span className={`mt-1.5 shrink-0 h-1.5 w-1.5 rounded-full ${eventDot(entry.event_type)}`} />
+          <div>
+            <span className="text-xs font-semibold text-stone-800">{entry.label}</span>
+            {entry.detail && (
+              <span className="ml-1.5 text-xs text-stone-400">{entry.detail}</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ViewedNotOrderedPanel({ items }: { items: ViewedItem[] }) {
+  if (items.length === 0) {
+    return <p className="text-xs text-stone-400 italic">Everything viewed was ordered.</p>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {items.map((item) => (
+        <div key={item.menu_item_id ?? item.name} className="flex items-center justify-between gap-2">
+          <div>
+            <span className="text-xs font-semibold text-stone-800">{item.name}</span>
+            {item.view_count > 1 && (
+              <span className="ml-1 text-[10px] text-stone-400">×{item.view_count}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {item.avg_view_duration_ms >= 20_000 && (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-black text-amber-700">
+                High interest
+              </span>
+            )}
+            {item.avg_view_duration_ms > 0 && (
+              <span className="text-[10px] text-stone-400">{formatMs(item.avg_view_duration_ms)}</span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OrderedItemsPanel({ items }: { items: OrderedItem[] }) {
+  if (items.length === 0) {
+    return <p className="text-xs text-stone-400 italic">No items ordered.</p>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {items.map((item) => (
+        <div key={item.menu_item_id ?? item.name} className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-stone-800">
+            {item.name}
+            {item.quantity > 1 && (
+              <span className="ml-1 text-stone-400">×{item.quantity}</span>
+            )}
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-stone-500">
+            ${item.total_spend.toFixed(2)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IntelligencePanel({ intelligence }: { intelligence: SessionIntelligence }) {
+  const m = intelligence.derived_metrics;
+
+  return (
+    <div className="mt-3 space-y-4 border-t border-stone-100 pt-4">
+      {/* Derived metrics strip */}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        <MetricChip label="Session" value={formatSeconds(m.session_duration_seconds)} />
+        <MetricChip label="Decision" value={formatSeconds(m.decision_latency_seconds)} />
+        <MetricChip label="Viewed" value={String(m.items_viewed_count)} />
+        <MetricChip label="Ordered" value={String(m.items_ordered_count)} />
+        <MetricChip label="Avg view time" value={formatMs(m.average_item_view_duration_ms)} />
+        <MetricChip label="Conversion" value={formatPercent(m.menu_conversion_rate)} />
+      </div>
+
+      {/* Timeline + two-column item analysis */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {/* Timeline */}
+        <div className="sm:col-span-1">
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Session Timeline
+          </p>
+          <TimelinePanel timeline={intelligence.timeline} />
+        </div>
+
+        {/* Viewed not ordered */}
+        <div>
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Viewed · Not Ordered
+            {m.items_viewed_not_ordered > 0 && (
+              <span className="ml-1 text-stone-300">({m.items_viewed_not_ordered})</span>
+            )}
+          </p>
+          <ViewedNotOrderedPanel items={intelligence.viewed_not_ordered} />
+        </div>
+
+        {/* Ordered items */}
+        <div>
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Ordered
+            {m.total_orders > 0 && (
+              <span className="ml-1 text-stone-300">
+                ({m.total_orders} order{m.total_orders !== 1 ? 's' : ''} · ${m.total_spend.toFixed(2)})
+              </span>
+            )}
+          </p>
+          <OrderedItemsPanel items={intelligence.ordered_items} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Session Card ─────────────────────────────────────────────────────────────
 
@@ -71,61 +251,115 @@ function SessionCard({
   onEnd: (id: string) => void;
   ending: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [intelligence, setIntelligence] = useState<SessionIntelligence | null>(null);
+  const [loadingIntelligence, setLoadingIntelligence] = useState(false);
+  const [intelligenceError, setIntelligenceError] = useState('');
+
   const tp = session.restaurant_touchpoints;
   const label = tp
-    ? tp.section_name
-      ? `${tp.section_name} — ${tp.name}`
-      : tp.name
+    ? tp.section_name ? `${tp.section_name} — ${tp.name}` : tp.name
     : 'Unknown table';
 
+  async function toggleExpand() {
+    const next = !expanded;
+    setExpanded(next);
+    // Lazy-load intelligence on first expand
+    if (next && !intelligence && !loadingIntelligence) {
+      setLoadingIntelligence(true);
+      setIntelligenceError('');
+      try {
+        const res = await fetch(`/api/admin/sessions/${session.id}/intelligence`);
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload?.error || 'Failed to load intelligence.');
+        setIntelligence(payload as SessionIntelligence);
+      } catch (err: unknown) {
+        setIntelligenceError(err instanceof Error ? err.message : 'Failed to load.');
+      } finally {
+        setLoadingIntelligence(false);
+      }
+    }
+  }
+
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-      {/* Header row */}
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-base font-black text-stone-900">{label}</p>
-          <p className="text-xs font-semibold text-stone-400">
-            Started {relativeTime(session.started_at)} · {formatDuration(session.started_at, session.ended_at)}
-          </p>
-        </div>
-        {session.status === 'active' && (
-          <button
-            type="button"
-            onClick={() => onEnd(session.id)}
-            disabled={ending}
-            className="shrink-0 rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-black text-stone-700 active:bg-stone-100 disabled:opacity-50"
-          >
-            {ending ? 'Ending…' : 'End Session'}
-          </button>
-        )}
-      </div>
-
-      {/* Metrics grid */}
-      <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-stone-50 p-3 sm:grid-cols-6">
-        {[
-          { label: 'Guests', value: session.guest_count },
-          { label: 'Items Viewed', value: session.menu_items_viewed },
-          { label: 'Orders', value: session.orders_count },
-          { label: 'Promotions', value: session.promotion_interactions },
-          { label: 'Coupons', value: session.coupons_issued },
-          { label: 'Spend', value: `$${Number(session.total_spend).toFixed(2)}` },
-        ].map(({ label: metricLabel, value }) => (
-          <div key={metricLabel} className="text-center">
-            <p className="text-base font-black text-stone-800">{value}</p>
-            <p className="text-[10px] font-semibold text-stone-400">{metricLabel}</p>
+    <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+      <div className="p-4">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-base font-black text-stone-900 truncate">{label}</p>
+            <p className="text-xs font-semibold text-stone-400">
+              Started {relativeTime(session.started_at)} · {formatDuration(session.started_at, session.ended_at)}
+            </p>
           </div>
-        ))}
-      </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {session.status === 'active' && (
+              <button
+                type="button"
+                onClick={() => onEnd(session.id)}
+                disabled={ending}
+                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-black text-stone-700 active:bg-stone-100 disabled:opacity-50"
+              >
+                {ending ? 'Ending…' : 'End Session'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={toggleExpand}
+              className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs font-black text-stone-700 active:bg-stone-100"
+              aria-expanded={expanded}
+            >
+              {expanded ? 'Hide' : 'Intelligence'} {expanded ? '▲' : '▼'}
+            </button>
+          </div>
+        </div>
 
-      {/* Footer */}
-      <div className="mt-2 flex items-center gap-3">
-        <p className="text-[10px] font-semibold text-stone-400">
-          Last activity {relativeTime(session.last_activity_at)}
-        </p>
-        {session.assigned_ai_agent && (
-          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-black text-violet-700">
-            AI: {session.assigned_ai_agent}
-          </span>
+        {/* Metrics grid */}
+        <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-stone-50 p-3 sm:grid-cols-6">
+          {[
+            { label: 'Guests', value: session.guest_count },
+            { label: 'Items Viewed', value: session.menu_items_viewed },
+            { label: 'Orders', value: session.orders_count },
+            { label: 'Promotions', value: session.promotion_interactions },
+            { label: 'Coupons', value: session.coupons_issued },
+            { label: 'Spend', value: `$${Number(session.total_spend).toFixed(2)}` },
+          ].map(({ label: metricLabel, value }) => (
+            <div key={metricLabel} className="text-center">
+              <p className="text-base font-black text-stone-800">{value}</p>
+              <p className="text-[10px] font-semibold text-stone-400">{metricLabel}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-2 flex items-center gap-3">
+          <p className="text-[10px] font-semibold text-stone-400">
+            Last activity {relativeTime(session.last_activity_at)}
+          </p>
+          {session.assigned_ai_agent && (
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-black text-violet-700">
+              AI: {session.assigned_ai_agent}
+            </span>
+          )}
+        </div>
+
+        {/* Intelligence panel */}
+        {expanded && (
+          <>
+            {loadingIntelligence && (
+              <div className="mt-3 border-t border-stone-100 pt-4">
+                <p className="text-xs text-stone-400">Reconstructing session intelligence…</p>
+              </div>
+            )}
+            {intelligenceError && (
+              <div className="mt-3 border-t border-stone-100 pt-4">
+                <p className="text-xs text-red-500">{intelligenceError}</p>
+              </div>
+            )}
+            {intelligence && !loadingIntelligence && (
+              <IntelligencePanel intelligence={intelligence} />
+            )}
+          </>
         )}
       </div>
     </div>
@@ -137,7 +371,7 @@ function SessionCard({
 function SummaryBar({ sessions }: { sessions: VisitSession[] }) {
   const totalGuests = sessions.reduce((s, v) => s + v.guest_count, 0);
   const totalOrders = sessions.reduce((s, v) => s + v.orders_count, 0);
-  const totalSpend = sessions.reduce((s, v) => s + v.total_spend, 0);
+  const totalSpend = sessions.reduce((s, v) => s + Number(v.total_spend), 0);
   const totalCoupons = sessions.reduce((s, v) => s + v.coupons_issued, 0);
 
   return (
@@ -168,7 +402,6 @@ export default function AdminSessionsPage() {
   const [error, setError] = useState('');
   const [endingId, setEndingId] = useState<string | null>(null);
 
-  // Load restaurants on mount
   useEffect(() => {
     async function loadRestaurants() {
       const supabase = createClient();
@@ -188,7 +421,6 @@ export default function AdminSessionsPage() {
     loadRestaurants();
   }, []);
 
-  // Load sessions when restaurant or tab changes
   const loadSessions = useCallback(async () => {
     if (!selectedRestaurantId) return;
     setLoading(true);
@@ -212,7 +444,6 @@ export default function AdminSessionsPage() {
     loadSessions();
   }, [loadSessions]);
 
-  // Realtime: re-fetch on any visit_sessions change for this restaurant
   useEffect(() => {
     if (!selectedRestaurantId) return;
     const supabase = createClient();
@@ -254,7 +485,6 @@ export default function AdminSessionsPage() {
   return (
     <div className="min-h-screen bg-stone-50 p-4 pb-16 sm:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
-        {/* Page header */}
         <div>
           <h1 className="text-2xl font-black text-stone-900">Sessions</h1>
           <p className="mt-0.5 text-sm text-stone-500">
@@ -262,7 +492,6 @@ export default function AdminSessionsPage() {
           </p>
         </div>
 
-        {/* Restaurant selector */}
         {restaurants.length > 1 && (
           <select
             value={selectedRestaurantId}
@@ -275,12 +504,10 @@ export default function AdminSessionsPage() {
           </select>
         )}
 
-        {/* Summary bar — active sessions only */}
         {activeTab === 'active' && activeSessions.length > 0 && (
           <SummaryBar sessions={activeSessions} />
         )}
 
-        {/* Tabs */}
         <div className="flex gap-1 rounded-2xl border border-stone-200 bg-white p-1 shadow-sm w-fit">
           {(['active', 'completed', 'abandoned'] as SessionStatus[]).map((tab) => (
             <button
@@ -298,7 +525,6 @@ export default function AdminSessionsPage() {
           ))}
         </div>
 
-        {/* Content */}
         {loading && (
           <p className="text-sm text-stone-400">Loading sessions…</p>
         )}
