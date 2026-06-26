@@ -376,9 +376,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 16. Update session analytics
+    // 16. Update session analytics and fetch post-increment session totals for frontend sync.
     // increment_session_counters is awaited so orders_count is authoritative before 201 returns.
     // append_session_interaction is fire-and-forget (analytics, non-blocking).
+    let sessionOrdersCount = 0;
+    let sessionTotalSpend = 0;
     if (resolvedSessionId) {
       const sid = resolvedSessionId;
       const { error: incrErr } = await supabase.rpc('increment_session_counters', {
@@ -401,6 +403,15 @@ export async function POST(req: NextRequest) {
       })).catch((err: unknown) => {
         console.error('[spinbite:orders] session interaction log failed', err);
       });
+
+      // Fetch updated session totals so frontend can sync count/spend without a separate GET.
+      const { data: updatedSession } = await supabase
+        .from('visit_sessions')
+        .select('orders_count, total_spend')
+        .eq('id', sid)
+        .maybeSingle();
+      sessionOrdersCount = updatedSession?.orders_count ?? 0;
+      sessionTotalSpend = Number(updatedSession?.total_spend ?? 0);
     }
 
     console.log('[spinbite:orders] created', {
@@ -408,8 +419,9 @@ export async function POST(req: NextRequest) {
       order_number: nextOrderNumber,
       restaurant_id,
       item_count: resolvedItems.length,
+      session_orders_count: sessionOrdersCount,
     });
-    return NextResponse.json({ order }, { status: 201 });
+    return NextResponse.json({ order, session_orders_count: sessionOrdersCount, session_total_spend: sessionTotalSpend }, { status: 201 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
+import type { PlacedOrder } from '@/components/public/CartSheet';
 import type {
   PublicRestaurant,
   PublicSection,
@@ -230,6 +231,7 @@ export function TouchpointMenuPage({
   // ── View tracking ───────────────────────────────────────────────────────────
   const viewBatchRef = useRef(0);
   const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const brandColor = restaurant.brand_color || '#FF6B00';
   const sKey = sessionKey(touchpoint.touchpoint_code);
@@ -374,13 +376,34 @@ export function TouchpointMenuPage({
     setResolveAttempt((n) => n + 1);
   }, []);
 
-  // ── Order placed — refetch immediately from server ───────────────────────────
-  const handleOrderPlaced = useCallback(() => {
-    console.log('[STEP_2_ON_ORDER_PLACED]');
-    console.log('[FETCH_ORDERS_CALLED]', confirmedSessionId);
+  // ── Order placed — optimistic append + deferred background reconcile ────────
+  // No immediate GET: the order is appended locally from the POST response to
+  // avoid the read-after-write race on the session orders endpoint.
+  // After 2 s the server is queried and its truth replaces local state.
+  const handleOrderPlaced = useCallback((placedOrder: PlacedOrder) => {
+    console.log('[STEP_2_ON_ORDER_PLACED]', { order_id: placedOrder.id, session_orders_count: placedOrder.session_orders_count });
+
+    // Append the new order immediately from POST response data.
+    setSessionOrders((prev) => [
+      ...prev,
+      {
+        id: placedOrder.id,
+        order_number: placedOrder.order_number,
+        status: placedOrder.status,
+        customer_name: placedOrder.customer_name,
+        subtotal: placedOrder.subtotal,
+        created_at: placedOrder.created_at,
+        order_items: placedOrder.order_items,
+      },
+    ]);
+
+    // Background reconcile: let the DB settle, then replace with server truth.
     if (confirmedSessionId) {
-      console.log('[MYORDERS][ORDER_PLACED_REFETCH]', { confirmedSessionId });
-      fetchOrders(confirmedSessionId);
+      const sid = confirmedSessionId;
+      if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
+      reconcileTimerRef.current = setTimeout(() => {
+        fetchOrders(sid);
+      }, 2000);
     }
   }, [confirmedSessionId, fetchOrders]);
 
@@ -412,7 +435,10 @@ export function TouchpointMenuPage({
   }, [confirmedSessionId]);
 
   useEffect(() => {
-    return () => { if (viewTimerRef.current) clearTimeout(viewTimerRef.current); };
+    return () => {
+      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
+      if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
+    };
   }, []);
 
   const touchpointLabel = touchpoint.section_name

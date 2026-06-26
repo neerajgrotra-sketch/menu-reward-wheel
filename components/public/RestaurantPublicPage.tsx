@@ -10,6 +10,7 @@ import { getGameMeta } from '@/lib/games/game-registry';
 import { useCart } from '@/hooks/useCart';
 import { CartBar } from '@/components/public/CartBar';
 import { CartSheet } from '@/components/public/CartSheet';
+import type { PlacedOrder } from '@/components/public/CartSheet';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -1006,7 +1007,7 @@ export function RestaurantPublicPage({
   confirmedSessionId?: string | null;
   touchpointName?: string | null;
   onItemViewed?: (itemId?: string) => void;
-  onOrderPlaced?: () => void;
+  onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   sessionOrderCount?: number;
   onMyOrdersClick?: () => void;
   // undefined = no session context (direct URL); false = resolving/failed/ended; true = active

@@ -3,6 +3,25 @@
 import { useEffect, useRef, useState } from 'react';
 import type { useCart } from '@/hooks/useCart';
 
+export type PlacedOrder = {
+  id: string;
+  order_number: number;
+  status: string;
+  customer_name: string | null;
+  subtotal: number;
+  created_at: string;
+  session_orders_count: number;
+  session_total_spend: number;
+  order_items: Array<{
+    id: string;
+    name_snapshot: string;
+    quantity: number;
+    effective_price_snapshot: number;
+    line_total: number;
+    special_instructions: string | null;
+  }>;
+};
+
 type CartSheetProps = {
   open: boolean;
   cart: ReturnType<typeof useCart>;
@@ -11,7 +30,7 @@ type CartSheetProps = {
   onClose: () => void;
   confirmedSessionId?: string | null;
   tableLabel?: string | null;
-  onOrderPlaced?: () => void;
+  onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   onSessionEnded?: () => void;
   sessionConnecting?: boolean;
 };
@@ -106,8 +125,28 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
       setConfirmedOrderNumber(data.order.order_number);
       setConfirmedOrderId(data.order.id);
       setOrderState('success');
+
+      const placedOrder: PlacedOrder = {
+        id: data.order.id,
+        order_number: data.order.order_number,
+        status: data.order.status,
+        customer_name: customerName.trim() || null,
+        subtotal: data.order.subtotal,
+        created_at: new Date().toISOString(),
+        session_orders_count: data.session_orders_count ?? 0,
+        session_total_spend: data.session_total_spend ?? 0,
+        order_items: cart.items.map((item) => ({
+          id: item.menu_item_id,
+          name_snapshot: item.name,
+          quantity: item.quantity,
+          effective_price_snapshot: Number(item.effective_price),
+          line_total: Math.round(Number(item.effective_price) * item.quantity * 100) / 100,
+          special_instructions: item.special_instructions || null,
+        })),
+      };
+
       cart.clearCart();
-      onOrderPlaced?.();
+      onOrderPlaced?.(placedOrder);
     } catch {
       setOrderState('error');
       setErrorMessage('Network error. Please try again.');
