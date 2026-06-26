@@ -414,6 +414,12 @@ export async function POST(req: NextRequest) {
       sessionTotalSpend = Number(updatedSession?.total_spend ?? 0);
     }
 
+    console.log('[POST_ROUTE_DB]', {
+      visit_session_id,
+      resolved_session_id: resolvedSessionId,
+      session_orders_count: sessionOrdersCount,
+    });
+
     console.log('[spinbite:orders] created', {
       order_id: order.id,
       order_number: nextOrderNumber,

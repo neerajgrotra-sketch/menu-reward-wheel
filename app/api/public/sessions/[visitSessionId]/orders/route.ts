@@ -59,6 +59,13 @@ export async function GET(
     console.log('[session-orders-api] orders count', orderList.length);
     console.log('[session-orders-api] order numbers returned', orderList.map((o) => o.order_number));
 
+    console.log('[GET_ROUTE_DB]', {
+      visitSessionId,
+      session_status: session.status,
+      orders_count: session.orders_count,
+      orders_length: orderList.length,
+    });
+
     console.log('[ORDERS][SESSION_ORDERS_FETCHED]', { visitSessionId, orders_count: session.orders_count, returned: orderList.length });
     return NextResponse.json({ orders: orderList, session_status: session.status, orders_count: session.orders_count ?? 0 });
   } catch (err: unknown) {
