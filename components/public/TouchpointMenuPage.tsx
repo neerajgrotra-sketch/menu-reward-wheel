@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
 import type { PlacedOrder } from '@/components/public/CartSheet';
+import { useSessionTracking, useItemViewTracking } from '@/hooks/useSessionTracking';
 import type {
   PublicRestaurant,
   PublicSection,
@@ -228,9 +229,9 @@ export function TouchpointMenuPage({
   const [ordersDrawerOpen, setOrdersDrawerOpen] = useState(false);
   const [ordersFetching, setOrdersFetching] = useState(false);
 
-  // ── View tracking ───────────────────────────────────────────────────────────
-  const viewBatchRef = useRef(0);
-  const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Session intelligence tracking ────────────────────────────────────────────
+  const { fireEvent } = useSessionTracking(confirmedSessionId);
+  const { onItemOpen, onItemClose } = useItemViewTracking(fireEvent);
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const brandColor = restaurant.brand_color || '#FF6B00';
@@ -327,6 +328,12 @@ export function TouchpointMenuPage({
         setSessionPhase('confirmed');
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'confirmed', confirmedSessionId: sessionId });
         fetchOrders(sessionId);
+        // Fire MENU_OPENED once per session confirm — first intelligence event
+        fetch(`/api/public/sessions/${sessionId}/track`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event_type: 'MENU_OPENED', metadata: { touchpoint_code: touchpoint.touchpoint_code } }),
+        }).catch(() => { /* analytics — silent */ });
       } catch (err) {
         if (cancelled) return;
         clearTimeout(timeout);
@@ -418,25 +425,8 @@ export function TouchpointMenuPage({
     console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: '409_session_invalid' });
   }, [sKey]);
 
-  // ── Debounced item view tracking ─────────────────────────────────────────────
-  const handleItemViewed = useCallback((itemId?: string) => {
-    if (!confirmedSessionId) return;
-    viewBatchRef.current += 1;
-    if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
-    viewTimerRef.current = setTimeout(() => {
-      const count = viewBatchRef.current;
-      viewBatchRef.current = 0;
-      fetch(`/api/public/sessions/${confirmedSessionId}/track`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items_viewed_count: count, event_type: 'item_view', item_id: itemId }),
-      }).catch(() => { /* analytics — silent */ });
-    }, 3_000);
-  }, [confirmedSessionId]);
-
   useEffect(() => {
     return () => {
-      if (viewTimerRef.current) clearTimeout(viewTimerRef.current);
       if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
     };
   }, []);
@@ -514,7 +504,8 @@ export function TouchpointMenuPage({
         orderingEnabled={orderingEnabled}
         confirmedSessionId={confirmedSessionId}
         touchpointName={touchpointLabel}
-        onItemViewed={handleItemViewed}
+        onItemViewed={onItemOpen}
+        onItemClosed={onItemClose}
         onOrderPlaced={handleOrderPlaced}
         sessionOrderCount={sessionOrders.length}
         sessionConfirmed={sessionPhase === 'confirmed'}

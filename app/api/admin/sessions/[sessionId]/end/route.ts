@@ -33,7 +33,7 @@ export async function PATCH(
     // Verify the session belongs to a restaurant owned by this user
     const { data: session } = await serviceClient
       .from('visit_sessions')
-      .select('id,restaurant_id,status')
+      .select('id,restaurant_id,status,started_at')
       .eq('id', sessionId)
       .maybeSingle();
 
@@ -57,6 +57,9 @@ export async function PATCH(
     }
 
     const now = new Date().toISOString();
+    const startedAt = new Date(session.started_at ?? now).getTime();
+    const durationSeconds = Math.floor((Date.now() - startedAt) / 1000);
+
     const { error: updateError } = await serviceClient
       .from('visit_sessions')
       .update({
@@ -70,6 +73,16 @@ export async function PATCH(
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
+
+    // Write SESSION_ENDED to session_events (fire-and-forget; session is already closed)
+    Promise.resolve(serviceClient.from('session_events').insert({
+      session_id: sessionId,
+      restaurant_id: session.restaurant_id,
+      event_type: 'SESSION_ENDED',
+      metadata: { reason: 'manual', duration_seconds: durationSeconds },
+    })).catch((err: unknown) => {
+      console.error('[spinbite:sessions] SESSION_ENDED event failed', err);
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

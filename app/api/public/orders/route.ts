@@ -391,6 +391,22 @@ export async function POST(req: NextRequest) {
       if (incrErr) {
         console.error('[SESSION][COUNTER_UPDATE_FAILED]', incrErr.message);
       }
+      // Write ORDER_PLACED to session_events (server-side; not fireable by client)
+      Promise.resolve(supabase.from('session_events').insert({
+        session_id: sid,
+        restaurant_id,
+        event_type: 'ORDER_PLACED',
+        metadata: {
+          order_id: order.id,
+          order_number: nextOrderNumber,
+          item_count: resolvedItems.length,
+          subtotal,
+        },
+      })).catch((err: unknown) => {
+        console.error('[spinbite:orders] session_events ORDER_PLACED failed', err);
+      });
+
+      // Legacy JSONB interaction log — retained for backward compat
       Promise.resolve(supabase.rpc('append_session_interaction', {
         p_session_id: sid,
         p_event: {

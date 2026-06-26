@@ -993,6 +993,7 @@ export function RestaurantPublicPage({
   confirmedSessionId = null,
   touchpointName = null,
   onItemViewed,
+  onItemClosed,
   onOrderPlaced,
   sessionOrderCount = 0,
   onMyOrdersClick,
@@ -1006,7 +1007,8 @@ export function RestaurantPublicPage({
   orderingEnabled?: boolean;
   confirmedSessionId?: string | null;
   touchpointName?: string | null;
-  onItemViewed?: (itemId?: string) => void;
+  onItemViewed?: (itemId: string, itemName: string) => void;
+  onItemClosed?: () => void;
   onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   sessionOrderCount?: number;
   onMyOrdersClick?: () => void;
@@ -1147,8 +1149,8 @@ export function RestaurantPublicPage({
     // C1: capture trigger element before mounting sheet
     triggerRef.current = document.activeElement as HTMLElement ?? null;
     setSelectedItem(item);
-    // Notify session layer for menu_items_viewed analytics (Task 9)
-    onItemViewed?.(item.id);
+    // Notify session layer — fires ITEM_VIEWED event with item identity
+    onItemViewed?.(item.id, item.name);
     // Double rAF: ensure DOM is painted before CSS transition triggers
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
@@ -1157,6 +1159,8 @@ export function RestaurantPublicPage({
 
   function closeSheet() {
     setSheetVisible(false);
+    // Notify session layer — fires ITEM_VIEW_DURATION event with time-on-item
+    onItemClosed?.();
     // C1: restore focus to trigger after close animation (300ms)
     const trigger = triggerRef.current;
     setTimeout(() => {

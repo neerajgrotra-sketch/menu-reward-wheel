@@ -956,12 +956,83 @@ All inputs validated at API route entry:
 - Style transfer to match restaurant brand tone
 - Batch re-generation triggered by brand profile changes
 
-### 9.6 Behavioral Analytics Engine
+### 9.6 Behavioral Analytics Engine (Phase 1 — Live 2026-06-26)
 
-- Session replay and funnel tracking per promotion
-- Item-level conversion tracking (views → add-to-cart → order)
-- Promotion performance attribution
+**Implemented.** `session_events` is the relational behavioral intelligence log. Every customer interaction generates a typed, FK-linked, queryable row. This is the foundation for all AI-driven restaurant intelligence.
+
+#### session_events table
+
+```sql
+session_events (
+  id              uuid          PK
+  session_id      uuid          NOT NULL → visit_sessions(id) CASCADE
+  restaurant_id   uuid          NOT NULL → restaurants(id) CASCADE  -- denormalized for O(1) RLS
+  guest_id        uuid          -- ephemeral client-generated UUID per browser tab; null = server event
+  event_type      text          NOT NULL  -- CHECK constraint enforces enum
+  menu_item_id    uuid          → menu_items(id) SET NULL
+  promotion_id    uuid          → promotions(id) SET NULL
+  metadata        jsonb         NOT NULL DEFAULT '{}'
+  created_at      timestamptz   NOT NULL DEFAULT now()
+)
+```
+
+#### Event type registry
+
+| Event | Fired by | Key metadata |
+|---|---|---|
+| `MENU_OPENED` | Client (session confirm) | `touchpoint_code` |
+| `CATEGORY_OPENED` | Client | `category_id`, `category_name` |
+| `ITEM_VIEWED` | Client (item modal open) | `item_name` |
+| `ITEM_VIEW_DURATION` | Client (item modal close) | `item_name`, `duration_ms` |
+| `ITEM_ADDED_TO_CART` | Client | `item_name`, `quantity`, `price` |
+| `ITEM_REMOVED_FROM_CART` | Client | `item_name`, `reason?` |
+| `ORDER_PLACED` | Server (POST /api/public/orders) | `order_id`, `order_number`, `item_count`, `subtotal` |
+| `PROMOTION_VIEWED` | Client | `promotion_name` |
+| `PROMOTION_PLAYED` | Server (promotion play route) | `promotion_name`, `result`, `reward_type?` |
+| `SESSION_ENDED` | Server (PATCH /api/admin/sessions/:id/end) | `reason`, `duration_seconds` |
+
+#### guest_id
+
+A client-generated `crypto.randomUUID()` stored in `sessionStorage` scoped per session (`spinbite_guest_{sessionId}`). Identifies a browser tab within a multi-device dining session — not customer identity. Reused across page refreshes (same tab), fresh on new tab. Null for all server-side events.
+
+#### Key analytics queries this enables
+
+```sql
+-- Items viewed but never ordered in same session
+SELECT se.menu_item_id, mi.name, COUNT(*) AS view_count
+FROM session_events se
+JOIN menu_items mi ON mi.id = se.menu_item_id
+WHERE se.restaurant_id = :rid AND se.event_type = 'ITEM_VIEWED'
+  AND NOT EXISTS (
+    SELECT 1 FROM session_events oe
+    WHERE oe.session_id = se.session_id
+      AND oe.event_type = 'ORDER_PLACED'
+  )
+GROUP BY se.menu_item_id, mi.name ORDER BY view_count DESC;
+
+-- Average time-on-item per menu item
+SELECT menu_item_id, AVG((metadata->>'duration_ms')::int) AS avg_ms
+FROM session_events
+WHERE restaurant_id = :rid AND event_type = 'ITEM_VIEW_DURATION'
+GROUP BY menu_item_id ORDER BY avg_ms DESC;
+
+-- Session funnel: viewed → added → ordered
+SELECT
+  COUNT(*) FILTER (WHERE event_type = 'ITEM_VIEWED')          AS views,
+  COUNT(*) FILTER (WHERE event_type = 'ITEM_ADDED_TO_CART')   AS adds,
+  COUNT(*) FILTER (WHERE event_type = 'ORDER_PLACED')         AS orders
+FROM session_events WHERE restaurant_id = :rid;
+```
+
+#### Relationship to session_interaction_log
+
+The `session_interaction_log` JSONB column on `visit_sessions` is V1 (bounded to 200 entries, not queryable). All new instrumentation writes to `session_events`. The JSONB log is retained for backward compatibility but is deprecated for new features.
+
+#### Future: Phase 2 roadmap
+- Session replay and funnel visualization in admin dashboard
+- Promotion performance attribution report
 - A/B test analysis for game types and reward pools
+- AI query interface: natural language → SQL over session_events
 
 ### 9.7 AI Restaurant Command Center
 
