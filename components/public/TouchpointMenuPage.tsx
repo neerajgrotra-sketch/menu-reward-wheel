@@ -242,7 +242,7 @@ export function TouchpointMenuPage({
     console.log('[STEP_3_FETCH_ORDERS_START]', sid);
     console.log('[MYORDERS][DRAWER_FETCH]', { sid });
     try {
-      const res = await fetch(`/api/public/sessions/${sid}/orders`);
+      const res = await fetch(`/api/public/sessions/${sid}/orders`, { cache: 'no-store' });
       console.log('[TRACE_1_STATUS]', res.status);
       if (!res.ok) return;
       const data = await res.json() as {

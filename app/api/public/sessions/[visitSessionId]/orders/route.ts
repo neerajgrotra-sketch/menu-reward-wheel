@@ -67,7 +67,10 @@ export async function GET(
     });
 
     console.log('[ORDERS][SESSION_ORDERS_FETCHED]', { visitSessionId, orders_count: session.orders_count, returned: orderList.length });
-    return NextResponse.json({ orders: orderList, session_status: session.status, orders_count: session.orders_count ?? 0 });
+    return NextResponse.json(
+      { orders: orderList, session_status: session.status, orders_count: session.orders_count ?? 0 },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });
