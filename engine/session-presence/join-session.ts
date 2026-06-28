@@ -70,8 +70,12 @@ export async function resolveSessionJoin(
         })
         .eq('id', existing.id);
 
-      // Invalidate all lingering guests from the abandoned session
-      await supabase.rpc('disconnect_session_guests', { p_session_id: existing.id });
+      // Invalidate all lingering guests from the abandoned session (non-fatal)
+      void Promise.resolve(
+        supabase.rpc('disconnect_session_guests', { p_session_id: existing.id })
+      ).catch((e: unknown) => {
+        console.warn('[spinbite:presence] disconnect_session_guests failed', e);
+      });
     }
 
     const newCode = generateSessionAccessCode();
@@ -125,23 +129,33 @@ export async function resolveSessionJoin(
   const isNewDevice = !knownSessionId || knownSessionId !== sessionId;
 
   // ── 3. Create a session_guests row for this device ────────────────────────
+  // Non-fatal: if session_guests table is unavailable (e.g. pending migration),
+  // session resolution still succeeds. Guest tracking degrades gracefully.
 
   const guestToken = generateGuestToken();
-  const { data: guest, error: guestErr } = await supabase
-    .from('session_guests')
-    .insert({
-      session_id: sessionId,
-      restaurant_id: restaurantId,
-      guest_token: guestToken,
-      device_fingerprint: deviceFingerprint,
-      user_agent: userAgent,
-      status: 'active',
-    })
-    .select('id')
-    .single();
+  let guestId = '';
 
-  if (guestErr || !guest) {
-    throw new Error(guestErr?.message ?? 'Failed to register session guest.');
+  try {
+    const { data: guest, error: guestErr } = await supabase
+      .from('session_guests')
+      .insert({
+        session_id: sessionId,
+        restaurant_id: restaurantId,
+        guest_token: guestToken,
+        device_fingerprint: deviceFingerprint,
+        user_agent: userAgent,
+        status: 'active',
+      })
+      .select('id')
+      .single();
+
+    if (guestErr) {
+      console.warn('[spinbite:presence] session_guests insert failed', guestErr.message);
+    } else if (guest) {
+      guestId = guest.id;
+    }
+  } catch (e: unknown) {
+    console.warn('[spinbite:presence] session_guests unavailable', e);
   }
 
   // ── 4. Increment guest_count on the session for new devices ───────────────
@@ -151,7 +165,11 @@ export async function resolveSessionJoin(
   // Same-device reconnects do not increment (prevents inflation on refreshes).
 
   if (!isNewSession && isNewDevice) {
-    await supabase.rpc('increment_guest_count', { p_session_id: sessionId });
+    void Promise.resolve(
+      supabase.rpc('increment_guest_count', { p_session_id: sessionId })
+    ).catch((e: unknown) => {
+      console.warn('[spinbite:presence] increment_guest_count failed', e);
+    });
   }
 
   // Touch last_activity_at on reconnects (keeps session alive without inflating count)
@@ -168,7 +186,7 @@ export async function resolveSessionJoin(
 
   return {
     session_id: sessionId,
-    guest_id: guest.id,
+    guest_id: guestId,
     guest_token: guestToken,
     is_new_session: isNewSession,
     is_new_device: isNewDevice,
