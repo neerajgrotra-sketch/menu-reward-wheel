@@ -221,6 +221,13 @@ export function TouchpointMenuPage({
   const [confirmedSessionId, setConfirmedSessionId] = useState<string | null>(null);
   const [resolveAttempt, setResolveAttempt] = useState(0);
 
+  // ── Presence state ───────────────────────────────────────────────────────────
+  // activeGuestCount: null = not yet fetched, number = confirmed from presence API.
+  // presenceKeyRef: stable per-tab UUID used as the Supabase Presence channel key
+  // so each browser tab is counted as a unique connected guest.
+  const [activeGuestCount, setActiveGuestCount] = useState<number | null>(null);
+  const presenceKeyRef = useRef(crypto.randomUUID());
+
   // ── Orders state ─────────────────────────────────────────────────────────────
   // sessionOrders is fetched fresh from the orders table on every relevant event.
   // Button count and drawer count both derive from sessionOrders.length so they
@@ -378,6 +385,70 @@ export function TouchpointMenuPage({
     return () => { supabase.removeChannel(channel); };
   }, [confirmedSessionId, fetchOrders]);
 
+  // ── Presence — guest count + live updates + session-end detection ────────────
+  // Two layers:
+  //   1. Poll /presence every 30s → authoritative count from session_guests DB.
+  //      Also detects session_active: false (admin ended session) faster than orders.
+  //   2. Supabase Presence channel → instant count update when another guest scans.
+  //      Uses presenceKeyRef (stable per tab UUID) as the channel key.
+  //      Presence requires no RLS — it's client-to-client pub/sub.
+  useEffect(() => {
+    if (!confirmedSessionId) return;
+
+    const sid = confirmedSessionId;
+
+    async function fetchPresence() {
+      try {
+        const res = await fetch(`/api/public/sessions/${sid}/presence`);
+        if (!res.ok) return;
+        const data = await res.json() as { active_guest_count: number; session_active: boolean };
+
+        if (!data.session_active) {
+          // Admin ended the session — transition immediately
+          try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
+          setConfirmedSessionId(null);
+          setSessionOrders([]);
+          setSessionPhase('session_ended');
+          return;
+        }
+
+        // Presence channel count may already be higher (live joins) — take the max
+        setActiveGuestCount((prev) =>
+          Math.max(prev ?? 0, data.active_guest_count),
+        );
+      } catch { /* network error — silent */ }
+    }
+
+    fetchPresence();
+    const pollId = setInterval(fetchPresence, TICK_MS);
+
+    // Supabase Presence for instant live count (no RLS needed)
+    const supabase = createClient();
+    const presenceChannel = supabase.channel(`table-presence:${sid}`);
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const liveCount = Object.keys(state).length;
+        setActiveGuestCount((prev) => Math.max(prev ?? 0, liveCount));
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ joined_at: new Date().toISOString() });
+        }
+      });
+
+    return () => {
+      clearInterval(pollId);
+      void supabase.removeChannel(presenceChannel);
+    };
+  }, [confirmedSessionId, sKey]);
+
+  // Reset guest count when session changes (new resolve cycle)
+  useEffect(() => {
+    if (!confirmedSessionId) setActiveGuestCount(null);
+  }, [confirmedSessionId]);
+
   // ── Retry resolve ────────────────────────────────────────────────────────────
   const retryResolve = useCallback(() => {
     setResolveAttempt((n) => n + 1);
@@ -449,12 +520,25 @@ export function TouchpointMenuPage({
       {/* Session ribbon — shown only when session is confirmed */}
       {sessionPhase === 'confirmed' && (
         <div
-          className="sticky top-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-black text-white shadow-sm"
+          className="sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-1.5 text-xs font-black text-white shadow-sm"
           style={{ backgroundColor: brandColor }}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
-          {touchpointLabel}
-          <span className="h-1.5 w-1.5 rounded-full bg-white/70" />
+          {/* Pulsing green beacon + table label */}
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+            </span>
+            <span className="truncate">{touchpointLabel}</span>
+          </div>
+
+          {/* Live guest count */}
+          {activeGuestCount !== null && (
+            <span className="shrink-0 flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black tabular-nums">
+              <span>👥</span>
+              <span>{activeGuestCount}</span>
+            </span>
+          )}
         </div>
       )}
 
@@ -486,10 +570,8 @@ export function TouchpointMenuPage({
 
       {/* Session ended banner */}
       {sessionPhase === 'session_ended' && (
-        <div className="sticky top-0 z-30 flex items-center justify-center px-4 py-1.5 bg-amber-50 shadow-sm">
-          <span className="text-xs font-semibold text-amber-700">
-            Your dining session has ended. Please rescan the QR code to order.
-          </span>
+        <div className="sticky top-0 z-30 flex items-center justify-center gap-2 px-4 py-1.5 bg-red-600 shadow-sm">
+          <span className="text-xs font-black text-white">🔴 Session Ended</span>
         </div>
       )}
 
