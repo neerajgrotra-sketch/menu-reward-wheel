@@ -496,6 +496,23 @@ export function TouchpointMenuPage({
     console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: '409_session_invalid' });
   }, [sKey]);
 
+  // ── Session lifecycle — instant termination via Supabase Broadcast ────────────
+  // The session end route broadcasts 'session_ended' to this channel via the
+  // Realtime REST API when the admin clicks End Session. No RLS needed for Broadcast.
+  // This fires in < 1s — far faster than the 30s presence poll fallback.
+  useEffect(() => {
+    if (!confirmedSessionId) return;
+    const sid = confirmedSessionId;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`session-lifecycle:${sid}`)
+      .on('broadcast', { event: 'session_ended' }, () => {
+        handleSessionEnded();
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [confirmedSessionId, handleSessionEnded]);
+
   useEffect(() => {
     return () => {
       if (reconcileTimerRef.current) clearTimeout(reconcileTimerRef.current);
@@ -644,6 +661,23 @@ export function TouchpointMenuPage({
           onClose={() => setOrdersDrawerOpen(false)}
           fetching={ordersFetching}
         />
+      )}
+
+      {/* Blocking modal — appears instantly when admin ends session.
+          fixed inset-0 covers the entire viewport; no close button by design.
+          All ordering, cart, and interactions are blocked beneath it. */}
+      {sessionPhase === 'session_ended' && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 px-6">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-8 text-center shadow-2xl">
+            <div className="mb-4 text-5xl">🔴</div>
+            <h2 className="mb-3 text-xl font-black text-stone-900">Dining Session Closed</h2>
+            <p className="text-sm leading-relaxed text-stone-500">
+              This dining session has been ended by restaurant staff.
+              <br />
+              Please scan again to start a new session.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

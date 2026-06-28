@@ -93,6 +93,32 @@ export async function PATCH(
       console.error('[spinbite:sessions] SESSION_ENDED event failed', err);
     });
 
+    // Broadcast instant termination to all connected customer devices.
+    // Uses Supabase Realtime Broadcast REST API — HTTP, no WebSocket needed server-side.
+    // Customer pages subscribed to session-lifecycle:{sessionId} receive this immediately.
+    // Fire-and-forget: the 30s presence poll is the safety net if broadcast fails.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+    if (supabaseUrl && serviceKey) {
+      void fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceKey}`,
+          'apikey': serviceKey,
+        },
+        body: JSON.stringify({
+          messages: [{
+            topic: `session-lifecycle:${sessionId}`,
+            event: 'session_ended',
+            payload: { session_id: sessionId },
+          }],
+        }),
+      }).catch((err: unknown) => {
+        console.error('[spinbite:sessions] broadcast session_ended failed', err);
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Internal server error.';
