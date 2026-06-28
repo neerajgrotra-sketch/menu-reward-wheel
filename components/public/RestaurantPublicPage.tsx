@@ -11,6 +11,7 @@ import { useCart } from '@/hooks/useCart';
 import { CartBar } from '@/components/public/CartBar';
 import { CartSheet } from '@/components/public/CartSheet';
 import type { PlacedOrder } from '@/components/public/CartSheet';
+import type { ItemViewSnapshot } from '@/hooks/useSessionTracking';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -269,6 +270,7 @@ function ItemDetailSheet({
   orderingEnabled = false,
   cart,
   restaurantId,
+  onAddedToCart,
 }: {
   item: PublicMenuItem;
   visible: boolean;
@@ -278,6 +280,7 @@ function ItemDetailSheet({
   orderingEnabled?: boolean;
   cart?: ReturnType<typeof useCart>;
   restaurantId?: string;
+  onAddedToCart?: (quantity: number, specialInstructionsPresent: boolean) => void;
 }) {
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [panelQty, setPanelQty] = useState(1);
@@ -352,6 +355,7 @@ function ItemDetailSheet({
     if (panelInstructions.trim()) {
       cart.updateInstructions(item.id, panelInstructions.trim());
     }
+    onAddedToCart?.(panelQty, !!panelInstructions.trim());
     onClose();
   }
 
@@ -999,6 +1003,9 @@ export function RestaurantPublicPage({
   onMyOrdersClick,
   sessionConfirmed,
   onSessionEnded,
+  onItemAddedToCart,
+  onItemRemovedFromCart,
+  onCategoryOpened,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
@@ -1007,7 +1014,7 @@ export function RestaurantPublicPage({
   orderingEnabled?: boolean;
   confirmedSessionId?: string | null;
   touchpointName?: string | null;
-  onItemViewed?: (itemId: string, itemName: string) => void;
+  onItemViewed?: (itemId: string, itemName: string, snapshot?: ItemViewSnapshot) => void;
   onItemClosed?: () => void;
   onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   sessionOrderCount?: number;
@@ -1015,6 +1022,9 @@ export function RestaurantPublicPage({
   // undefined = no session context (direct URL); false = resolving/failed/ended; true = active
   sessionConfirmed?: boolean;
   onSessionEnded?: () => void;
+  onItemAddedToCart?: (itemId: string, itemName: string, quantity: number, priceSnapshot: number | null, effectivePriceSnapshot: number | null, source: 'menu_card' | 'detail_sheet', specialInstructionsPresent: boolean) => void;
+  onItemRemovedFromCart?: (itemId: string, itemName: string, quantityRemoved: number, previousQuantity: number, cartSubtotalBefore: number, cartSubtotalAfter: number) => void;
+  onCategoryOpened?: (categoryId: string, categoryName: string, previousCategoryId: string | null, previousCategoryName: string | null) => void;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -1071,6 +1081,7 @@ export function RestaurantPublicPage({
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
   const [selectedItem, setSelectedItem] = useState<PublicMenuItem | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
+  const previousCategoryRef = useRef<{ id: string; name: string } | null>(null);
 
   // null = not yet checked (avoids hydration flash), false = show modal, true = dismissed
   const [modalDismissed, setModalDismissed] = useState<boolean | null>(null);
@@ -1145,12 +1156,25 @@ export function RestaurantPublicPage({
     pill?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }, [activeSection]);
 
-  function openSheet(item: PublicMenuItem) {
+  function openSheet(item: PublicMenuItem, sectionId: string, sectionName: string) {
     // C1: capture trigger element before mounting sheet
     triggerRef.current = document.activeElement as HTMLElement ?? null;
     setSelectedItem(item);
-    // Notify session layer — fires ITEM_VIEWED event with item identity
-    onItemViewed?.(item.id, item.name);
+    // Build historical snapshot — item data can change after the session ends
+    const discountPercent =
+      item.special_active && item.price != null && item.effective_price != null && item.price > 0
+        ? Math.round((1 - item.effective_price / item.price) * 100)
+        : null;
+    onItemViewed?.(item.id, item.name, {
+      price_snapshot: item.price,
+      effective_price_snapshot: item.effective_price,
+      is_on_special: item.special_active,
+      discount_percent: discountPercent,
+      has_image: !!item.image_url,
+      dietary_tags: item.tags ?? [],
+      category_id: sectionId,
+      category_name: sectionName,
+    });
     // Double rAF: ensure DOM is painted before CSS transition triggers
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
@@ -1425,7 +1449,16 @@ export function RestaurantPublicPage({
                         key={section.id}
                         type="button"
                         data-nav-id={section.id}
-                        onClick={() => scrollToSection(section.id)}
+                        onClick={() => {
+                          onCategoryOpened?.(
+                            section.id,
+                            section.name,
+                            previousCategoryRef.current?.id ?? null,
+                            previousCategoryRef.current?.name ?? null,
+                          );
+                          previousCategoryRef.current = { id: section.id, name: section.name };
+                          scrollToSection(section.id);
+                        }}
                         className="shrink-0 rounded-full px-4 py-3 text-sm font-black shadow-sm active:scale-95"
                         aria-current={isActive ? 'true' : undefined}
                         style={{
@@ -1502,17 +1535,28 @@ export function RestaurantPublicPage({
                       item={item}
                       brandColor={brandColor}
                       accentColor={accentColor}
-                      onTap={() => openSheet(item)}
-                      onAddToCart={orderingEnabled && transactionAllowed ? () => cart.addItem(
-                        {
-                          menu_item_id: item.id,
-                          name: item.name,
-                          price: item.price ?? 0,
-                          effective_price: item.effective_price ?? item.price ?? 0,
-                          special_active: item.special_active,
-                        },
-                        restaurant.id,
-                      ) : undefined}
+                      onTap={() => openSheet(item, section.id, section.name)}
+                      onAddToCart={orderingEnabled && transactionAllowed ? () => {
+                        cart.addItem(
+                          {
+                            menu_item_id: item.id,
+                            name: item.name,
+                            price: item.price ?? 0,
+                            effective_price: item.effective_price ?? item.price ?? 0,
+                            special_active: item.special_active,
+                          },
+                          restaurant.id,
+                        );
+                        onItemAddedToCart?.(
+                          item.id,
+                          item.name,
+                          1,
+                          item.price,
+                          item.effective_price ?? item.price,
+                          'menu_card',
+                          false,
+                        );
+                      } : undefined}
                     />
                   ))}
                 </div>
@@ -1533,6 +1577,18 @@ export function RestaurantPublicPage({
           orderingEnabled={orderingEnabled && transactionAllowed}
           cart={cart}
           restaurantId={restaurant.id}
+          onAddedToCart={(quantity, specialInstructionsPresent) => {
+            if (!selectedItem) return;
+            onItemAddedToCart?.(
+              selectedItem.id,
+              selectedItem.name,
+              quantity,
+              selectedItem.price,
+              selectedItem.effective_price ?? selectedItem.price,
+              'detail_sheet',
+              specialInstructionsPresent,
+            );
+          }}
         />
       )}
 
@@ -1588,6 +1644,7 @@ export function RestaurantPublicPage({
           onOrderPlaced={onOrderPlaced}
           sessionConnecting={sessionConfirmed === false}
           onSessionEnded={onSessionEnded}
+          onItemRemovedFromCart={onItemRemovedFromCart}
         />
       )}
     </div>

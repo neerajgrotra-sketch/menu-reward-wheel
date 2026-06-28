@@ -502,6 +502,47 @@ It is stable once printed. Changing it invalidates physical QR codes — warn th
 
 ---
 
+## Rule 35 — No Cached Reads on Transactional Restaurant State
+
+Any API route that reads mutable transactional restaurant state must explicitly bypass the Next.js Data Cache.
+
+**Transactional restaurant state includes:**
+
+- Orders (`orders`, `order_items`)
+- Visit sessions (`visit_sessions`)
+- Coupons and coupon issuance
+- Promotions and promotion interactions
+- Analytics counters (`orders_count`, `total_spend`, `menu_items_viewed`, etc.)
+- AI session state and interaction logs
+
+**Mandatory pattern for all Supabase clients inside dynamic API routes:**
+
+```typescript
+return createServiceClient(url, serviceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  global: {
+    fetch: (input, init) =>
+      fetch(input as RequestInfo, { ...(init as RequestInit), cache: 'no-store' }),
+  },
+});
+```
+
+**Why `dynamic = 'force-dynamic'` alone is not sufficient:**
+
+`dynamic = 'force-dynamic'` disables the Full Route Cache (prevents static pre-rendering of the route handler). It does NOT disable the Next.js Data Cache, which persists individual `fetch()` call results across requests. Since `@supabase/supabase-js` uses the global `fetch` internally, all Supabase API calls are subject to the Data Cache unless explicitly opted out.
+
+**Root cause this rule prevents:**
+
+A GET route returned `{orders: [], orders_count: 0}` on first call (correct — session was new). The Data Cache stored this empty response. Every subsequent call to the same route returned the stale cached response without ever hitting Supabase — causing the "My Orders" button to permanently show 0 after orders were placed.
+
+**Enforcement:**
+
+- Any new API route reading transactional state must include the `cache: 'no-store'` fetch override in its `makeServiceClient()`.
+- The `Cache-Control: no-store` response header is also required (prevents CDN and browser caching), but is not a substitute for the fetch override.
+- Read-only static data routes (menu items, restaurant profile, touchpoint config) are exempt — they benefit from caching.
+
+---
+
 ## Rule 34 — Browser Cache Is Never Authoritative Session State
 
 `sessionStorage` visit session data is a candidate hint only — never an active session identifier.

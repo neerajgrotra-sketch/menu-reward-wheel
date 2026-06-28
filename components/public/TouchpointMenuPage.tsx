@@ -515,6 +515,43 @@ export function TouchpointMenuPage({
           console.log('[MYORDERS][RENDER]', { ordersLen: sessionOrders.length, sessionPhase, confirmedSessionId });
         }}
         onSessionEnded={handleSessionEnded}
+        onItemAddedToCart={(itemId, itemName, quantity, priceSnapshot, effectivePriceSnapshot, source, specialInstructionsPresent) => {
+          fireEvent('ITEM_ADDED_TO_CART', {
+            menuItemId: itemId,
+            metadata: {
+              item_id: itemId,
+              item_name: itemName,
+              quantity,
+              price_snapshot: priceSnapshot,
+              effective_price_snapshot: effectivePriceSnapshot,
+              source,
+              special_instructions_present: specialInstructionsPresent,
+            },
+          });
+        }}
+        onItemRemovedFromCart={(itemId, itemName, quantityRemoved, previousQuantity, cartSubtotalBefore, cartSubtotalAfter) => {
+          fireEvent('ITEM_REMOVED_FROM_CART', {
+            menuItemId: itemId,
+            metadata: {
+              item_id: itemId,
+              item_name: itemName,
+              quantity_removed: quantityRemoved,
+              previous_quantity: previousQuantity,
+              cart_subtotal_before: cartSubtotalBefore,
+              cart_subtotal_after: cartSubtotalAfter,
+            },
+          });
+        }}
+        onCategoryOpened={(categoryId, categoryName, previousCategoryId, previousCategoryName) => {
+          fireEvent('CATEGORY_OPENED', {
+            metadata: {
+              category_id: categoryId,
+              category_name: categoryName,
+              previous_category_id: previousCategoryId,
+              previous_category_name: previousCategoryName,
+            },
+          });
+        }}
       />
 
       {ordersDrawerOpen && (

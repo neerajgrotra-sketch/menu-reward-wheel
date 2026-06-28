@@ -23,6 +23,19 @@ export type FireEventOptions = {
   metadata?: Record<string, unknown>;
 };
 
+// Snapshot of item state at the moment of viewing.
+// Preserved in metadata because the item can change after the session.
+export type ItemViewSnapshot = {
+  price_snapshot: number | null;
+  effective_price_snapshot: number | null;
+  is_on_special: boolean;
+  discount_percent: number | null;
+  has_image: boolean;
+  dietary_tags: string[];
+  category_id: string | null;
+  category_name: string | null;
+};
+
 // ─── guest_id management ──────────────────────────────────────────────────────
 // guest_id is a client-generated UUID that identifies a single browser tab
 // within a multi-device dining session. It is ephemeral and NOT customer identity.
@@ -96,12 +109,15 @@ export function useItemViewTracking(
   const activeItemRef = useRef<{ id: string; name: string } | null>(null);
 
   const onItemOpen = useCallback(
-    (itemId: string, itemName: string) => {
+    (itemId: string, itemName: string, snapshot?: ItemViewSnapshot) => {
       openTimestampRef.current = Date.now();
       activeItemRef.current = { id: itemId, name: itemName };
       fireEvent('ITEM_VIEWED', {
         menuItemId: itemId,
-        metadata: { item_name: itemName },
+        metadata: {
+          item_name: itemName,
+          ...(snapshot ?? {}),
+        },
       });
     },
     [fireEvent],
