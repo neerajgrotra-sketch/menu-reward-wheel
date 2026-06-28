@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { SessionIntelligence, TimelineEntry, ViewedItem, OrderedItem } from '@/lib/session-intelligence';
+import type {
+  SessionIntelligence,
+  TimelineEntry,
+  ViewedItem,
+  OrderedItem,
+  CartAbandonmentItem,
+  BehavioralIntelligence,
+  AttentionScore,
+  PurchaseStyle,
+  DecisionComplexity,
+  SessionMetadata,
+} from '@/lib/session-intelligence';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,7 +198,204 @@ function OrderedItemsPanel({ items }: { items: OrderedItem[] }) {
   );
 }
 
-function IntelligencePanel({ intelligence }: { intelligence: SessionIntelligence }) {
+function CartFunnelPanel({ items, label }: { items: CartAbandonmentItem[]; label: string }) {
+  if (items.length === 0) {
+    return <p className="text-xs text-stone-400 italic">None.</p>;
+  }
+  return (
+    <div className="space-y-1.5">
+      {items.map((item) => (
+        <div key={item.menu_item_id ?? item.name} className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-stone-800 truncate">{item.name}</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {item.added_count > 0 && (
+              <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
+                +{item.added_count}
+              </span>
+            )}
+            {item.removed_count > 0 && (
+              <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-black text-red-600">
+                −{item.removed_count}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Behavioral Intelligence Components ───────────────────────────────────────
+
+const PURCHASE_STYLE_CONFIG: Record<PurchaseStyle, { bg: string; text: string; label: string }> = {
+  impulsive:  { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Impulsive' },
+  deliberate: { bg: 'bg-blue-100',   text: 'text-blue-700',   label: 'Deliberate' },
+  hesitant:   { bg: 'bg-amber-100',  text: 'text-amber-700',  label: 'Hesitant' },
+};
+
+const COMPLEXITY_CONFIG: Record<DecisionComplexity, { bg: string; text: string; label: string }> = {
+  low:    { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Simple decision' },
+  medium: { bg: 'bg-yellow-100',  text: 'text-yellow-700',  label: 'Moderate complexity' },
+  high:   { bg: 'bg-red-100',     text: 'text-red-700',     label: 'Complex decision' },
+};
+
+const ATTENTION_CONFIG: Record<AttentionScore, { bg: string; text: string; label: string }> = {
+  dismissed:  { bg: 'bg-stone-100',   text: 'text-stone-500',   label: 'Dismissed' },
+  considered: { bg: 'bg-blue-50',     text: 'text-blue-600',    label: 'Considered' },
+  interested: { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'Interested' },
+  high_intent:{ bg: 'bg-violet-100',  text: 'text-violet-700',  label: 'High intent' },
+};
+
+function BehaviorBadge({ cfg }: { cfg: { bg: string; text: string; label: string } }) {
+  return (
+    <span className={`rounded-full ${cfg.bg} ${cfg.text} px-2.5 py-1 text-[11px] font-bold`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function AIInsightsPanel({ behavior }: { behavior: BehavioralIntelligence }) {
+  const { patterns, scored_items, semantic_timeline, insights } = behavior;
+
+  const keyMoments = semantic_timeline.filter(e => e.significance === 'high' || e.significance === 'medium');
+
+  return (
+    <div className="space-y-4">
+      {/* Behavior profile */}
+      <div>
+        <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+          Behavior Profile
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <BehaviorBadge cfg={PURCHASE_STYLE_CONFIG[patterns.purchase_style]} />
+          <BehaviorBadge cfg={COMPLEXITY_CONFIG[patterns.decision_complexity]} />
+          {patterns.category_preference && (
+            <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] font-bold text-stone-600">
+              Focus: {patterns.category_preference}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Item attention scores */}
+      {scored_items.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Item Attention
+          </p>
+          <div className="space-y-1.5">
+            {scored_items.map((item) => (
+              <div key={item.menu_item_id ?? item.name} className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-stone-800 truncate">{item.name}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span
+                    className={`rounded-full ${ATTENTION_CONFIG[item.attention_score].bg} ${ATTENTION_CONFIG[item.attention_score].text} px-1.5 py-0.5 text-[10px] font-black`}
+                  >
+                    {ATTENTION_CONFIG[item.attention_score].label}
+                  </span>
+                  {item.view_duration_ms > 0 && (
+                    <span className="text-[10px] text-stone-400">{formatMs(item.view_duration_ms)}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Behavioral narrative (key moments only) */}
+      {keyMoments.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Behavioral Narrative
+          </p>
+          <div className="space-y-1.5">
+            {keyMoments.map((entry, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span
+                  className={`mt-1 shrink-0 h-1.5 w-1.5 rounded-full ${
+                    entry.significance === 'high' ? 'bg-orange-400' : 'bg-blue-300'
+                  }`}
+                />
+                <p className="text-xs text-stone-700">{entry.sentence}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI insights — findings + recommendations */}
+      {insights.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            AI Insights
+          </p>
+          <div className="space-y-2">
+            {insights.map((insight, i) => (
+              <div key={i} className="rounded-xl bg-stone-50 px-3 py-2.5">
+                <p className="text-xs text-stone-700">{insight.finding}</p>
+                {insight.recommendation && (
+                  <p className="mt-1 text-[11px] font-semibold text-emerald-700">
+                    → {insight.recommendation}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SessionMetadataPanel({ metadata }: { metadata: SessionMetadata }) {
+  const rows: Array<{ label: string; value: string }> = [
+    { label: 'Session ID',     value: metadata.session_id },
+    { label: 'Restaurant ID',  value: metadata.restaurant_id ?? '—' },
+    { label: 'Touchpoint ID',  value: metadata.touchpoint_id ?? '—' },
+    { label: 'Started',        value: new Date(metadata.start_time).toLocaleString() },
+    { label: 'Ended',          value: metadata.end_time ? new Date(metadata.end_time).toLocaleString() : 'Active' },
+    { label: 'Event count',    value: String(metadata.event_count) },
+    { label: 'Devices',        value: metadata.guest_uuids.length > 0 ? `${metadata.guest_uuids.length} device(s)` : '—' },
+  ];
+
+  if (metadata.guest_uuids.length > 0) {
+    rows.push({ label: 'Guest UUID', value: metadata.guest_uuids[0] });
+  }
+
+  const deviceKeys = Object.keys(metadata.device_metadata);
+
+  return (
+    <div>
+      <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+        Session Metadata
+      </p>
+      <div className="rounded-xl bg-stone-50 px-3 py-2.5 space-y-1">
+        {rows.map(({ label, value }) => (
+          <div key={label} className="flex items-start gap-2">
+            <span className="shrink-0 w-28 text-[10px] font-semibold text-stone-400">{label}</span>
+            <span className="text-[10px] font-mono text-stone-600 break-all">{value}</span>
+          </div>
+        ))}
+        {deviceKeys.length > 0 && (
+          <div className="flex items-start gap-2">
+            <span className="shrink-0 w-28 text-[10px] font-semibold text-stone-400">Device</span>
+            <span className="text-[10px] font-mono text-stone-600 break-all">
+              {JSON.stringify(metadata.device_metadata)}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Intelligence Panel ───────────────────────────────────────────────────────
+
+function IntelligencePanel({ intelligence, behavior }: {
+  intelligence: SessionIntelligence;
+  behavior: BehavioralIntelligence | null;
+}) {
   const m = intelligence.derived_metrics;
 
   return (
@@ -202,7 +410,29 @@ function IntelligencePanel({ intelligence }: { intelligence: SessionIntelligence
         <MetricChip label="Conversion" value={formatPercent(m.menu_conversion_rate)} />
       </div>
 
-      {/* Timeline + two-column item analysis */}
+      {/* Cart funnel metrics strip */}
+      {(m.cart_add_count > 0 || m.cart_remove_count > 0) && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <MetricChip label="Cart adds" value={String(m.cart_add_count)} />
+          <MetricChip label="Cart removes" value={String(m.cart_remove_count)} />
+          <MetricChip label="Added not ordered" value={String(m.viewed_added_not_ordered.length)} />
+          <MetricChip label="Add→remove" value={String(m.added_removed_not_ordered.length)} />
+        </div>
+      )}
+
+      {/* Category path */}
+      {m.category_path.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Category Path
+          </p>
+          <p className="text-xs text-stone-600">
+            {m.category_path.join(' → ')}
+          </p>
+        </div>
+      )}
+
+      {/* Timeline + three-column item analysis */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {/* Timeline */}
         <div className="sm:col-span-1">
@@ -236,6 +466,41 @@ function IntelligencePanel({ intelligence }: { intelligence: SessionIntelligence
           <OrderedItemsPanel items={intelligence.ordered_items} />
         </div>
       </div>
+
+      {/* Cart abandonment detail — only shown when there is cart funnel data */}
+      {m.viewed_added_not_ordered.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+              Added · Not Ordered
+            </p>
+            <CartFunnelPanel items={m.viewed_added_not_ordered} label="Added not ordered" />
+          </div>
+          {m.added_removed_not_ordered.length > 0 && (
+            <div>
+              <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-stone-400">
+                Added then Removed
+              </p>
+              <CartFunnelPanel items={m.added_removed_not_ordered} label="Added then removed" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* AI Insights + Session Metadata */}
+      {behavior && (
+        <>
+          <div className="border-t border-stone-100 pt-4">
+            <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-stone-400">
+              AI Insights
+            </p>
+            <AIInsightsPanel behavior={behavior} />
+          </div>
+          <div className="border-t border-stone-100 pt-4">
+            <SessionMetadataPanel metadata={behavior.session_metadata} />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -251,8 +516,9 @@ function SessionCard({
   onEnd: (id: string) => void;
   ending: boolean;
 }) {
+  type FullIntelligence = SessionIntelligence & { behavior?: BehavioralIntelligence };
   const [expanded, setExpanded] = useState(false);
-  const [intelligence, setIntelligence] = useState<SessionIntelligence | null>(null);
+  const [intelligence, setIntelligence] = useState<FullIntelligence | null>(null);
   const [loadingIntelligence, setLoadingIntelligence] = useState(false);
   const [intelligenceError, setIntelligenceError] = useState('');
 
@@ -272,7 +538,7 @@ function SessionCard({
         const res = await fetch(`/api/admin/sessions/${session.id}/intelligence`);
         const payload = await res.json();
         if (!res.ok) throw new Error(payload?.error || 'Failed to load intelligence.');
-        setIntelligence(payload as SessionIntelligence);
+        setIntelligence(payload as FullIntelligence);
       } catch (err: unknown) {
         setIntelligenceError(err instanceof Error ? err.message : 'Failed to load.');
       } finally {
@@ -357,7 +623,7 @@ function SessionCard({
               </div>
             )}
             {intelligence && !loadingIntelligence && (
-              <IntelligencePanel intelligence={intelligence} />
+              <IntelligencePanel intelligence={intelligence} behavior={intelligence.behavior ?? null} />
             )}
           </>
         )}
