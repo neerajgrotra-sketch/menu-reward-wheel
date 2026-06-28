@@ -33,6 +33,7 @@ type CartSheetProps = {
   onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   onSessionEnded?: () => void;
   sessionConnecting?: boolean;
+  onItemRemovedFromCart?: (itemId: string, itemName: string, quantityRemoved: number, previousQuantity: number, cartSubtotalBefore: number, cartSubtotalAfter: number) => void;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
@@ -41,7 +42,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart }: CartSheetProps) {
   const [customerName, setCustomerName] = useState('');
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
@@ -243,7 +244,14 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => cart.updateQuantity(item.menu_item_id, item.quantity - 1)}
+                            onClick={() => {
+                              const newQty = item.quantity - 1;
+                              if (newQty < 1) {
+                                const subtotalAfter = Math.round((cart.subtotal - item.effective_price * item.quantity) * 100) / 100;
+                                onItemRemovedFromCart?.(item.menu_item_id, item.name, item.quantity, item.quantity, cart.subtotal, subtotalAfter);
+                              }
+                              cart.updateQuantity(item.menu_item_id, newQty);
+                            }}
                             aria-label="Decrease quantity"
                             className="flex h-7 w-7 items-center justify-center rounded-full bg-stone-100 text-sm font-black text-stone-700 active:bg-stone-200"
                           >
@@ -290,7 +298,11 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                           </p>
                           <button
                             type="button"
-                            onClick={() => cart.removeItem(item.menu_item_id)}
+                            onClick={() => {
+                              const subtotalAfter = Math.round((cart.subtotal - item.effective_price * item.quantity) * 100) / 100;
+                              onItemRemovedFromCart?.(item.menu_item_id, item.name, item.quantity, item.quantity, cart.subtotal, subtotalAfter);
+                              cart.removeItem(item.menu_item_id);
+                            }}
                             aria-label={`Remove ${item.name}`}
                             className="mt-1 text-xs text-stone-400 active:text-red-500"
                           >
