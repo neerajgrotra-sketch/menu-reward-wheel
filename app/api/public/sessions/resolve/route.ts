@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { resolveSessionJoin } from '@/engine/session-presence';
 
 // ── Per-IP rate limit (in-memory, per Lambda instance) ────────────────────────
 const IP_WINDOW_MS = 15 * 60 * 1000;
@@ -34,12 +35,6 @@ function makeServiceClient() {
   });
 }
 
-function generateSessionAccessCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-}
-
-const STALE_HOURS = 2;
-
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
@@ -58,11 +53,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
     }
 
-    const { restaurant_id, touchpoint_id, known_session_id } = body as {
-      restaurant_id?: string;
-      touchpoint_id?: string;
-      known_session_id?: string | null;
-    };
+    const { restaurant_id, touchpoint_id, known_session_id, device_fingerprint, user_agent } =
+      body as {
+        restaurant_id?: string;
+        touchpoint_id?: string;
+        known_session_id?: string | null;
+        device_fingerprint?: string;
+        user_agent?: string | null;
+      };
 
     if (!restaurant_id || !touchpoint_id) {
       return NextResponse.json(
@@ -73,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = makeServiceClient();
 
-    // 1. Validate touchpoint belongs to restaurant and is active
+    // Validate touchpoint belongs to restaurant and is active
     const { data: touchpoint, error: tpError } = await supabase
       .from('restaurant_touchpoints')
       .select('id, name, type, section_name, touchpoint_code, restaurant_id')
@@ -90,160 +88,48 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Look for existing active session for this touchpoint
-    const { data: existingSession } = await supabase
-      .from('visit_sessions')
-      .select('id, session_access_code, last_activity_at, guest_count, status, started_at')
-      .eq('touchpoint_id', touchpoint_id)
-      .eq('status', 'active')
-      .maybeSingle();
+    // Delegate all session + guest creation to the presence engine
+    const fingerprint = device_fingerprint ?? 'unknown';
+    const ua = user_agent ?? req.headers.get('user-agent') ?? null;
 
-    let sessionId: string;
-    let sessionAccessCode: string;
-    let isNewSession = false;
-    let isNewDevice = false;
+    const join = await resolveSessionJoin(
+      touchpoint_id,
+      restaurant_id,
+      fingerprint,
+      ua,
+      known_session_id ?? null,
+      supabase,
+    );
 
-    if (existingSession) {
-      const lastActivity = new Date(existingSession.last_activity_at);
-      const staleThreshold = new Date(Date.now() - STALE_HOURS * 60 * 60 * 1000);
-
-      if (lastActivity < staleThreshold) {
-        // Task 6: Mark stale session abandoned, then create a new one
-        await supabase
-          .from('visit_sessions')
-          .update({ status: 'abandoned', ended_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-          .eq('id', existingSession.id);
-
-        const newCode = generateSessionAccessCode();
-        const { data: newSession, error: createError } = await supabase
-          .from('visit_sessions')
-          .insert({
-            restaurant_id,
-            touchpoint_id,
-            status: 'active',
-            session_access_code: newCode,
-            guest_count: 1,
-            session_interaction_log: JSON.stringify([
-              { event: 'qr_scan', ts: new Date().toISOString() },
-            ]),
-          })
-          .select('id, session_access_code')
-          .single();
-
-        if (createError || !newSession) {
-          console.error('[spinbite:sessions] create after abandon failed', createError?.message);
-          return NextResponse.json({ error: 'Failed to create session.' }, { status: 500 });
-        }
-
-        sessionId = newSession.id;
-        sessionAccessCode = newSession.session_access_code;
-        isNewSession = true;
-        isNewDevice = true;
-      } else {
-        // Existing active, fresh session — return it
-        sessionId = existingSession.id;
-        sessionAccessCode = existingSession.session_access_code;
-
-        // Task 7: Guest count — is this a new device joining?
-        // Client sends known_session_id from sessionStorage; mismatch = new device
-        isNewDevice = !known_session_id || known_session_id !== existingSession.id;
-
-        if (isNewDevice) {
-          // Increment guest_count for the new device joining
-          await supabase
-            .from('visit_sessions')
-            .update({
-              guest_count: existingSession.guest_count + 1,
-              last_activity_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingSession.id)
-            .eq('status', 'active');
-        } else {
-          // Same device reconnecting (refresh/navigate) — reset the stale clock so
-          // sessions don't expire mid-visit for customers who stop browsing after ordering.
-          await supabase
-            .from('visit_sessions')
-            .update({
-              last_activity_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingSession.id)
-            .eq('status', 'active');
-        }
-
-        // Append qr_scan event to interaction log
-        await supabase.rpc('append_session_interaction', {
-          p_session_id: sessionId,
-          p_event: { event: 'qr_scan', ts: new Date().toISOString() },
-        });
-      }
-    } else {
-      // No existing active session — create new
-      const newCode = generateSessionAccessCode();
-      const { data: newSession, error: createError } = await supabase
-        .from('visit_sessions')
-        .insert({
-          restaurant_id,
-          touchpoint_id,
-          status: 'active',
-          session_access_code: newCode,
-          guest_count: 1,
-          session_interaction_log: JSON.stringify([
-            { event: 'qr_scan', ts: new Date().toISOString() },
-          ]),
-        })
-        .select('id, session_access_code')
-        .single();
-
-      if (createError || !newSession) {
-        // Handle concurrent insert race: partial unique index violation (23505)
-        if (createError?.code === '23505') {
-          const { data: raceSession } = await supabase
-            .from('visit_sessions')
-            .select('id, session_access_code, guest_count')
-            .eq('touchpoint_id', touchpoint_id)
-            .eq('status', 'active')
-            .maybeSingle();
-
-          if (raceSession) {
-            sessionId = raceSession.id;
-            sessionAccessCode = raceSession.session_access_code;
-            isNewDevice = !known_session_id || known_session_id !== raceSession.id;
-          } else {
-            console.error('[spinbite:sessions] race condition but no session found');
-            return NextResponse.json({ error: 'Failed to resolve session.' }, { status: 500 });
-          }
-        } else {
-          console.error('[spinbite:sessions] create failed', createError?.message);
-          return NextResponse.json({ error: 'Failed to create session.' }, { status: 500 });
-        }
-      } else {
-        sessionId = newSession.id;
-        sessionAccessCode = newSession.session_access_code;
-        isNewSession = true;
-        isNewDevice = true;
-      }
-    }
+    // Append qr_scan interaction to the session log (fire-and-forget)
+    void Promise.resolve(
+      supabase.rpc('append_session_interaction', {
+        p_session_id: join.session_id,
+        p_event: { event: 'qr_scan', ts: new Date().toISOString() },
+      }),
+    ).catch(() => {});
 
     console.log('[spinbite:sessions] resolved', {
-      session_id: sessionId,
+      session_id: join.session_id,
+      guest_id: join.guest_id,
       touchpoint_id,
-      is_new_session: isNewSession,
-      is_new_device: isNewDevice,
+      is_new_session: join.is_new_session,
+      is_new_device: join.is_new_device,
     });
 
     return NextResponse.json(
       {
-        visit_session_id: sessionId,
-        session_access_code: sessionAccessCode,
+        visit_session_id: join.session_id,
+        guest_id: join.guest_id,
+        guest_token: join.guest_token,
+        session_access_code: join.session_access_code,
         touchpoint_name: touchpoint.name,
         touchpoint_type: touchpoint.type,
         section_name: touchpoint.section_name,
-        is_new_session: isNewSession,
-        is_new_device: isNewDevice,
+        is_new_session: join.is_new_session,
+        is_new_device: join.is_new_device,
       },
-      { status: isNewSession ? 201 : 200 },
+      { status: join.is_new_session ? 201 : 200 },
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';

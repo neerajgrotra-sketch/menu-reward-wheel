@@ -74,6 +74,15 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    // Disconnect all session_guests — invalidates every guest_token immediately.
+    // Any in-flight heartbeat after this point will receive session_active: false.
+    // Fire-and-forget: session row is already closed; guest invalidation is best-effort.
+    Promise.resolve(
+      serviceClient.rpc('disconnect_session_guests', { p_session_id: sessionId })
+    ).catch((err: unknown) => {
+      console.error('[spinbite:sessions] disconnect_session_guests failed', err);
+    });
+
     // Write SESSION_ENDED to session_events (fire-and-forget; session is already closed)
     Promise.resolve(serviceClient.from('session_events').insert({
       session_id: sessionId,

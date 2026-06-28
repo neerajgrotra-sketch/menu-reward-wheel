@@ -505,6 +505,73 @@ function IntelligencePanel({ intelligence, behavior }: {
   );
 }
 
+// ─── Table Status Header ──────────────────────────────────────────────────────
+// Shows a pulsing green indicator when the session is active, the table label,
+// and a live active guest count sourced from session_guests.
+
+function TableStatusHeader({
+  session,
+  label,
+}: {
+  session: VisitSession;
+  label: string;
+}) {
+  const [activeGuests, setActiveGuests] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (session.status !== 'active') return;
+
+    async function fetchCount() {
+      const res = await fetch(`/api/admin/sessions/${session.id}/guest-count`);
+      if (!res.ok) return;
+      const payload = await res.json();
+      setActiveGuests(payload.count ?? 0);
+    }
+
+    fetchCount();
+
+    // Subscribe to session_guests changes for live updates
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel(`session-presence:${session.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'session_guests',
+          filter: `session_id=eq.${session.id}`,
+        },
+        () => { fetchCount(); },
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [session.id, session.status]);
+
+  const isActive = session.status === 'active';
+  const guestDisplay = activeGuests !== null ? activeGuests : session.guest_count;
+
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      {isActive && (
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+        </span>
+      )}
+      <p className="text-base font-black text-stone-900 truncate">{label}</p>
+      {isActive && (
+        <span className="shrink-0 flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-xs font-black text-stone-600">
+          <span>👥</span>
+          <span>{guestDisplay}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ─── Session Card ─────────────────────────────────────────────────────────────
 
 function SessionCard({
@@ -553,7 +620,7 @@ function SessionCard({
         {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-base font-black text-stone-900 truncate">{label}</p>
+            <TableStatusHeader session={session} label={label} />
             <p className="text-xs font-semibold text-stone-400">
               Started {relativeTime(session.started_at)} · {formatDuration(session.started_at, session.ended_at)}
             </p>
