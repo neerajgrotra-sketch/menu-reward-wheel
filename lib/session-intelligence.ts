@@ -852,3 +852,245 @@ export function analyzeSessionBehavior(
     },
   };
 }
+
+// ── Guest Behavioral Analysis Engine V3 ──────────────────────────────────────
+//
+// Per-guest intelligence for multi-device dining sessions.
+// Partitions session_events by guest_id and builds one behavioral profile
+// per device. ORDER_PLACED has no guest_id (server-side); orders are
+// attributed at the session level only.
+
+export type GuestBehaviorProfile = {
+  guest_id: string;
+  items_viewed: ViewedItem[];
+  high_interest_items: ViewedItem[];        // avg view ≥ 15s
+  hesitation_items: CartAbandonmentItem[];  // added then removed
+  cart_add_count: number;
+  cart_remove_count: number;
+  attention_score: AttentionScore | null;   // dominant score across all viewed items
+  purchase_style: PurchaseStyle;
+  decision_complexity: DecisionComplexity;
+  session_duration_ms: number | null;       // first → last event for this guest
+  event_count: number;
+};
+
+export type CrossGuestItem = {
+  menu_item_id: string | null;
+  name: string;
+  viewer_count: number;
+};
+
+export type GuestSessionSummary = {
+  guest_count: number;
+  guests_with_cart_activity: number;
+  guests_showing_hesitation: number;
+  partial_table_ordering: boolean;          // orders placed but some guests never added to cart
+  most_viewed_across_table: CrossGuestItem[];
+  collective_high_interest: ViewedItem[];
+  dessert_interest: boolean;
+  beverage_interest: boolean;
+};
+
+export function analyzeGuestBehavior(
+  events: RawSessionEvent[],
+  guestId: string,
+): GuestBehaviorProfile {
+  const sorted = [...events]
+    .filter((e) => e.guest_id === guestId)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+  // Per-item view stats for this guest
+  const totalDurationMap = new Map<string, number>();
+  const viewCountMap = new Map<string, number>();
+  const itemNameMap = new Map<string, string>();
+
+  for (const ev of sorted) {
+    if (ev.event_type === 'ITEM_VIEW_DURATION' && ev.menu_item_id) {
+      const ms = (ev.metadata.duration_ms as number) ?? 0;
+      totalDurationMap.set(ev.menu_item_id, (totalDurationMap.get(ev.menu_item_id) ?? 0) + ms);
+    }
+    if (ev.event_type === 'ITEM_VIEWED' && ev.menu_item_id) {
+      viewCountMap.set(ev.menu_item_id, (viewCountMap.get(ev.menu_item_id) ?? 0) + 1);
+      if (!itemNameMap.has(ev.menu_item_id)) {
+        itemNameMap.set(ev.menu_item_id, (ev.metadata.item_name as string) ?? 'Unknown');
+      }
+    }
+    if (ev.event_type === 'ITEM_VIEW_DURATION' && ev.menu_item_id && !itemNameMap.has(ev.menu_item_id)) {
+      itemNameMap.set(ev.menu_item_id, (ev.metadata.item_name as string) ?? 'Unknown');
+    }
+  }
+
+  const allItemIds = Array.from(
+    new Set(Array.from(viewCountMap.keys()).concat(Array.from(totalDurationMap.keys()))),
+  );
+  const itemsViewed: ViewedItem[] = allItemIds.map((id) => {
+    const totalDur = totalDurationMap.get(id) ?? 0;
+    const viewCount = viewCountMap.get(id) ?? 1;
+    return {
+      menu_item_id: id,
+      name: itemNameMap.get(id) ?? 'Unknown',
+      view_count: viewCount,
+      total_view_duration_ms: totalDur,
+      avg_view_duration_ms: viewCount > 0 ? Math.round(totalDur / viewCount) : 0,
+    };
+  });
+
+  const HIGH_INTEREST_MS = 15_000;
+  const highInterestItems = itemsViewed
+    .filter((v) => v.avg_view_duration_ms >= HIGH_INTEREST_MS)
+    .sort((a, b) => b.avg_view_duration_ms - a.avg_view_duration_ms);
+
+  // Cart maps
+  const cartAddMap = new Map<string, { name: string; addCount: number }>();
+  const cartRemoveMap = new Map<string, { name: string; removeCount: number }>();
+
+  for (const ev of sorted) {
+    if (ev.event_type === 'ITEM_ADDED_TO_CART') {
+      const key = ev.menu_item_id ?? `__name__${(ev.metadata.item_name as string) ?? 'unknown'}`;
+      const name = (ev.metadata.item_name as string) ?? 'Unknown';
+      const entry = cartAddMap.get(key) ?? { name, addCount: 0 };
+      entry.addCount += 1;
+      cartAddMap.set(key, entry);
+    }
+    if (ev.event_type === 'ITEM_REMOVED_FROM_CART') {
+      const key = ev.menu_item_id ?? `__name__${(ev.metadata.item_name as string) ?? 'unknown'}`;
+      const name = (ev.metadata.item_name as string) ?? 'Unknown';
+      const entry = cartRemoveMap.get(key) ?? { name, removeCount: 0 };
+      entry.removeCount += 1;
+      cartRemoveMap.set(key, entry);
+    }
+  }
+
+  const cartAddCount = sorted.filter((e) => e.event_type === 'ITEM_ADDED_TO_CART').length;
+  const cartRemoveCount = sorted.filter((e) => e.event_type === 'ITEM_REMOVED_FROM_CART').length;
+
+  const hesitationItems: CartAbandonmentItem[] = Array.from(cartAddMap.keys())
+    .filter((key) => cartRemoveMap.has(key))
+    .map((key) => ({
+      menu_item_id: key.startsWith('__name__') ? null : key,
+      name: cartAddMap.get(key)!.name,
+      added_count: cartAddMap.get(key)!.addCount,
+      removed_count: cartRemoveMap.get(key)!.removeCount,
+    }));
+
+  // Dominant attention score across all viewed items
+  const SCORE_MAP: Record<AttentionScore, number> = { high_intent: 4, interested: 3, considered: 2, dismissed: 1 };
+  let attentionScore: AttentionScore | null = null;
+  for (const item of itemsViewed) {
+    const score = scoreAttention(item.avg_view_duration_ms);
+    if (!attentionScore || SCORE_MAP[score] > SCORE_MAP[attentionScore]) {
+      attentionScore = score;
+    }
+  }
+
+  // Purchase style (proxy signals only — ORDER_PLACED has no guest_id, so no order timing)
+  const hasCartRemovals = cartRemoveCount > 0;
+  const manyHighInterest = highInterestItems.length >= 2;
+  let purchaseStyle: PurchaseStyle;
+  if (hasCartRemovals || manyHighInterest) {
+    purchaseStyle = 'hesitant';
+  } else if (cartAddCount > 0) {
+    purchaseStyle = 'impulsive';
+  } else {
+    purchaseStyle = 'deliberate';
+  }
+
+  // Decision complexity
+  const categoriesVisited = new Set(
+    sorted
+      .filter((e) => e.event_type === 'CATEGORY_OPENED')
+      .map((e) => (e.metadata.category_name as string) ?? ''),
+  ).size;
+  const totalCartActions = cartAddCount + cartRemoveCount;
+  let decisionComplexity: DecisionComplexity;
+  if (allItemIds.length <= 3 && categoriesVisited <= 1 && totalCartActions <= 2) {
+    decisionComplexity = 'low';
+  } else if (allItemIds.length >= 8 || categoriesVisited >= 4 || totalCartActions >= 6) {
+    decisionComplexity = 'high';
+  } else {
+    decisionComplexity = 'medium';
+  }
+
+  const firstEventAt = sorted.length > 0 ? sorted[0].created_at : null;
+  const lastEventAt = sorted.length > 0 ? sorted[sorted.length - 1].created_at : null;
+  const sessionDurationMs =
+    firstEventAt && lastEventAt
+      ? new Date(lastEventAt).getTime() - new Date(firstEventAt).getTime()
+      : null;
+
+  return {
+    guest_id: guestId,
+    items_viewed: itemsViewed,
+    high_interest_items: highInterestItems,
+    hesitation_items: hesitationItems,
+    cart_add_count: cartAddCount,
+    cart_remove_count: cartRemoveCount,
+    attention_score: attentionScore,
+    purchase_style: purchaseStyle,
+    decision_complexity: decisionComplexity,
+    session_duration_ms: sessionDurationMs,
+    event_count: sorted.length,
+  };
+}
+
+export function aggregateSessionIntelligence(
+  guestProfiles: GuestBehaviorProfile[],
+  orderedItems: OrderedItem[],
+): GuestSessionSummary {
+  const guestCount = guestProfiles.length;
+  const guestsWithCartActivity = guestProfiles.filter((g) => g.cart_add_count > 0).length;
+  const guestsShowingHesitation = guestProfiles.filter((g) => g.hesitation_items.length > 0).length;
+  const partialTableOrdering = orderedItems.length > 0 && guestsWithCartActivity < guestCount;
+
+  // Items viewed by more than one guest
+  const viewerMap = new Map<string, { name: string; menu_item_id: string | null; viewerCount: number }>();
+  for (const profile of guestProfiles) {
+    for (const item of profile.items_viewed) {
+      const key = item.menu_item_id ?? `__name__${item.name}`;
+      const entry = viewerMap.get(key) ?? { name: item.name, menu_item_id: item.menu_item_id, viewerCount: 0 };
+      entry.viewerCount += 1;
+      viewerMap.set(key, entry);
+    }
+  }
+  const mostViewedAcrossTable: CrossGuestItem[] = Array.from(viewerMap.values())
+    .filter((v) => v.viewerCount > 1)
+    .sort((a, b) => b.viewerCount - a.viewerCount)
+    .slice(0, 5)
+    .map((v) => ({ name: v.name, menu_item_id: v.menu_item_id, viewer_count: v.viewerCount }));
+
+  // Collective high interest: best avg_view_duration_ms per item across all guests
+  const highInterestMap = new Map<string, ViewedItem>();
+  for (const profile of guestProfiles) {
+    for (const item of profile.high_interest_items) {
+      const key = item.menu_item_id ?? `__name__${item.name}`;
+      const existing = highInterestMap.get(key);
+      if (!existing || item.avg_view_duration_ms > existing.avg_view_duration_ms) {
+        highInterestMap.set(key, item);
+      }
+    }
+  }
+  const collectiveHighInterest: ViewedItem[] = Array.from(highInterestMap.values())
+    .sort((a, b) => b.avg_view_duration_ms - a.avg_view_duration_ms)
+    .slice(0, 5);
+
+  const beveragePattern = /tea|coffee|juice|lassi|drink|chai|soda|shake|smoothie|lemonade|beverage|water/i;
+  const dessertPattern = /dessert|ice.?cream|cake|pudding|tiramisu|brownie|kheer|gulab|rasgulla|mithai|sweet|pastry/i;
+
+  const beverageInterest = guestProfiles.some((g) =>
+    g.items_viewed.some((i) => beveragePattern.test(i.name) && i.avg_view_duration_ms >= 8_000),
+  );
+  const dessertInterest = guestProfiles.some((g) =>
+    g.items_viewed.some((i) => dessertPattern.test(i.name) && i.avg_view_duration_ms >= 8_000),
+  );
+
+  return {
+    guest_count: guestCount,
+    guests_with_cart_activity: guestsWithCartActivity,
+    guests_showing_hesitation: guestsShowingHesitation,
+    partial_table_ordering: partialTableOrdering,
+    most_viewed_across_table: mostViewedAcrossTable,
+    collective_high_interest: collectiveHighInterest,
+    dessert_interest: dessertInterest,
+    beverage_interest: beverageInterest,
+  };
+}

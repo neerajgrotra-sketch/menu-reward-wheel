@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
-import { reconstructSession, analyzeSessionBehavior } from '@/lib/session-intelligence';
+import { reconstructSession, analyzeSessionBehavior, analyzeGuestBehavior, aggregateSessionIntelligence } from '@/lib/session-intelligence';
 import type { RawSessionEvent, RawOrder } from '@/lib/session-intelligence';
 
 function makeServiceClient() {
@@ -102,7 +102,14 @@ export async function GET(
 
     const behavior = analyzeSessionBehavior(intelligence, rawEvents);
 
-    return NextResponse.json({ ...intelligence, behavior });
+    // V3: per-guest profiles + table-level summary
+    const guestIds = Array.from(
+      new Set(rawEvents.map((e) => e.guest_id).filter((g): g is string => g !== null)),
+    );
+    const guestProfiles = guestIds.map((guestId) => analyzeGuestBehavior(rawEvents, guestId));
+    const tableSummary = aggregateSessionIntelligence(guestProfiles, intelligence.ordered_items);
+
+    return NextResponse.json({ ...intelligence, behavior, guest_profiles: guestProfiles, table_summary: tableSummary });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });
