@@ -818,3 +818,58 @@ The following four foundations must each be individually confirmed as production
 An AI agent that acts on incomplete behavioral data, flaky session state, or undelivered interventions will produce incorrect restaurant intelligence and potentially harmful customer experiences (wrong offers, ghost notifications, phantom coupons). The operational primitives must be stable before AI autonomy is layered on top.
 
 This is Architecture Principle #7 from `/docs/architecture/spinbite-platform-architecture-v3.md`: "Do not build AI automation before operational primitives are stable."
+
+---
+
+## Rule 46 — No Blocking Intelligence Execution
+
+Customer-facing request cycles must never block on intelligence processing longer than minimal deterministic evaluation.
+
+**What this means:**
+
+The following operations are **allowed** inside a customer response cycle:
+- Writing a session event row (`session_events` INSERT)
+- Writing a guest presence heartbeat (`session_guests` UPDATE)
+- Evaluating a deterministic rule with no external I/O (e.g. cooldown check against an in-memory map)
+- Returning a pre-computed value already stored in the database
+
+The following operations are **forbidden** inside a customer response cycle:
+- LLM calls (Claude, GPT, Gemini, or any language model inference)
+- Prompt construction or template rendering for AI reasoning
+- AI recommendation generation of any kind
+- Adaptive policy computation that reads and synthesizes session history
+- Promotion eligibility scoring beyond a simple DB column lookup
+- Multi-step sequential DB reads aggregated for an intelligence result
+- Any operation whose latency is proportional to session data volume
+
+**Required pattern for anything in the forbidden list:**
+
+Fire-and-forget from the request handler, then return immediately:
+
+```typescript
+// Correct — intelligence runs outside the response cycle
+void evaluateSession(sessionId, guestId).catch(() => {});
+return new NextResponse(null, { status: 204 });
+
+// Wrong — blocks the customer on intelligence work
+await evaluateSession(sessionId, guestId);
+return new NextResponse(null, { status: 204 });
+```
+
+**Why this rule exists:**
+
+A customer placing an order, scanning a QR code, or tapping a menu item should receive a sub-100ms response regardless of how sophisticated the intelligence layer becomes. If intelligence computation is allowed inside request cycles, every future LLM integration, every new signal type, and every new recommendation model will silently extend customer response latency.
+
+The pattern of `void fn().catch()` from Rules 37 and 38 is not just a resilience pattern — it is a latency guarantee. Intelligence results are eventually consistent with customer actions, not synchronously required by them.
+
+**Scope:**
+
+This rule applies to all current and future intelligence subsystems:
+- Decision Runtime (`evaluateSession`)
+- AI Waiter recommendations (future)
+- Promotion eligibility AI scoring (future)
+- Adaptive menu ranking (future)
+- Customer reactivation agent (future)
+- Revenue yield optimization (future)
+
+Any future intelligence subsystem that needs to act on a customer event must be wired as a fire-and-forget side effect of the customer route — never as an awaited dependency of the customer response.
