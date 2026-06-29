@@ -7,6 +7,7 @@ const MAX_BODY_BYTES = 8 * 1024; // 8 KB
 const MAX_ITEMS = 20;
 const MAX_QUANTITY = 99;
 const MAX_KEY_LENGTH = 128;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ── Per-IP rate limit (in-memory, per Lambda instance — soft limit) ────────────
 // Stops naive single-origin attacks. Not globally distributed across Vercel instances.
@@ -65,6 +66,7 @@ type OrderRequest = {
   customer_name?: string | null;
   session_id?: string | null;          // legacy text field — accepted but not used
   visit_session_id?: string | null;    // FK to visit_sessions — canonical session linkage
+  guest_id?: string | null;            // FK to session_guests.id — per-guest order attribution
   idempotency_key: string;
 };
 
@@ -119,6 +121,7 @@ export async function POST(req: NextRequest) {
       customer_name,
       session_id,
       visit_session_id,
+      guest_id: rawGuestId,
       idempotency_key,
     } = body;
 
@@ -318,7 +321,13 @@ export async function POST(req: NextRequest) {
       resolvedSessionId = sessionRow.id;
     }
 
-    // 14. Insert order
+    // 14. Sanitize guest_id — must be a valid UUID if provided; reject silently otherwise
+    const resolvedGuestId =
+      rawGuestId && typeof rawGuestId === 'string' && UUID_RE.test(rawGuestId.trim())
+        ? rawGuestId.trim()
+        : null;
+
+    // 15. Insert order
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
@@ -332,6 +341,7 @@ export async function POST(req: NextRequest) {
         // Retained for backward compatibility; always null for current clients.
         session_id: session_id ?? null,
         visit_session_id: resolvedSessionId,
+        guest_id: resolvedGuestId,
         idempotency_key,
         subtotal,
       })
@@ -356,7 +366,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 15. Insert order items
+    // 16. Insert order items
     const orderItems = resolvedItems.map((ri) => ({
       order_id: order.id,
       restaurant_id,
@@ -378,7 +388,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 16. Update session analytics and fetch post-increment session totals for frontend sync.
+    // 17. Update session analytics and fetch post-increment session totals for frontend sync.
     // increment_session_counters is awaited so orders_count is authoritative before 201 returns.
     // append_session_interaction is fire-and-forget (analytics, non-blocking).
     let sessionOrdersCount = 0;

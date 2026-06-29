@@ -29,6 +29,7 @@ type CartSheetProps = {
   brandColor: string;
   onClose: () => void;
   confirmedSessionId?: string | null;
+  guestId?: string | null;
   tableLabel?: string | null;
   onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   onSessionEnded?: () => void;
@@ -42,7 +43,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart }: CartSheetProps) {
   const [customerName, setCustomerName] = useState('');
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
@@ -98,6 +99,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
           customer_name: customerName.trim() || null,
           table_identifier: resolvedTableIdentifier,
           visit_session_id: confirmedSessionId ?? null,
+          guest_id: guestId ?? null,
           idempotency_key: idempotencyKeyRef.current,
         }),
       });

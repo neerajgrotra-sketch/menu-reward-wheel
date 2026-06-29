@@ -37,10 +37,13 @@ export type ItemViewSnapshot = {
 };
 
 // ─── guest_id management ──────────────────────────────────────────────────────
-// guest_id is a client-generated UUID that identifies a single browser tab
-// within a multi-device dining session. It is ephemeral and NOT customer identity.
-// Key: spinbite_guest_{sessionId} — scoped per session so different table sessions
-// at the same touchpoint get independent guest IDs.
+// guest_id identifies a single browser tab within a multi-device dining session.
+//
+// V1 (legacy): client-generated UUID stored in sessionStorage.
+// V2 (current): server-returned session_guests.id from the resolve API, passed
+//   in as resolvedGuestId. When provided, this is used for all events so that
+//   session_events.guest_id links directly to a session_guests row (and thus
+//   to the guest's captured name).
 
 function getOrCreateGuestId(sessionId: string): string {
   const key = `spinbite_guest_${sessionId}`;
@@ -51,22 +54,28 @@ function getOrCreateGuestId(sessionId: string): string {
     sessionStorage.setItem(key, id);
     return id;
   } catch {
-    // sessionStorage unavailable (private browsing, iframe) — use in-memory fallback
     return crypto.randomUUID();
   }
 }
 
 // ─── useSessionTracking ───────────────────────────────────────────────────────
 
-export function useSessionTracking(confirmedSessionId: string | null) {
-  // Stable guest ID ref — set once per session ID, cleared when session changes
+export function useSessionTracking(
+  confirmedSessionId: string | null,
+  resolvedGuestId?: string | null,
+) {
   const guestIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  // Ref keeps the latest resolvedGuestId without invalidating the fireEvent callback
+  const resolvedGuestIdRef = useRef<string | null>(resolvedGuestId ?? null);
+  resolvedGuestIdRef.current = resolvedGuestId ?? null;
 
   function getGuestId(): string | null {
     if (!confirmedSessionId) return null;
+    // Prefer the server-resolved guest_id (links to session_guests row + guest name)
+    if (resolvedGuestIdRef.current) return resolvedGuestIdRef.current;
+    // Fallback: legacy client-generated UUID (used when resolve didn't return a guest_id)
     if (sessionIdRef.current !== confirmedSessionId) {
-      // Session changed — generate a fresh guest ID for the new session
       sessionIdRef.current = confirmedSessionId;
       guestIdRef.current = getOrCreateGuestId(confirmedSessionId);
     }

@@ -194,6 +194,100 @@ function OrdersDrawer({
   );
 }
 
+// ─── Guest Name Modal ─────────────────────────────────────────────────────────
+// Shown once per session after resolve, if the guest has not yet provided a name.
+// Optional — the guest may skip. Lightweight and non-blocking.
+
+function GuestNameModal({
+  restaurantName,
+  brandColor,
+  sessionId,
+  guestToken,
+  onConfirm,
+  onSkip,
+}: {
+  restaurantName: string;
+  brandColor: string;
+  sessionId: string;
+  guestToken: string;
+  onConfirm: (name: string) => void;
+  onSkip: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleConfirm() {
+    const trimmed = name.trim();
+    if (!trimmed) { onSkip(); return; }
+    setSubmitting(true);
+    try {
+      await fetch(`/api/public/sessions/${sessionId}/guest-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guest_token: guestToken, guest_name: trimmed }),
+      });
+    } catch { /* non-fatal — name is still stored locally */ }
+    onConfirm(trimmed);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div className="px-6 pt-5 pb-4" style={{ borderBottom: `2px solid ${brandColor}20` }}>
+          <p
+            className="text-[10px] font-black uppercase tracking-widest mb-0.5"
+            style={{ color: brandColor }}
+          >
+            Welcome
+          </p>
+          <h2 className="text-lg font-black text-stone-900 leading-tight">{restaurantName}</h2>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-stone-700">
+              Enter your first name
+            </p>
+            <p className="mt-0.5 text-xs text-stone-400">Optional — you can skip this.</p>
+          </div>
+
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value.slice(0, 32))}
+            placeholder="Your first name"
+            autoFocus
+            autoComplete="given-name"
+            className="w-full rounded-xl border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-900 placeholder:text-stone-300 focus:outline-none focus:ring-2 focus:ring-stone-300"
+            onKeyDown={(e) => { if (e.key === 'Enter') { handleConfirm(); } }}
+          />
+
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={submitting}
+              className="w-full rounded-xl py-3 text-sm font-black text-white transition-opacity disabled:opacity-60"
+              style={{ backgroundColor: brandColor }}
+            >
+              {submitting ? 'Saving…' : name.trim() ? 'Continue' : 'Skip'}
+            </button>
+            {name.trim() !== '' && (
+              <button
+                type="button"
+                onClick={onSkip}
+                className="w-full rounded-xl py-2.5 text-sm font-semibold text-stone-500 active:bg-stone-50"
+              >
+                Skip
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 interface Props {
@@ -221,6 +315,16 @@ export function TouchpointMenuPage({
   const [confirmedSessionId, setConfirmedSessionId] = useState<string | null>(null);
   const [resolveAttempt, setResolveAttempt] = useState(0);
 
+  // ── Guest identity state (V1) ────────────────────────────────────────────────
+  // guestId:    session_guests.id returned by the resolve API. Used for event + order attribution.
+  // guestToken: opaque bearer credential for heartbeat + name update calls.
+  // guestName:  captured via GuestNameModal; persisted in sessionStorage across soft navigations.
+  // showNameModal: true once after session confirm when no stored name exists for this session.
+  const [guestId, setGuestId] = useState<string | null>(null);
+  const [guestToken, setGuestToken] = useState<string | null>(null);
+  const [guestName, setGuestName] = useState<string | null>(null);
+  const [showNameModal, setShowNameModal] = useState(false);
+
   // ── Presence state ───────────────────────────────────────────────────────────
   // activeGuestCount: null = not yet fetched, number = confirmed from presence API.
   // presenceKeyRef: stable per-tab UUID used as the Supabase Presence channel key
@@ -237,7 +341,8 @@ export function TouchpointMenuPage({
   const [ordersFetching, setOrdersFetching] = useState(false);
 
   // ── Session intelligence tracking ────────────────────────────────────────────
-  const { fireEvent } = useSessionTracking(confirmedSessionId);
+  // Pass guestId (session_guests.id) so all events link to the named guest record.
+  const { fireEvent } = useSessionTracking(confirmedSessionId, guestId);
   const { onItemOpen, onItemClose } = useItemViewTracking(fireEvent);
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -324,22 +429,54 @@ export function TouchpointMenuPage({
           return;
         }
 
-        const data = await res.json() as { visit_session_id: string };
+        const data = await res.json() as {
+          visit_session_id: string;
+          guest_id?: string;
+          guest_token?: string;
+        };
         const sessionId = data.visit_session_id;
+        const serverGuestId = data.guest_id || null;
+        const serverGuestToken = data.guest_token || null;
 
         // Write confirmed session to cache so future resolves can send the correct hint
         try { sessionStorage.setItem(sKey, sessionId); } catch { /* ignore */ }
 
+        setGuestId(serverGuestId);
+        setGuestToken(serverGuestToken);
         setConfirmedSessionId(sessionId);
         console.log('[STEP_5_PHASE_CHANGE]', 'confirmed');
         setSessionPhase('confirmed');
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'confirmed', confirmedSessionId: sessionId });
         fetchOrders(sessionId);
+
+        // ── Guest identity: name persistence across reconnects ─────────────────
+        // Check if this guest already entered their name in a previous tab session.
+        const nameKey = `spinbite_gn_${sessionId}`;
+        let storedName: string | null = null;
+        try { storedName = sessionStorage.getItem(nameKey); } catch { /* ignore */ }
+
+        if (storedName && serverGuestToken) {
+          // Reconnect with stored name — silently apply it to the new session_guests row
+          setGuestName(storedName);
+          fetch(`/api/public/sessions/${sessionId}/guest-name`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ guest_token: serverGuestToken, guest_name: storedName }),
+          }).catch(() => { /* non-fatal */ });
+        } else if (!storedName && serverGuestId) {
+          // First visit — show the identity modal once the menu has loaded
+          setShowNameModal(true);
+        }
+
         // Fire MENU_OPENED once per session confirm — first intelligence event
         fetch(`/api/public/sessions/${sessionId}/track`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event_type: 'MENU_OPENED', metadata: { touchpoint_code: touchpoint.touchpoint_code } }),
+          body: JSON.stringify({
+            event_type: 'MENU_OPENED',
+            guest_id: serverGuestId,
+            metadata: { touchpoint_code: touchpoint.touchpoint_code },
+          }),
         }).catch(() => { /* analytics — silent */ });
       } catch (err) {
         if (cancelled) return;
@@ -602,6 +739,7 @@ export function TouchpointMenuPage({
         promotionRewards={promotionRewards}
         orderingEnabled={orderingEnabled}
         confirmedSessionId={confirmedSessionId}
+        guestId={guestId}
         touchpointName={touchpointLabel}
         onItemViewed={onItemOpen}
         onItemClosed={onItemClose}
@@ -672,6 +810,22 @@ export function TouchpointMenuPage({
           touchpointLabel={touchpointLabel}
           onClose={() => setOrdersDrawerOpen(false)}
           fetching={ordersFetching}
+        />
+      )}
+
+      {/* Guest name capture — lightweight optional modal, shown once after session confirm. */}
+      {showNameModal && confirmedSessionId && guestToken && (
+        <GuestNameModal
+          restaurantName={restaurant.name}
+          brandColor={brandColor}
+          sessionId={confirmedSessionId}
+          guestToken={guestToken}
+          onConfirm={(name) => {
+            setGuestName(name);
+            setShowNameModal(false);
+            try { sessionStorage.setItem(`spinbite_gn_${confirmedSessionId}`, name); } catch { /* ignore */ }
+          }}
+          onSkip={() => setShowNameModal(false)}
         />
       )}
 
