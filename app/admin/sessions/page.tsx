@@ -13,8 +13,9 @@ import type {
   PurchaseStyle,
   DecisionComplexity,
   SessionMetadata,
-  GuestBehaviorProfile,
   GuestSessionSummary,
+  EnrichedGuestProfile,
+  GuestIdentitySummary,
 } from '@/lib/session-intelligence';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -397,9 +398,11 @@ function SessionMetadataPanel({ metadata }: { metadata: SessionMetadata }) {
 function GuestIntelligencePanel({
   guestProfiles,
   tableSummary,
+  identitySummary,
 }: {
-  guestProfiles: GuestBehaviorProfile[];
+  guestProfiles: EnrichedGuestProfile[];
   tableSummary: GuestSessionSummary;
+  identitySummary?: GuestIdentitySummary;
 }) {
   const [expandedGuest, setExpandedGuest] = useState<string | null>(null);
 
@@ -409,12 +412,24 @@ function GuestIntelligencePanel({
 
   return (
     <div className="space-y-3">
-      {/* Table summary metrics */}
+      {/* Identity summary — who is at the table */}
+      {identitySummary && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <MetricChip label="Connected" value={String(identitySummary.connected_guests)} />
+          <MetricChip label="Named" value={String(identitySummary.named_guests)} />
+          <MetricChip label="Ordered" value={String(identitySummary.guests_ordered)} />
+          <MetricChip label="Not ordered" value={String(identitySummary.guests_not_ordered)} />
+        </div>
+      )}
+
+      {/* Behavioral table summary */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MetricChip label="Guests" value={String(tableSummary.guest_count)} />
         <MetricChip label="Cart activity" value={String(tableSummary.guests_with_cart_activity)} />
         <MetricChip label="Hesitating" value={String(tableSummary.guests_showing_hesitation)} />
         <MetricChip label="Partial order" value={tableSummary.partial_table_ordering ? 'Yes' : 'No'} />
+        {identitySummary && (
+          <MetricChip label="Anonymous" value={String(identitySummary.anonymous_guests)} />
+        )}
       </div>
 
       {(tableSummary.dessert_interest || tableSummary.beverage_interest) && (
@@ -429,6 +444,20 @@ function GuestIntelligencePanel({
               Beverage interest
             </span>
           )}
+        </div>
+      )}
+
+      {/* Cross-guest behavioral insights */}
+      {tableSummary.cross_guest_insights.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            Group Insights
+          </p>
+          <div className="space-y-1">
+            {tableSummary.cross_guest_insights.map((insight, i) => (
+              <p key={i} className="text-xs text-stone-600">• {insight}</p>
+            ))}
+          </div>
         </div>
       )}
 
@@ -473,7 +502,7 @@ function GuestIntelligencePanel({
         </p>
         <div className="space-y-2">
           {guestProfiles.map((profile, index) => {
-            const label = `Guest ${index + 1}`;
+            const label = profile.guest_name ?? `Guest ${index + 1}`;
             const isExpanded = expandedGuest === profile.guest_id;
             return (
               <div key={profile.guest_id} className="rounded-xl border border-stone-200 overflow-hidden bg-white">
@@ -492,6 +521,7 @@ function GuestIntelligencePanel({
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-[10px] text-stone-400">
                       {profile.items_viewed.length} items · {profile.event_count} events
+                      {profile.orders_placed.length > 0 && ` · ${profile.orders_placed.length} order${profile.orders_placed.length !== 1 ? 's' : ''}`}
                     </span>
                     <span className="text-[10px] text-stone-400">{isExpanded ? '▲' : '▼'}</span>
                   </div>
@@ -500,6 +530,21 @@ function GuestIntelligencePanel({
                 {isExpanded && (
                   <div className="border-t border-stone-100 px-3 py-2.5 space-y-3">
                     <BehaviorBadge cfg={COMPLEXITY_CONFIG[profile.decision_complexity]} />
+
+                    {profile.orders_placed.length > 0 && (
+                      <div>
+                        <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-stone-400">
+                          Orders Placed
+                        </p>
+                        <div className="space-y-0.5">
+                          {profile.orders_placed.map((item, i) => (
+                            <p key={i} className="text-xs text-stone-700">
+                              • {item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     {profile.cart_add_count > 0 && (
                       <div className="grid grid-cols-2 gap-2">
@@ -540,7 +585,7 @@ function GuestIntelligencePanel({
                       </div>
                     )}
 
-                    {profile.items_viewed.length > 0 && profile.high_interest_items.length === 0 && (
+                    {profile.items_viewed.length > 0 && profile.high_interest_items.length === 0 && profile.orders_placed.length === 0 && (
                       <div>
                         <p className="mb-1.5 text-[10px] font-black uppercase tracking-wider text-stone-400">
                           Items Viewed
@@ -561,11 +606,12 @@ function GuestIntelligencePanel({
 
 // ─── Intelligence Panel ───────────────────────────────────────────────────────
 
-function IntelligencePanel({ intelligence, behavior, guestProfiles, tableSummary }: {
+function IntelligencePanel({ intelligence, behavior, guestProfiles, tableSummary, guestIdentitySummary }: {
   intelligence: SessionIntelligence;
   behavior: BehavioralIntelligence | null;
-  guestProfiles?: GuestBehaviorProfile[];
+  guestProfiles?: EnrichedGuestProfile[];
   tableSummary?: GuestSessionSummary;
+  guestIdentitySummary?: GuestIdentitySummary;
 }) {
   const m = intelligence.derived_metrics;
 
@@ -673,13 +719,17 @@ function IntelligencePanel({ intelligence, behavior, guestProfiles, tableSummary
         </>
       )}
 
-      {/* Guest Intelligence (V3) */}
+      {/* Guest Intelligence (V3.1) */}
       {guestProfiles && guestProfiles.length > 0 && tableSummary && (
         <div className="border-t border-stone-100 pt-4">
           <p className="mb-3 text-[10px] font-black uppercase tracking-wider text-stone-400">
             Guest Intelligence
           </p>
-          <GuestIntelligencePanel guestProfiles={guestProfiles} tableSummary={tableSummary} />
+          <GuestIntelligencePanel
+            guestProfiles={guestProfiles}
+            tableSummary={tableSummary}
+            identitySummary={guestIdentitySummary}
+          />
         </div>
       )}
     </div>
@@ -766,8 +816,9 @@ function SessionCard({
 }) {
   type FullIntelligence = SessionIntelligence & {
     behavior?: BehavioralIntelligence;
-    guest_profiles?: GuestBehaviorProfile[];
+    guest_profiles?: EnrichedGuestProfile[];
     table_summary?: GuestSessionSummary;
+    guest_identity_summary?: GuestIdentitySummary;
   };
   const [expanded, setExpanded] = useState(false);
   const [intelligence, setIntelligence] = useState<FullIntelligence | null>(null);
@@ -880,6 +931,7 @@ function SessionCard({
                 behavior={intelligence.behavior ?? null}
                 guestProfiles={intelligence.guest_profiles}
                 tableSummary={intelligence.table_summary}
+                guestIdentitySummary={intelligence.guest_identity_summary}
               />
             )}
           </>

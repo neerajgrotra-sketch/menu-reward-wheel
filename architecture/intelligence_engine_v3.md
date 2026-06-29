@@ -1,20 +1,20 @@
-# Session Intelligence Engine V3
+# Session Intelligence Engine V3 / V3.1
 
-**Document version:** 1.0
+**Document version:** 1.1
 **Date:** 2026-06-29
-**Status:** Live — implemented and wired to admin sessions UI.
+**Status:** Live — V3.1 (identity attribution) deployed alongside V3.
 
 ---
 
 ## 1. Upgrade Summary
 
-V3 upgrades intelligence from **session-level** to **per-guest-level** reasoning.
+**V3** upgrades intelligence from session-level to per-guest-level reasoning.
 
-V2 analyzed all `session_events` together, collapsing all guest devices into a single behavioral profile. This was sufficient for single-device sessions but produced misleading signals for multi-guest tables: one hesitant guest and one impulsive guest averaged into a "deliberate" profile that described neither.
+V2 analyzed all `session_events` together, collapsing all guest devices into a single behavioral profile. V3 partitions events by `guest_id` and builds one `GuestBehaviorProfile` per device, then aggregates into `GuestSessionSummary`.
 
-V3 partitions events by `guest_id` and builds one `GuestBehaviorProfile` per device, then aggregates these into a `GuestSessionSummary` for table-level signals.
+**V3.1** completes identity attribution. `guest_id` in events and orders now links to a real `session_guests` row (and to the guest's captured name). Admin intelligence now shows named guests ("Ishaan", "Sarah") instead of anonymous labels ("Guest 1", "Guest 2"). Order attribution is displayed per guest. Cross-guest behavioral insights surface group-level patterns.
 
-**No new database tables.** No LLM integrations. No Decision Runtime activation. Pure TypeScript analysis layer only.
+**No new database tables.** No LLM integrations. No Decision Runtime activation.
 
 ---
 
@@ -23,151 +23,238 @@ V3 partitions events by `guest_id` and builds one `GuestBehaviorProfile` per dev
 ```
 session_events rows (all guest_ids)
   ↓
-analyzeGuestBehavior(events, guestId) × N guests
+analyzeGuestBehavior(events, guestId) × N guests    [pure, lib/session-intelligence.ts]
   → GuestBehaviorProfile[]
   ↓
-aggregateSessionIntelligence(guestProfiles, orderedItems)
-  → GuestSessionSummary
+aggregateSessionIntelligence(guestProfiles, orderedItems)  [pure]
+  → GuestSessionSummary (+ cross_guest_insights[])
+  ↓
+                       ← API layer enrichment (intelligence/route.ts) →
+session_guests JOIN guest_id → guest_name
+orders JOIN guest_id        → orders_placed[]
+  ↓
+EnrichedGuestProfile[] (= GuestBehaviorProfile + guest_name + orders_placed)
+GuestIdentitySummary (connected, named, ordered, not_ordered, anonymous)
+  ↓
+Admin UI: GuestIntelligencePanel
 ```
-
-Both functions are pure TypeScript in `lib/session-intelligence.ts`. No DB calls. No side effects.
 
 ---
 
-## 3. GuestBehaviorProfile Type
+## 3. Types
 
+### GuestBehaviorProfile (pure — lib/session-intelligence.ts)
 ```typescript
 type GuestBehaviorProfile = {
-  guest_id: string;                          // ephemeral browser-tab UUID
-  items_viewed: ViewedItem[];                // per-guest view stats with durations
+  guest_id: string;                          // session_guests.id (V1+) or legacy client UUID
+  items_viewed: ViewedItem[];
   high_interest_items: ViewedItem[];         // avg view ≥ 15s
-  hesitation_items: CartAbandonmentItem[];   // added then removed by this guest
+  hesitation_items: CartAbandonmentItem[];   // added then removed
   cart_add_count: number;
   cart_remove_count: number;
-  attention_score: AttentionScore | null;    // dominant score: dismissed|considered|interested|high_intent
+  attention_score: AttentionScore | null;    // dominant: dismissed|considered|interested|high_intent
   purchase_style: PurchaseStyle;             // impulsive|deliberate|hesitant
   decision_complexity: DecisionComplexity;   // low|medium|high
-  session_duration_ms: number | null;        // first → last event for this guest
+  session_duration_ms: number | null;
   event_count: number;
 };
 ```
 
-### Notes
+### EnrichedGuestProfile (API layer — route.ts join)
+```typescript
+type EnrichedGuestProfile = GuestBehaviorProfile & {
+  guest_name: string | null;        // from session_guests.guest_name
+  orders_placed: Array<{            // from orders WHERE orders.guest_id = profile.guest_id
+    name: string;
+    quantity: number;
+    menu_item_id: string | null;
+  }>;
+};
+```
 
-- **`attention_score`** is the *dominant* (highest) score across all items this guest viewed.
-- **`purchase_style`** uses proxy signals since `ORDER_PLACED` is server-side and carries no `guest_id` — order attribution is impossible at the per-guest level.
-  - `hesitant`: cart removals exist OR ≥2 high-interest items not in cart
-  - `impulsive`: cart adds exist, no removals
-  - `deliberate`: browsed without adding to cart
-- **`high_interest_items`** threshold: 15s (same as `analyzeSessionBehavior`)
-
----
-
-## 4. GuestSessionSummary Type
-
+### GuestSessionSummary (pure — lib/session-intelligence.ts)
 ```typescript
 type GuestSessionSummary = {
   guest_count: number;
   guests_with_cart_activity: number;
   guests_showing_hesitation: number;
-  partial_table_ordering: boolean;            // orders placed but some guests never added to cart
-  most_viewed_across_table: CrossGuestItem[]; // items viewed by >1 guest (top 5)
-  collective_high_interest: ViewedItem[];     // union of high-interest items across guests (top 5)
+  partial_table_ordering: boolean;
+  most_viewed_across_table: CrossGuestItem[];
+  collective_high_interest: ViewedItem[];
   dessert_interest: boolean;
   beverage_interest: boolean;
+  cross_guest_insights: string[];   // V3.1: human-readable group observations
 };
 ```
 
-**`partial_table_ordering`**: true when `orders.length > 0` AND `guests_with_cart_activity < guest_count`. This signals that not all guests engaged with the cart despite orders being placed — a key multi-guest opportunity signal for the Decision Engine.
-
-**Dessert/beverage interest**: detected when any guest viewed a matching item for ≥8 seconds (lower threshold than high-interest to catch awareness signals).
-
----
-
-## 5. Key Limitation: Order Attribution
-
-`ORDER_PLACED` events are written server-side by `/api/public/orders` and carry `guest_id = null`. This means:
-
-- We cannot determine which guest device placed a specific order.
-- `GuestBehaviorProfile.cart_add_count / cart_remove_count` reflects pre-order intent signals only.
-- Ordered items remain a session-level concept in `SessionIntelligence.ordered_items`.
-
-This is a fundamental DB-level constraint. Resolving it would require the order API to accept and store the client's `guest_id` — a future option, not implemented here.
+### GuestIdentitySummary (API layer — route.ts)
+```typescript
+type GuestIdentitySummary = {
+  connected_guests: number;    // session_guests row count
+  named_guests: number;        // guests with guest_name != null
+  guests_ordered: number;      // enriched profiles with orders_placed.length > 0
+  guests_not_ordered: number;  // connected_guests - guests_ordered
+  anonymous_guests: number;    // connected_guests - named_guests
+};
+```
 
 ---
 
-## 6. API Response (V3)
+## 4. Guest Identity Attribution Flow
 
-`GET /api/admin/sessions/{id}/intelligence` now returns:
+```
+Guest scans QR → resolve API returns session_guests.id as guest_id
+  ↓
+TouchpointMenuPage captures guest_id, stores in state
+  ↓
+useSessionTracking uses guest_id for ALL events fired
+  ↓
+session_events.guest_id = session_guests.id  (V1+ data)
+  ↓
+Guest optionally enters name in GuestNameModal
+  ↓
+POST /api/public/sessions/:vsid/guest-name → session_guests.guest_name
+  ↓
+Name persisted to sessionStorage spinbite_gn_{sessionId}
+  ↓
+On reconnect: name auto-applied from sessionStorage, modal not shown again
+```
+
+---
+
+## 5. Order Attribution Flow
+
+```
+Guest places order → CartSheet includes guest_id in POST body
+  ↓
+POST /api/public/orders validates UUID, writes orders.guest_id
+  ↓
+orders.guest_id FK → session_guests.id
+  ↓
+Intelligence API joins:
+  orders WHERE visit_session_id = sessionId → group by guest_id
+  → EnrichedGuestProfile.orders_placed
+  ↓
+Admin UI shows "Orders Placed" per guest card
+```
+
+---
+
+## 6. Cross-Guest Insights
+
+`aggregateSessionIntelligence()` now generates `cross_guest_insights: string[]` — human-readable group observations:
+
+- "N diners showed interest in [item]" (for each item viewed by >1 guest)
+- "N diners explored dessert options" (when ≥2 guests viewed dessert items ≥8s)
+- "N diners considered beverages" (when ≥2 guests viewed beverage items ≥8s)
+- "N diners showed hesitation signals" (when ≥2 guests have hesitation items)
+
+These are prepared for future group-level AI reasoning by the Decision Engine.
+
+---
+
+## 7. API Response (V3.1)
+
+`GET /api/admin/sessions/{id}/intelligence` returns:
 
 ```json
 {
   // ...all existing SessionIntelligence fields (backward compatible)...
   "behavior": { ...BehavioralIntelligence... },
-  "guest_profiles": [ ...GuestBehaviorProfile[] ... ],
-  "table_summary": { ...GuestSessionSummary... }
+  "guest_profiles": [ ...EnrichedGuestProfile[] ... ],
+  "table_summary": { ...GuestSessionSummary (+ cross_guest_insights)... },
+  "guest_identity_summary": { ...GuestIdentitySummary... }
 }
 ```
 
-`guest_profiles` and `table_summary` are new fields added to the existing response. All existing fields are unchanged — no breaking changes.
+`guest_profiles` now returns `EnrichedGuestProfile[]` (superset of V3's `GuestBehaviorProfile[]`). All V3 fields are present — existing consumers are unaffected.
 
 ---
 
-## 7. Admin UI
+## 8. Admin UI (V3.1)
 
-The admin sessions page (`app/admin/sessions/page.tsx`) renders a new **Guest Intelligence** section at the bottom of each session card's `IntelligencePanel`.
+`GuestIntelligencePanel` in `app/admin/sessions/page.tsx`:
 
-### Table Summary Strip
-- Metric chips: Guests, Cart activity, Hesitating, Partial order
-- Dessert/beverage interest badges (when detected)
-- "Viewed by Multiple Guests" list (items seen by >1 guest)
-- "Table High Interest" list (collective high-interest items)
+### Identity Summary Strip (new)
+- Connected / Named / Ordered / Not Ordered counts
 
-### Per-Guest Profiles (expandable)
-Each guest card shows:
-- Guest label (Guest 1, Guest 2...) ordered by first event appearance
-- Purchase style badge + dominant attention score badge
-- Event count + items viewed count
-- On expand: decision complexity, cart metrics, high interest items, hesitation items
+### Behavioral Summary Strip
+- Cart activity / Hesitating / Partial order / Anonymous counts
+
+### Group Insights (new)
+- `cross_guest_insights[]` rendered as bullet list
+
+### Shared Interest
+- "Viewed by Multiple Guests" — items seen by >1 guest
+- "Table High Interest" — collective high-interest union
+
+### Per-Guest Profiles (expandable — V3.1 changes)
+- **Label**: `guest_name` if available, else `Guest N` — anonymous labels replaced
+- **Summary line**: items · events · orders count
+- **Orders Placed section** (new): bullet list of ordered items
+- Purchase style badge, attention badge, complexity badge
+- Cart metrics, high-interest items, hesitation items
 
 ---
 
-## 8. Functions
+## 9. Key Limitation: Legacy guest_id UUIDs
+
+Historical `session_events` rows (before Guest Identity V1, 2026-06-29) contain client-generated UUIDs that do NOT link to `session_guests` rows. The Intelligence V3 engine handles these gracefully:
+- Profiles are computed correctly from event data
+- `guest_name` will be `null` (no matching `session_guests.id`)
+- `orders_placed` will be `[]` (no matching `orders.guest_id`)
+- Admin UI falls back to "Guest 1", "Guest 2" labels for these profiles
+
+All data from sessions after 2026-06-29 carries correct server-assigned guest_ids.
+
+---
+
+## 10. Functions
 
 | Function | Location | Purpose |
 |---|---|---|
 | `analyzeGuestBehavior(events, guestId)` | `lib/session-intelligence.ts` | Build `GuestBehaviorProfile` for one guest_id |
-| `aggregateSessionIntelligence(profiles, orderedItems)` | `lib/session-intelligence.ts` | Build `GuestSessionSummary` for the whole table |
+| `aggregateSessionIntelligence(profiles, orderedItems)` | `lib/session-intelligence.ts` | Build `GuestSessionSummary` + `cross_guest_insights` |
+| Identity enrichment | `intelligence/route.ts` | Join session_guests + orders → `EnrichedGuestProfile[]` + `GuestIdentitySummary` |
 
 ---
 
-## 9. Relationship to V2
+## 11. Relationship to V2
 
-V3 is **additive**. V2 functions (`reconstructSession`, `analyzeSessionBehavior`) are unchanged. The V3 functions add a new analytical layer on top of the same raw events.
+V3/V3.1 is **additive**. V2 functions (`reconstructSession`, `analyzeSessionBehavior`) are unchanged. Both layers are computed and returned in the same API response.
 
 - V2: session-level timeline, metrics, patterns, AI insights
-- V3: per-guest profiles + table-level aggregation
-
-Both layers are computed and returned in the same API response.
-
----
-
-## 10. Invariants
-
-1. `analyzeGuestBehavior` is pure — no DB calls, no side effects.
-2. `aggregateSessionIntelligence` is pure — no DB calls, no side effects.
-3. A `guest_id = null` event (server-side: ORDER_PLACED, SESSION_ENDED) is excluded from all guest profiles.
-4. A session with only one guest produces `guest_count: 1` — V3 degrades gracefully to single-device behavior.
-5. `partial_table_ordering` requires evidence of actual orders (`orderedItems.length > 0`) — it never fires speculatively.
-6. Guest labels (Guest 1, Guest 2...) are derived from the order `guest_ids` appear in the events array — they are not persisted and may shift if events are reordered.
+- V3: per-guest behavioral profiles + table-level aggregation
+- V3.1: identity attribution (names + orders) + group insights
 
 ---
 
-## 11. Future: Order Attribution
+## 12. Invariants
 
-When the ordering flow is ready to capture and transmit the client's `guest_id` to `/api/public/orders`, the per-guest profile can be enriched with:
-- `ordered_items: OrderedItem[]` — items this specific guest ordered
-- `total_spend: number` — spend attributed to this guest
-- `conversion_rate: number` — items viewed vs. ordered by this guest
+1. `analyzeGuestBehavior` and `aggregateSessionIntelligence` are pure — no DB calls.
+2. `guest_id = null` events (ORDER_PLACED, SESSION_ENDED) are excluded from all guest profiles.
+3. A session with one guest produces `guest_count: 1` — degrades gracefully.
+4. `partial_table_ordering` fires only when actual orders exist.
+5. `EnrichedGuestProfile.guest_name = null` when guest skipped the name modal or session predates V1 — never throw.
+6. `EnrichedGuestProfile.orders_placed = []` when no attributed orders exist — never throw.
+7. `guest_id` from orders body is UUID-validated before DB insert; invalid values silently become null.
+8. Guest labels fall back to "Guest N" (N = array index) when `guest_name` is null — always shown.
+9. `cross_guest_insights` may be empty — UI only renders the section when array.length > 0.
+10. `GuestIdentitySummary` is computed from `session_guests` row count, not from `guest_profiles` count — these may differ when presence rows exist for inactive/disconnected guests who generated no events.
 
-This would unlock per-guest conversion funnel analysis and enable the Decision Engine's `multi_guest_partial_order` opportunity to be attributed to specific un-converted guests.
+---
+
+## 13. Validation
+
+`scripts/test-guest-identity.ts` — run to verify identity attribution for any session:
+
+```bash
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/test-guest-identity.ts [sessionId]
+```
+
+Checks:
+- session_guests rows exist and guest names present
+- session_events.guest_id links to valid session_guests rows
+- orders.guest_id links to valid session_guests rows
+- Per-guest order attribution breakdown
+- Name persistence (named guests have attributed events)

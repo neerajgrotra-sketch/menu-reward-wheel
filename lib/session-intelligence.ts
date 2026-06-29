@@ -889,6 +889,24 @@ export type GuestSessionSummary = {
   collective_high_interest: ViewedItem[];
   dessert_interest: boolean;
   beverage_interest: boolean;
+  cross_guest_insights: string[];           // human-readable group-level behavioral observations
+};
+
+// EnrichedGuestProfile: GuestBehaviorProfile + identity + order attribution fields.
+// Produced by the intelligence API route (not by analyzeGuestBehavior, which is pure/event-only).
+export type EnrichedGuestProfile = GuestBehaviorProfile & {
+  guest_name: string | null;
+  orders_placed: Array<{ name: string; quantity: number; menu_item_id: string | null }>;
+};
+
+// GuestIdentitySummary: per-session identity attribution summary.
+// Computed from enriched profiles + session_guests in the API route.
+export type GuestIdentitySummary = {
+  connected_guests: number;
+  named_guests: number;
+  guests_ordered: number;
+  guests_not_ordered: number;
+  anonymous_guests: number;
 };
 
 export function analyzeGuestBehavior(
@@ -1076,12 +1094,37 @@ export function aggregateSessionIntelligence(
   const beveragePattern = /tea|coffee|juice|lassi|drink|chai|soda|shake|smoothie|lemonade|beverage|water/i;
   const dessertPattern = /dessert|ice.?cream|cake|pudding|tiramisu|brownie|kheer|gulab|rasgulla|mithai|sweet|pastry/i;
 
-  const beverageInterest = guestProfiles.some((g) =>
+  const beverageViewerCount = guestProfiles.filter((g) =>
     g.items_viewed.some((i) => beveragePattern.test(i.name) && i.avg_view_duration_ms >= 8_000),
-  );
-  const dessertInterest = guestProfiles.some((g) =>
+  ).length;
+  const dessertViewerCount = guestProfiles.filter((g) =>
     g.items_viewed.some((i) => dessertPattern.test(i.name) && i.avg_view_duration_ms >= 8_000),
-  );
+  ).length;
+
+  const beverageInterest = beverageViewerCount > 0;
+  const dessertInterest = dessertViewerCount > 0;
+
+  // Cross-guest insights: human-readable behavioral observations for the whole table
+  const crossGuestInsights: string[] = [];
+
+  for (const item of mostViewedAcrossTable) {
+    crossGuestInsights.push(
+      `${item.viewer_count} diners showed interest in ${item.name}`,
+    );
+  }
+  if (dessertViewerCount >= 2) {
+    crossGuestInsights.push(`${dessertViewerCount} diners explored dessert options`);
+  } else if (dessertInterest) {
+    crossGuestInsights.push('A diner explored dessert options');
+  }
+  if (beverageViewerCount >= 2) {
+    crossGuestInsights.push(`${beverageViewerCount} diners considered beverages`);
+  } else if (beverageInterest) {
+    crossGuestInsights.push('A diner considered beverages');
+  }
+  if (guestsShowingHesitation >= 2) {
+    crossGuestInsights.push(`${guestsShowingHesitation} diners showed hesitation signals`);
+  }
 
   return {
     guest_count: guestCount,
@@ -1092,5 +1135,6 @@ export function aggregateSessionIntelligence(
     collective_high_interest: collectiveHighInterest,
     dessert_interest: dessertInterest,
     beverage_interest: beverageInterest,
+    cross_guest_insights: crossGuestInsights,
   };
 }
