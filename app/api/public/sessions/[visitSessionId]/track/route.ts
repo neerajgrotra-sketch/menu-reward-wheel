@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { evaluateSession } from '@/engine/decision-runtime/runtime';
 
 // ── Per-session rate limit (in-memory, per Lambda instance) ───────────────────
 const SESSION_WINDOW_MS = 60 * 1000;
@@ -95,6 +96,8 @@ export async function POST(
     }
 
     // ── New path: write to session_events ────────────────────────────────────
+    const resolvedGuestId = guest_id && UUID_RE.test(guest_id) ? guest_id : null;
+
     if (event_type && CLIENT_EVENT_TYPES.has(event_type)) {
       const eventRow: Record<string, unknown> = {
         session_id: visitSessionId,
@@ -103,19 +106,20 @@ export async function POST(
         metadata: metadata ?? {},
       };
 
-      if (guest_id && UUID_RE.test(guest_id)) {
-        eventRow.guest_id = guest_id;
-      }
-      if (menu_item_id && UUID_RE.test(menu_item_id)) {
-        eventRow.menu_item_id = menu_item_id;
-      }
-      if (promotion_id && UUID_RE.test(promotion_id)) {
-        eventRow.promotion_id = promotion_id;
-      }
+      if (resolvedGuestId) eventRow.guest_id = resolvedGuestId;
+      if (menu_item_id && UUID_RE.test(menu_item_id)) eventRow.menu_item_id = menu_item_id;
+      if (promotion_id && UUID_RE.test(promotion_id)) eventRow.promotion_id = promotion_id;
 
       await Promise.resolve(supabase.from('session_events').insert(eventRow)).catch((err: unknown) => {
         console.error('[spinbite:track] session_events insert failed', err);
       });
+
+      // Trigger Decision Runtime after high-value behavioral signals.
+      // Fire-and-forget — never blocks the track response.
+      // 20s cooldown inside evaluateSession prevents excessive evaluations.
+      if (event_type === 'ITEM_VIEW_DURATION' || event_type === 'ITEM_REMOVED_FROM_CART') {
+        void evaluateSession(visitSessionId, resolvedGuestId).catch(() => { /* runtime is self-contained */ });
+      }
     }
 
     // ── Legacy path: increment menu_items_viewed counter ─────────────────────

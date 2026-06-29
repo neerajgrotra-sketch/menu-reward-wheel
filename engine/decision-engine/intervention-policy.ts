@@ -67,6 +67,17 @@ const POLICY: Record<OpportunityType, PolicyRule[]> = {
         message: `Try a combo featuring ${opp.context.top_item_name}`,
       }),
     },
+    // V1 active dispatcher — waiter notification is the fallback when AI/combo are not yet wired
+    {
+      action: 'waiter_notification',
+      priority: 3,
+      payloadBuilder: (opp) => ({
+        trigger: 'high_interest_no_purchase',
+        focus_item: opp.context.top_item_name,
+        all_high_interest: opp.context.all_high_interest,
+        message: `Guest showing strong interest in "${opp.context.top_item_name}" — consider a recommendation.`,
+      }),
+    },
   ],
 
   long_decision_without_cart: [
@@ -134,6 +145,17 @@ const POLICY: Record<OpportunityType, PolicyRule[]> = {
         trigger: 'dessert_interest_after_main_order',
         top_dessert: opp.context.top_dessert,
         message: 'Treat yourself — dessert discount available today only.',
+      }),
+    },
+    // V1 active dispatcher — waiter notification is the fallback when combo/popup are not yet wired
+    {
+      action: 'waiter_notification',
+      priority: 3,
+      payloadBuilder: (opp) => ({
+        trigger: 'dessert_interest_after_main_order',
+        top_dessert: opp.context.top_dessert,
+        dessert_items: opp.context.dessert_items_viewed,
+        message: `Guest browsing desserts after ordering — suggest ${opp.context.top_dessert ?? 'a dessert'}.`,
       }),
     },
   ],

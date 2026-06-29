@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { isSpecialOfferActive, calculateSpecialPrice } from '@/lib/menu/special-offer';
+import { evaluateSession } from '@/engine/decision-runtime/runtime';
 
 // ── Payload limits ─────────────────────────────────────────────────────────────
 const MAX_BODY_BYTES = 8 * 1024; // 8 KB
@@ -417,6 +418,9 @@ export async function POST(req: NextRequest) {
       })).catch((err: unknown) => {
         console.error('[spinbite:orders] session_events ORDER_PLACED failed', err);
       });
+
+      // Trigger Decision Runtime — ORDER_PLACED unlocks dessert_interest opportunity
+      void evaluateSession(sid, resolvedGuestId).catch(() => { /* runtime is self-contained */ });
 
       // @deprecated visit_sessions.session_interaction_log — use session_events table instead.
       // append_session_interaction writes to the JSONB column retained for backward compat only.

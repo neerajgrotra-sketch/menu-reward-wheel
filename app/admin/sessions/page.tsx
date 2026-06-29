@@ -805,6 +805,149 @@ function TableStatusHeader({
 
 // ─── Session Card ─────────────────────────────────────────────────────────────
 
+// ─── Live Decisions Panel ─────────────────────────────────────────────────────
+
+function LiveInterventionsPanel({
+  sessionId,
+  isActive,
+}: {
+  sessionId: string;
+  isActive: boolean;
+}) {
+  type LiveIntervention = {
+    id: string;
+    opportunity_type: string;
+    confidence_score: number;
+    reasoning_summary: string;
+    status: 'pending' | 'acknowledged' | 'dismissed' | 'expired' | 'converted';
+    created_at: string;
+    guest_name: string | null;
+  };
+
+  const [items, setItems] = useState<LiveIntervention[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actioning, setActioning] = useState<string | null>(null);
+  const supabase = createClient();
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/admin/sessions/${sessionId}/interventions`);
+    if (res.ok) {
+      const data: { interventions?: LiveIntervention[] } = await res.json();
+      setItems(data.interventions ?? []);
+    }
+    setLoading(false);
+  }, [sessionId]);
+
+  useEffect(() => {
+    void load();
+    if (!isActive) return;
+    const id = setInterval(() => void load(), 30_000);
+    return () => clearInterval(id);
+  }, [load, isActive]);
+
+  async function updateStatus(id: string, status: 'acknowledged' | 'dismissed') {
+    setActioning(id);
+    const update: { status: string; acknowledged_at?: string | null } = { status };
+    if (status === 'acknowledged') update.acknowledged_at = new Date().toISOString();
+    const { error } = await supabase.from('live_interventions').update(update).eq('id', id);
+    if (!error) {
+      setItems((prev) => prev.map((i) => (i.id === id ? { ...i, status } : i)));
+    }
+    setActioning(null);
+  }
+
+  const OPPORTUNITY_LABEL: Record<string, string> = {
+    high_interest_no_purchase: 'High Interest',
+    dessert_interest_after_main_order: 'Dessert Signal',
+    cart_abandonment: 'Cart Abandoned',
+    multi_guest_partial_order: 'Partial Orders',
+    long_decision_without_cart: 'Long Browse',
+    post_order_rebrowse: 'Rebrowse',
+  };
+
+  function statusCls(status: string) {
+    if (status === 'pending') return 'bg-amber-100 text-amber-800';
+    if (status === 'acknowledged') return 'bg-emerald-100 text-emerald-700';
+    if (status === 'dismissed') return 'bg-stone-100 text-stone-500';
+    if (status === 'converted') return 'bg-violet-100 text-violet-700';
+    return 'bg-stone-100 text-stone-400';
+  }
+
+  if (loading) return <p className="text-xs text-stone-400">Loading decisions…</p>;
+
+  if (items.length === 0) {
+    return (
+      <p className="text-xs text-stone-400 italic">
+        No decisions dispatched yet for this session.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item) => (
+        <div
+          key={item.id}
+          className={`rounded-xl border p-3 ${
+            item.status === 'pending'
+              ? 'border-amber-200 bg-amber-50'
+              : 'border-stone-100 bg-stone-50'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-black text-stone-800">
+                  {OPPORTUNITY_LABEL[item.opportunity_type] ?? item.opportunity_type}
+                </span>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-black ${statusCls(item.status)}`}>
+                  {item.status}
+                </span>
+                <span className="rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold text-stone-500">
+                  {Math.round(item.confidence_score * 100)}% confidence
+                </span>
+                {item.guest_name && (
+                  <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                    {item.guest_name}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-stone-600">
+                {item.reasoning_summary}
+              </p>
+              <p className="mt-0.5 text-[10px] text-stone-400">
+                {relativeTime(item.created_at)}
+              </p>
+            </div>
+            {item.status === 'pending' && (
+              <div className="flex shrink-0 flex-col gap-1">
+                <button
+                  type="button"
+                  onClick={() => void updateStatus(item.id, 'acknowledged')}
+                  disabled={actioning === item.id}
+                  className="rounded-lg bg-emerald-500 px-2 py-1 text-[10px] font-black text-white active:bg-emerald-600 disabled:opacity-50"
+                >
+                  {actioning === item.id ? '…' : 'Done'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void updateStatus(item.id, 'dismissed')}
+                  disabled={actioning === item.id}
+                  className="rounded-lg border border-stone-200 px-2 py-1 text-[10px] font-black text-stone-500 active:bg-stone-100 disabled:opacity-50"
+                >
+                  Skip
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Session Card ─────────────────────────────────────────────────────────────
+
 function SessionCard({
   session,
   onEnd,
@@ -912,9 +1055,23 @@ function SessionCard({
           )}
         </div>
 
-        {/* Intelligence panel */}
+        {/* Expanded: Live Decisions + Intelligence */}
         {expanded && (
           <>
+            {/* Decision Runtime feed */}
+            <div className="mt-3 border-t border-stone-100 pt-4">
+              <p className="text-xs font-black uppercase tracking-widest text-stone-500">
+                Live Decisions
+              </p>
+              <div className="mt-2">
+                <LiveInterventionsPanel
+                  sessionId={session.id}
+                  isActive={session.status === 'active'}
+                />
+              </div>
+            </div>
+
+            {/* Intelligence panel */}
             {loadingIntelligence && (
               <div className="mt-3 border-t border-stone-100 pt-4">
                 <p className="text-xs text-stone-400">Reconstructing session intelligence…</p>
