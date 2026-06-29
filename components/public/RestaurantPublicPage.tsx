@@ -582,10 +582,14 @@ function RewardWidget({
   promotion,
   playUrl,
   accentColor,
+  onViewed,
+  onPlayed,
 }: {
   promotion: PublicPromotion;
   playUrl: string;
   accentColor: string;
+  onViewed?: () => void;
+  onPlayed?: (gameType: string) => void;
 }) {
   const pool = useMemo(
     () => (promotion.game_types.length > 0 ? promotion.game_types : [promotion.game_type ?? 'spin_wheel']),
@@ -609,6 +613,7 @@ function RewardWidget({
 
   function handlePlay() {
     if (launching) return;
+    onPlayed?.(displayType);
     setLaunching(true);
     if (launchBtnRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       fireButtonConfetti(launchBtnRef.current.getBoundingClientRect());
@@ -637,6 +642,7 @@ function RewardWidget({
   }, [expanded]);
 
   function openSheet() {
+    onViewed?.();
     setDisplayType(pool[Math.floor(Math.random() * pool.length)]);
     setExpanded(true);
     requestAnimationFrame(() => {
@@ -842,11 +848,15 @@ function GameEntryModal({
   playUrl,
   accentColor,
   onClose,
+  onViewed,
+  onPlayed,
 }: {
   promotion: PublicPromotion;
   playUrl: string;
   accentColor: string;
   onClose: () => void;
+  onViewed?: () => void;
+  onPlayed?: (gameType: string) => void;
 }) {
   const reducedMotionRef = useRef(false);
   const [boosted, setBoosted] = useState(false);
@@ -857,6 +867,9 @@ function GameEntryModal({
   useEffect(() => {
     reducedMotionRef.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     requestAnimationFrame(() => { requestAnimationFrame(() => setVisible(true)); });
+    onViewed?.();
+  // onViewed is stable; fire once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -886,6 +899,7 @@ function GameEntryModal({
   }
 
   function handlePlay(e: React.MouseEvent<HTMLAnchorElement>) {
+    onPlayed?.(promotion.game_type ?? 'spin_wheel');
     if (reducedMotionRef.current) return;
     e.preventDefault();
     setBoosted(true);
@@ -1006,6 +1020,8 @@ export function RestaurantPublicPage({
   onItemAddedToCart,
   onItemRemovedFromCart,
   onCategoryOpened,
+  onPromotionViewed,
+  onPromotionPlayed,
 }: {
   restaurant: PublicRestaurant;
   sections: PublicSection[];
@@ -1025,6 +1041,8 @@ export function RestaurantPublicPage({
   onItemAddedToCart?: (itemId: string, itemName: string, quantity: number, priceSnapshot: number | null, effectivePriceSnapshot: number | null, source: 'menu_card' | 'detail_sheet', specialInstructionsPresent: boolean) => void;
   onItemRemovedFromCart?: (itemId: string, itemName: string, quantityRemoved: number, previousQuantity: number, cartSubtotalBefore: number, cartSubtotalAfter: number) => void;
   onCategoryOpened?: (categoryId: string, categoryName: string, previousCategoryId: string | null, previousCategoryName: string | null) => void;
+  onPromotionViewed?: (promotionId: string, promotionName: string, source: 'widget_sheet' | 'entry_modal') => void;
+  onPromotionPlayed?: (promotionId: string, promotionName: string, source: 'widget_sheet' | 'entry_modal', gameType: string) => void;
 }) {
   const brandColor = brandPrimary(restaurant);
   const accentColor = restaurant.accent_color || restaurant.brand_color || '#f59e0b';
@@ -1599,6 +1617,8 @@ export function RestaurantPublicPage({
           promotion={promotion!}
           playUrl={playUrl}
           accentColor={accentColor}
+          onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'widget_sheet')}
+          onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'widget_sheet', gameType)}
         />
       )}
 
@@ -1610,6 +1630,8 @@ export function RestaurantPublicPage({
           playUrl={playUrl}
           accentColor={accentColor}
           onClose={handleModalClose}
+          onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'entry_modal')}
+          onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'entry_modal', gameType)}
         />
       )}
 

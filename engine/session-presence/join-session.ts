@@ -87,6 +87,8 @@ export async function resolveSessionJoin(
         status: 'active',
         session_access_code: newCode,
         guest_count: 1,
+        // @deprecated visit_sessions.session_interaction_log — use session_events table instead.
+        // Retained for backward compatibility only. No new writes should be added here.
         session_interaction_log: JSON.stringify([
           { event: 'qr_scan', ts: new Date().toISOString() },
         ]),

@@ -651,6 +651,18 @@ export function TouchpointMenuPage({
             },
           });
         }}
+        onPromotionViewed={(promotionId, promotionName, source) => {
+          fireEvent('PROMOTION_VIEWED', {
+            promotionId,
+            metadata: { promotion_name: promotionName, source },
+          });
+        }}
+        onPromotionPlayed={(promotionId, promotionName, source, gameType) => {
+          fireEvent('PROMOTION_PLAYED', {
+            promotionId,
+            metadata: { promotion_name: promotionName, source, game_type: gameType },
+          });
+        }}
       />
 
       {ordersDrawerOpen && (

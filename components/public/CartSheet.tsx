@@ -247,8 +247,13 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                             onClick={() => {
                               const newQty = item.quantity - 1;
                               if (newQty < 1) {
+                                // Full removal — fire with total quantity removed
                                 const subtotalAfter = Math.round((cart.subtotal - item.effective_price * item.quantity) * 100) / 100;
                                 onItemRemovedFromCart?.(item.menu_item_id, item.name, item.quantity, item.quantity, cart.subtotal, subtotalAfter);
+                              } else {
+                                // Partial decrement — 1 unit removed, item stays in cart
+                                const subtotalAfter = Math.round((cart.subtotal - item.effective_price) * 100) / 100;
+                                onItemRemovedFromCart?.(item.menu_item_id, item.name, 1, item.quantity, cart.subtotal, subtotalAfter);
                               }
                               cart.updateQuantity(item.menu_item_id, newQty);
                             }}

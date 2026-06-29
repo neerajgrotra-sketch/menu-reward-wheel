@@ -328,6 +328,8 @@ export async function POST(req: NextRequest) {
         order_origin: resolvedSessionId ? 'restaurant_qr' : 'direct_link',
         table_identifier: table_identifier ?? null,
         customer_name: customer_name ?? null,
+        // @deprecated orders.session_id (text) — use visit_session_id (uuid FK) for all session linkage.
+        // Retained for backward compatibility; always null for current clients.
         session_id: session_id ?? null,
         visit_session_id: resolvedSessionId,
         idempotency_key,
@@ -406,7 +408,8 @@ export async function POST(req: NextRequest) {
         console.error('[spinbite:orders] session_events ORDER_PLACED failed', err);
       });
 
-      // Legacy JSONB interaction log — retained for backward compat
+      // @deprecated visit_sessions.session_interaction_log — use session_events table instead.
+      // append_session_interaction writes to the JSONB column retained for backward compat only.
       Promise.resolve(supabase.rpc('append_session_interaction', {
         p_session_id: sid,
         p_event: {

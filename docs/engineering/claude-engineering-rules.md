@@ -571,3 +571,250 @@ Session phase state machine:
 
 Passive engagement (menu browse, promotions, AI) is always allowed.
 Transactional actions require `sessionPhase === 'confirmed'`.
+
+---
+
+## Rule 36 — Migration Gatekeeping
+
+Every schema change must ship as a migration file in `supabase/migrations/`.
+
+Mandatory for every migration file:
+
+1. Timestamp-prefixed filename: `YYYYMMDDHHMMSS_scope_description.sql`
+2. RLS enabled on every new table: `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`
+3. No `using (true)` policy on any platform, session, intelligence, or owner-scoped table
+4. All FK `ON DELETE` behaviors explicitly declared (CASCADE, SET NULL, or RESTRICT)
+5. All CHECK constraints match the TypeScript enum values in the engine exactly
+6. A rollback reference comment block at the bottom of the file
+7. Applied to production only after code review and TypeScript/lint validation
+
+Do not modify schema by running SQL directly in the Supabase dashboard. Changes not in migration files cannot be reproduced, audited, or rolled back.
+
+---
+
+## Rule 37 — Critical Path vs. Non-Critical Path Isolation
+
+The following services are on the **critical path** — any failure is immediately user-visible:
+
+- `POST /api/public/sessions/resolve` — session creation
+- `POST /api/public/orders` — order placement
+- `GET /r/[restaurantSlug]` — public menu render
+- Supabase database connectivity
+
+The following systems are **non-critical** — they are telemetry and intelligence layers:
+
+- `session_guests` INSERT during session resolve
+- `session_events` INSERT from the track route
+- `increment_session_counters()` and `increment_guest_count()` RPCs
+- `disconnect_session_guests()` after session end
+- `SESSION_ENDED` event write after session end
+- Supabase Broadcast REST call after session end
+- All Decision Engine cycles and intervention logging
+
+**Enforcement:**
+
+Non-critical operations must always use one of:
+- `fire-and-forget` via `void Promise.resolve(...).catch(console.warn)` pattern
+- `try/catch` with warning log only
+- Must never be awaited on the critical path
+
+A failure in `session_guests`, `session_events`, or any intelligence system must never cause a session resolve error, an order failure, or any visible error to the customer.
+
+---
+
+## Rule 38 — Graceful Degradation of Intelligence and Telemetry Systems
+
+Intelligence systems (session_events, session_guests, intervention_events, Decision Engine) must degrade silently if unavailable. They must never block, surface errors to customers, or prevent core dining flows.
+
+Required patterns:
+
+1. **Track route:** Returns `204 No Content` regardless of whether the session_events insert succeeded
+2. **Resolve route:** Returns session_id even if session_guests insert failed
+3. **Session end:** Returns `{ success: true }` even if broadcast, disconnect_guests, or SESSION_ENDED event fails
+4. **Intelligence panel:** Shows inline error message if the intelligence load fails; does not crash the admin sessions page
+5. **Decision Engine:** Runs silently; dispatcher stubs log to console only; no customer UI impact
+
+If a non-critical system becomes consistently unavailable, it must be detected via server logs and fixed as a background task — not by surfacing errors to users.
+
+---
+
+## Rule 39 — Session Lifecycle State Machine Is Terminal
+
+Visit session status transitions are **one-way and irreversible**:
+
+```
+active → completed   (manual admin end)
+active → abandoned   (stale cleanup via mark_stale_sessions_abandoned())
+```
+
+**Never:**
+- Re-open a completed or abandoned session
+- Write to a non-active session via the critical path
+- Increment counters on a non-active session (the RPCs guard against this — they check `status = 'active'`)
+- Reuse a completed session's `visit_session_id` for a new order
+
+When checking session eligibility before any write:
+- The `increment_session_counters()` RPC already guards with `WHERE status = 'active'`
+- The track route validates `session.status !== 'active'` and silently skips
+- The heartbeat route returns `{ active: false }` when session is non-active
+- The session end route returns `409` when session is already ended
+
+---
+
+## Rule 40 — No Direct Client Access to Session and Presence Tables
+
+The following tables must **never** have SELECT, INSERT, UPDATE, or DELETE policies for the anon or authenticated role that would allow general customer access:
+
+- `visit_sessions` — owner SELECT only
+- `session_guests` — owner SELECT only
+- `session_events` — owner SELECT only
+- `intervention_events` — owner SELECT only
+- `restaurant_touchpoints` — owner CRUD only
+- `restaurant_capabilities` — owner read; owner update
+
+All customer-facing access to these tables goes through **service-role API routes**:
+- Customers resolve sessions via `POST /api/public/sessions/resolve` (service role)
+- Customers send heartbeats via `POST /api/public/sessions/{id}/heartbeat` (service role)
+- Customers fire events via `POST /api/public/sessions/{id}/track` (service role)
+- Customers get presence via `GET /api/public/sessions/{id}/presence` (service role)
+
+Never add an anon SELECT policy to these tables to support a customer-side realtime subscription. Use Supabase Broadcast instead (see Rule 41).
+
+---
+
+## Rule 41 — Realtime Fallback Design
+
+Every realtime feature must have a polling fallback. No realtime-only feature is allowed.
+
+The session termination fallback chain is the canonical pattern:
+
+```
+1. PRIMARY:  Supabase Broadcast to session-lifecycle:{sessionId}  (~200ms)
+2. FALLBACK: Heartbeat poll returning { active: false }           (≤30s)
+3. SAFETY:   Order API returning 409 SESSION_INVALID              (on action)
+```
+
+Rules:
+- Supabase postgres_changes subscriptions require RLS SELECT on the target table
+  - Anon/customer keys cannot subscribe to owner-scoped tables
+  - Use Broadcast REST (server-side, service role) instead for customer-facing realtime
+- All Supabase channel subscriptions must clean up on component unmount (`supabase.removeChannel()`)
+- Never use a realtime event as the only mechanism to update state — always have a polling path
+- Broadcast delivery is fire-and-forget (network errors are non-fatal; the fallback chain handles it)
+
+---
+
+## Rule 42 — Architecture Documentation Must Be Updated After Infrastructure Changes
+
+After any of the following changes are merged to main, the architecture documentation in `/architecture/` must be updated **in the same PR or the immediately following PR**:
+
+- New migration file (schema change)
+- New API route
+- New engine file or engine function
+- New realtime channel (name or payload shape)
+- Change to an existing API contract (request/response shape)
+- Change to a database RLS policy
+- New capability or restaurant setting
+
+The architecture documents are:
+- `/architecture/spinbite_system_architecture_v1.md` — system overview
+- `/architecture/session_lifecycle_v1.md` — session state machine
+- `/architecture/realtime_presence_v1.md` — channel contracts + fallback chain
+- `/architecture/intelligence_engine_v2.md` — behavioral analysis layer
+- `/architecture/decision_engine_v1.md` — opportunity detection + intervention types
+- `/architecture/database_schema_map_v1.md` — full schema reference
+- `/architecture/production_release_checklist_v1.md` — release gates
+- `/docs/architecture/spinbite-platform-architecture-v3.md` — invariants + product decisions
+
+Documentation-only branches do not require smoke tests but do require TypeScript and lint checks (Rule 8).
+
+A branch that updates code without updating architecture documentation is incomplete.
+
+---
+
+## Rule 43 — Intelligence Requires Complete Instrumentation
+
+No intelligence, analytics, or AI feature may be built on a partially instrumented customer event stream.
+
+All interactions that feed a signal must be fully observable before the layer that reads that signal is trusted or shipped to production.
+
+**What "fully observable" means:**
+
+- Every event type the intelligence layer depends on is wired at the client or server event source
+- The event fires reliably (not only on happy-path flows)
+- The event is stored durably in `session_events` and readable via the intelligence route
+- The event has been validated in at least one real session before analytics are built on top of it
+
+**Current instrumentation gaps (as of 2026-06-29):**
+
+| Event | Status | Blocked by |
+|---|---|---|
+| `ITEM_ADDED_TO_CART` | Not wired | Needs `onItemAddedToCart` callback in `RestaurantPublicPage.tsx` |
+| `ITEM_REMOVED_FROM_CART` | Not wired | Needs `onItemRemovedFromCart` callback |
+| `CATEGORY_OPENED` | Partially wired | Needs category drawer open tracking |
+| `PROMOTION_VIEWED` | Not wired | Needs promotion route integration |
+| `PROMOTION_PLAYED` | Not wired | Needs promotion play route integration |
+
+**Enforcement:**
+
+- Do not build cart-abandonment interventions until `ITEM_ADDED_TO_CART` and `ITEM_REMOVED_FROM_CART` are fully wired and validated
+- Do not build promotion performance analytics until `PROMOTION_VIEWED` and `PROMOTION_PLAYED` are wired
+- Do not train or prompt AI on session event data until the session under analysis has complete event coverage
+
+This rule exists because analytics built on sparse data produce misleading signals. A cart-abandonment detector that never sees cart events will misfire on every session.
+
+---
+
+## Rule 44 — No New Code May Write to Deprecated Structures
+
+Deprecated schema paths may remain in the database for backward compatibility. They must not receive new writes.
+
+**Current deprecated structures (as of 2026-06-29):**
+
+| Structure | Deprecated since | Replacement |
+|---|---|---|
+| `visit_sessions.session_interaction_log` (JSONB) | 2026-06-26 | `session_events` table |
+| `orders.session_id` (text field) | 2026-06-24 | `orders.visit_session_id` (uuid FK) |
+
+**Rules:**
+
+- No new feature, API route, or migration may write to `session_interaction_log` except the single legacy `qr_scan` entry in `resolveSessionJoin()` (retained for historical continuity; will be removed when the field is dropped)
+- No new feature may write to `orders.session_id` (text). All session references must use `orders.visit_session_id`
+- No new code may read `session_interaction_log` for analytical purposes — use `session_events` instead
+- When a deprecated field is ready to drop: create a migration to remove it, remove all remaining reads, and delete this entry from the list
+
+Do not add new deprecated structures without adding them to this list in the same PR. Invisible deprecations cause divergence.
+
+---
+
+## Rule 45 — Autonomous AI Systems Require Production-Stable Foundations
+
+Before any autonomous AI system (AI Waiter, AI Revenue Agent, autonomous promotion creation, autonomous pricing, customer reactivation agents) may be built or deployed:
+
+The following four foundations must each be individually confirmed as production stable:
+
+**1. Session Lifecycle**
+- Session creation, reuse, abandonment, and manual end all function correctly in production
+- The three-layer session-end fallback chain (Broadcast → heartbeat → 409) is verified end-to-end
+- No known session state machine violations in production logs
+
+**2. Event Fidelity**
+- All 10 `session_events` types are wired and producing events in production sessions
+- Cart funnel events (`ITEM_ADDED_TO_CART`, `ITEM_REMOVED_FROM_CART`) must be wired (Rule 43)
+- At least 100 real sessions with complete event streams have been analyzed for correctness
+
+**3. Realtime Synchronization**
+- The `session-lifecycle:{id}` Broadcast subscription is wired on the customer page
+- Session end propagation has been smoke-tested end-to-end: admin end → instant customer redirect
+- Admin guest count realtime (postgres_changes on session_guests) is confirmed reliable
+
+**4. Decision Runtime**
+- At least one `ActionType` dispatcher is fully wired (not a stub) and writes to `intervention_events`
+- Per-session intervention cooldown logic is implemented to prevent rapid re-firing
+- The decision cycle has a production trigger (not just a manual test call)
+
+**Why this rule exists:**
+
+An AI agent that acts on incomplete behavioral data, flaky session state, or undelivered interventions will produce incorrect restaurant intelligence and potentially harmful customer experiences (wrong offers, ghost notifications, phantom coupons). The operational primitives must be stable before AI autonomy is layered on top.
+
+This is Architecture Principle #7 from `/docs/architecture/spinbite-platform-architecture-v3.md`: "Do not build AI automation before operational primitives are stable."
