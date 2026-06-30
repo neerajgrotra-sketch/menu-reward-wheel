@@ -1,4 +1,4 @@
-import { requireSuperAdmin } from '@/lib/super-admin';
+import { getCurrentProfile } from '@/lib/super-admin';
 
 const cards = [
   {
@@ -46,22 +46,21 @@ const cards = [
 ];
 
 export default async function SuperAdminPage() {
-  const { profile } = await requireSuperAdmin();
+  const { profile } = await getCurrentProfile();
 
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">
       <section className="mx-auto max-w-6xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
-            <p className="mt-1 text-sm font-bold text-stone-500">Platform command center</p>
+            <h1 className="text-3xl font-black text-[#FF6B00]">Platform command center</h1>
           </div>
           <div className="flex flex-wrap gap-2">
             <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">
               Restaurant Admin
             </a>
             <span className="rounded-full bg-[#1F1F1F] px-4 py-3 text-sm font-black text-white shadow">
-              {profile.email || 'Super Admin'}
+              {profile?.email || 'Super Admin'}
             </span>
           </div>
         </div>

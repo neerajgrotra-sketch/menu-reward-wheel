@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { AppSupabaseClient } from '@/lib/supabase/client';
+import { UI_LAYERS } from '@/lib/ui-layers';
 import { ConfirmModal } from './ConfirmModal';
 import type { ConfirmOptions } from './types';
 
@@ -346,7 +347,8 @@ interface AddModalProps {
 function AddTableModal({ form, onChange, onSave, onCancel, saving, error }: AddModalProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
+      style={{ zIndex: UI_LAYERS.modal }}
+      className="fixed inset-0 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
       role="dialog"
       aria-modal="true"
@@ -450,7 +452,8 @@ interface EditModalProps {
 function EditTableModal({ tp, form, onChange, onSave, onCancel, saving, error }: EditModalProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
+      style={{ zIndex: UI_LAYERS.modal }}
+      className="fixed inset-0 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
       role="dialog"
       aria-modal="true"

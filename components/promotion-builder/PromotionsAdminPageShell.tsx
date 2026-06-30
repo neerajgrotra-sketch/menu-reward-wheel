@@ -11,6 +11,7 @@ import {
   type PromotionsAdminMode,
 } from '@/hooks/usePromotionsAdmin';
 import { getGameBadge } from '@/lib/games/game-registry';
+import { UI_LAYERS } from '@/lib/ui-layers';
 
 function filterLabel(filter: Filter) {
   return filter === 'all' ? 'All' : filter[0].toUpperCase() + filter.slice(1);
@@ -318,7 +319,7 @@ export function PromotionsAdminPageShell() {
       </section>
 
       {performance && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-3 py-4 sm:items-center">
+        <div style={{ zIndex: UI_LAYERS.modal }} className="fixed inset-0 flex items-end justify-center bg-black/40 px-3 py-4 sm:items-center">
           <section className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
               <div>

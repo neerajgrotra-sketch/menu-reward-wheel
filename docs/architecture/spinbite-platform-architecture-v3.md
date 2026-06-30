@@ -247,6 +247,16 @@ Each restaurant renders as a card at `/admin/restaurants` with four tabs:
 
 The parent page (`app/admin/restaurants/page.tsx`) loads all restaurants for the owner, maintains per-restaurant form state, and passes `restaurantId` explicitly to every tab component. No tab ever derives restaurant context from a global account state or uses `.limit(1)`.
 
+### 3.7 Navigation architecture
+
+`/admin/*` and `/super-admin/*` each get a persistent desktop sidebar + mobile burger drawer, wrapped around existing pages — no page logic was rewritten.
+
+- `lib/navigation.ts` — single source of truth: `adminNavigation` and `superAdminNavigation` arrays (`{ label, href, icon }`)
+- `components/layout/AppShell.tsx` — composes sidebar + mobile header + drawer around `children`; route isolation is structural (`app/admin/layout.tsx` passes `adminNavigation`, `app/super-admin/layout.tsx` passes `superAdminNavigation` — a page can only ever render inside the shell for its own route tree)
+- `components/layout/{AdminSidebar,MobileBurgerMenu,AdminHeader,NavigationItem}.tsx` — desktop sidebar, mobile drawer, mobile top bar, and the shared active-route link respectively
+- Routes ending in `/print` (QR kits, promotion print kits) bypass the shell entirely — `AppShell` detects the suffix and renders bare `children`, since those pages render at exact physical page dimensions for printing
+- Auth/role gating is unchanged: middleware still gates `/admin/*`, and each `/super-admin/*` page still calls `requireSuperAdmin()` itself — the shell adds no new auth logic
+
 ---
 
 ## 4. Menu Architecture

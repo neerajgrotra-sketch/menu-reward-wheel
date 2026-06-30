@@ -1,4 +1,3 @@
-import { requireSuperAdmin } from '@/lib/super-admin';
 import { createClient } from '@/lib/supabase/server';
 import { toggleFeature, updateProviderCost } from './actions';
 import { PromptEditor } from './PromptEditor';
@@ -6,7 +5,6 @@ import { PromptEditor } from './PromptEditor';
 export const metadata = { title: 'Intelligence Lab — SpinBite Super Admin' };
 
 export default async function IntelligenceLabPage() {
-  await requireSuperAdmin();
   const supabase = createClient();
 
   const [
@@ -62,8 +60,7 @@ export default async function IntelligenceLabPage() {
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
-            <p className="mt-1 text-sm font-bold text-stone-500">Intelligence Lab</p>
+            <h1 className="text-3xl font-black text-[#FF6B00]">Intelligence Lab</h1>
           </div>
           <a href="/super-admin" className="self-start rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow sm:self-auto">
             Command Center

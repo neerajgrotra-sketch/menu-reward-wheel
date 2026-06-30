@@ -1,4 +1,3 @@
-import { requireSuperAdmin } from '@/lib/super-admin';
 import { createClient } from '@/lib/supabase/server';
 import { createContentField, deleteContentField, updateContentField } from './actions';
 
@@ -62,8 +61,6 @@ export default async function SuperAdminContentPage({
 }: {
   searchParams?: { error?: string; success?: string };
 }) {
-  await requireSuperAdmin();
-
   const supabase = createClient();
   const { data, error } = await supabase
     .from('site_content')
@@ -88,8 +85,7 @@ export default async function SuperAdminContentPage({
       <section className="mx-auto max-w-7xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
-            <p className="mt-1 text-sm font-bold text-stone-500">Super Admin / Content Directory</p>
+            <h1 className="text-3xl font-black text-[#FF6B00]">Super Admin / Content Directory</h1>
           </div>
           <div className="flex flex-wrap gap-2">
             <a href="/super-admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Command Center</a>

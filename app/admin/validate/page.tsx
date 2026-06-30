@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
+import { UI_LAYERS } from '@/lib/ui-layers';
 
 type ValidationStatus = 'idle' | 'valid' | 'redeemed' | 'expired' | 'wrong_restaurant' | 'not_found' | 'error';
 
@@ -332,7 +333,7 @@ export default function ValidateCouponPage() {
         </div>
       </section>
 
-      {scannerOpen && <div className="fixed inset-0 z-50 flex items-end bg-black/50 px-3 pb-3 backdrop-blur-sm">
+      {scannerOpen && <div style={{ zIndex: UI_LAYERS.bottomSheet }} className="fixed inset-0 flex items-end bg-black/50 px-3 pb-3 backdrop-blur-sm">
         <section className="mx-auto w-full max-w-md rounded-[2rem] bg-white p-5 shadow-2xl">
           <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-stone-200" />
           <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-black uppercase tracking-wide text-[#FF6B00]">Camera Scanner</p><h2 className="mt-1 text-2xl font-black">Scan coupon QR</h2></div><button onClick={stopScanner} className="rounded-full bg-stone-100 px-4 py-2 text-sm font-black text-stone-800">Close</button></div>
