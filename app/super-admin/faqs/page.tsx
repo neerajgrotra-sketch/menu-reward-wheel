@@ -1,4 +1,3 @@
-import { requireSuperAdmin } from '@/lib/super-admin';
 import { createClient } from '@/lib/supabase/server';
 import { createFaq, deleteFaq, updateFaq } from './actions';
 
@@ -39,8 +38,6 @@ function ActiveToggle({ defaultChecked = true }: { defaultChecked?: boolean }) {
 }
 
 export default async function SuperAdminFaqsPage() {
-  await requireSuperAdmin();
-
   const supabase = createClient();
   const { data, error } = await supabase
     .from('faqs')
@@ -58,8 +55,7 @@ export default async function SuperAdminFaqsPage() {
       <section className="mx-auto max-w-6xl">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-black text-[#FF6B00]">🎯 SpinBite</h1>
-            <p className="mt-1 text-sm font-bold text-stone-500">Super Admin / FAQ</p>
+            <h1 className="text-3xl font-black text-[#FF6B00]">Super Admin / FAQ</h1>
           </div>
           <div className="flex flex-wrap gap-2">
             <a href="/super-admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Command Center</a>

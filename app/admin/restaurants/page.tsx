@@ -211,8 +211,7 @@ export default function RestaurantsPage() {
           {/* Page header */}
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-black text-[#FF6B00]">SpinBite</h1>
-              <p className="mt-1 text-sm font-bold text-stone-500">Restaurant locations</p>
+              <h1 className="text-3xl font-black text-[#FF6B00]">Restaurant locations</h1>
             </div>
             <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">Dashboard</a>
           </div>

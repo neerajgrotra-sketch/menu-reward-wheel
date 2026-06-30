@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { UI_LAYERS } from '@/lib/ui-layers';
 import type { ConfirmOptions } from './types';
 
 type Props = ConfirmOptions & { open: boolean; onCancel: () => void };
@@ -25,7 +26,8 @@ export function ConfirmModal({ open, title, message, confirmLabel = 'Confirm', d
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      style={{ zIndex: UI_LAYERS.modal }}
+      className="fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
       role="dialog"
       aria-modal="true"

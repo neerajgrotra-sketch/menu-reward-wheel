@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { UI_LAYERS } from '@/lib/ui-layers';
 
 export type SheetTab = { id: string; label: string };
 
@@ -119,7 +120,8 @@ export function BottomSheet({ open, onClose, title, tabs, activeTab, onTabChange
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      className={`fixed inset-0 z-50 flex flex-col justify-end ${open ? '' : 'pointer-events-none'}`}
+      style={{ zIndex: UI_LAYERS.bottomSheet }}
+      className={`fixed inset-0 flex flex-col justify-end ${open ? '' : 'pointer-events-none'}`}
     >
       {/* Backdrop */}
       <div

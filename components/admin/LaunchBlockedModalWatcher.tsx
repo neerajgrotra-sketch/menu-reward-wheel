@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { UI_LAYERS } from '@/lib/ui-layers';
 
 const LIVE_PROMOTION_ERROR = 'This location already has a live promotion:';
 
@@ -59,7 +60,10 @@ export default function LaunchBlockedModalWatcher() {
   const livePromotionName = extractPromotionName(message);
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/55 px-4 pb-4 backdrop-blur-sm sm:items-center sm:pb-0">
+    <div
+      style={{ zIndex: UI_LAYERS.criticalOverlay }}
+      className="fixed inset-0 flex items-end justify-center bg-black/55 px-4 pb-4 backdrop-blur-sm sm:items-center sm:pb-0"
+    >
       <div className="w-full max-w-md rounded-[2rem] bg-white p-6 text-[#1F1F1F] shadow-2xl">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-3xl">
           ⚠️
