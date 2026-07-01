@@ -222,12 +222,24 @@ function GuestNameModal({
     if (!trimmed) { onSkip(); return; }
     setSubmitting(true);
     try {
-      await fetch(`/api/public/sessions/${sessionId}/guest-name`, {
+      const res = await fetch(`/api/public/sessions/${sessionId}/guest-name`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guest_token: guestToken, guest_name: trimmed }),
       });
-    } catch { /* non-fatal — name is still stored locally */ }
+      // A non-ok response (e.g. 403 "invalid guest token" — this guest's
+      // session_guests row doesn't exist, most likely because the earlier
+      // resolve's insert silently failed) means the name was NOT saved
+      // server-side. This must not be swallowed: it was previously a silent
+      // failure mode that made a guest invisible in the connected-diners list
+      // while their own device showed the name as accepted (2026-07-01
+      // multi-device join investigation).
+      if (!res.ok) {
+        console.error('[spinbite:guest-name] save failed', { status: res.status, sessionId });
+      }
+    } catch (err) {
+      console.error('[spinbite:guest-name] network error', err);
+    }
     onConfirm(trimmed);
   }
 
@@ -611,6 +623,46 @@ export function TouchpointMenuPage({
       void supabase.removeChannel(presenceChannel);
     };
   }, [confirmedSessionId, sKey]);
+
+  // ── Heartbeat — keeps THIS device's session_guests row from going stale ──────
+  //
+  // update_stale_guest_presence() flips status active → inactive after 3
+  // minutes with no last_seen_at refresh, unconditionally, for every guest.
+  // Without a heartbeat call, every guest goes stale exactly 3 minutes after
+  // joining regardless of whether they're still on the page — this was a
+  // confirmed root cause of guests silently dropping out of the active count
+  // during the 2026-07-01 multi-device join investigation. guest_token is
+  // the bearer credential; nothing to send without it.
+  useEffect(() => {
+    if (!confirmedSessionId || !guestToken) return;
+
+    const token = guestToken;
+
+    async function sendHeartbeat() {
+      try {
+        const res = await fetch(`/api/public/sessions/${confirmedSessionId}/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guest_token: token }),
+        });
+        if (!res.ok) return;
+        const data = await res.json() as { active: boolean };
+        if (!data.active) {
+          // Redundant with the presence-poll/broadcast session-end paths —
+          // safety net only, matches the existing multi-layer fallback design.
+          try { sessionStorage.removeItem(sKey); } catch { /* ignore */ }
+          setConfirmedSessionId(null);
+          setSessionOrders([]);
+          setSessionPhase('session_ended');
+          setGuestListOpen(false);
+        }
+      } catch { /* network error — next tick retries */ }
+    }
+
+    sendHeartbeat();
+    const heartbeatId = setInterval(sendHeartbeat, TICK_MS);
+    return () => clearInterval(heartbeatId);
+  }, [confirmedSessionId, guestToken, sKey]);
 
   // Reset guest count when session changes (new resolve cycle)
   useEffect(() => {
