@@ -242,3 +242,12 @@ Rules:
 - Passive menu browsing is always allowed regardless of phase
 
 See also: Rule 34 in `/docs/engineering/claude-engineering-rules.md`.
+
+## 13. Guest List Popover (live 2026-07-01)
+
+The 👥 guest-count pill in the session ribbon is only interactive (rendered as a `<button>`, not a `<div>`) when `sessionPhase === 'confirmed'` and `confirmedSessionId` is set — matching the same gate used for transactional actions in § 12.
+
+Tapping it opens `SessionGuestListPopover.tsx`, which reads `GET /api/public/sessions/{visitSessionId}/guests` (full contract in `realtime_presence_v1.md` § 9). The popover does not introduce a new session state — it is a read-only view layered on top of the existing state machine:
+
+- Any transition into `session_ended` (broadcast, heartbeat `active:false`, orders-status check, or 409 safety net) also force-closes the popover (`setGuestListOpen(false)`), consistent with all other session-scoped UI (orders drawer, name modal).
+- The popover never writes to `session_guests` and never blocks the underlying menu — it is dismissible via backdrop click, close button, or Escape.
