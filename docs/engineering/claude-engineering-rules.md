@@ -873,3 +873,66 @@ This rule applies to all current and future intelligence subsystems:
 - Revenue yield optimization (future)
 
 Any future intelligence subsystem that needs to act on a customer event must be wired as a fire-and-forget side effect of the customer route — never as an awaited dependency of the customer response.
+
+---
+
+## Rule 52 — Supabase Service Client No-Store
+
+Every server route using a Supabase service client for live session/order/presence state must use `cache: 'no-store'`.
+
+`dynamic = 'force-dynamic'` alone is not sufficient — it disables the Full Route Cache but not the Next.js Data Cache, which persists individual `fetch()` results independently (see Rule 35).
+
+**Mandatory pattern for any service client backing live state:**
+
+```typescript
+return createServiceClient(url, serviceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+  global: {
+    fetch: (input, init) =>
+      fetch(input as RequestInfo, { ...(init as RequestInit), cache: 'no-store' }),
+  },
+});
+```
+
+This extends Rule 35's transactional-state list to explicitly cover session, order, and presence reads: `visit_sessions`, `session_guests`, `orders`, `order_items`, and any RPC or table backing live counts or status.
+
+Read-only static data routes (menu items, restaurant profile, touchpoint config) remain exempt.
+
+---
+
+## Rule 53 — Realtime Is Notification, Not Truth
+
+Realtime channels (Supabase Broadcast, `postgres_changes`) may notify a client that something changed. They must never be treated as the authoritative source for counts, status, or identity.
+
+On receiving a realtime event, the client must re-fetch or re-resolve state from a service-role API route before acting on it. The event itself carries no guaranteed payload integrity or delivery ordering.
+
+This complements Rule 41 (every realtime feature needs a polling fallback): the fallback exists precisely because realtime is a signal to re-check truth, not truth itself.
+
+Forbidden:
+- Incrementing or setting a guest count, order count, or session status directly from a realtime payload
+- Treating receipt of a realtime event as confirmation that a database write succeeded
+- Skipping the corresponding service-role fetch because "the realtime event already told us"
+
+---
+
+## Rule 54 — Presence Requires Heartbeat
+
+Any active `session_guests` state must be backed by a client heartbeat or equivalent liveness signal. No heartbeat means no reliable presence.
+
+A guest row that stops heartbeating must not be treated as still connected. Presence is a function of recent liveness signal, not of row existence.
+
+This is the enforcement rule behind the heartbeat/disconnect state machine (Rule 39, Rule 41): a `session_guests` row created without a corresponding heartbeat mechanism is not a valid presence feature — it is a leak.
+
+Any new presence-adjacent feature (typing indicators, "viewing menu" status, table occupancy) must define its own heartbeat/timeout contract before shipping, not rely on INSERT/DELETE alone.
+
+---
+
+## Rule 55 — Real Device Validation Required
+
+Any mobile customer-facing session/presence change must be validated on at least two real devices before merge.
+
+Simulators and desktop browser device-emulation modes do not satisfy this rule — they do not reproduce real network transitions (backgrounding, lock screen, cellular handoff) that break heartbeats, realtime subscriptions, and session resolution in practice.
+
+This extends Rule 9 (mobile-first) specifically for session/presence-affecting changes, where a simulator pass has previously produced false confidence.
+
+Report which two devices were used and what was observed before closing the task.
