@@ -20,6 +20,13 @@ import { UI_LAYERS } from '@/lib/ui-layers';
 
 const POLL_MS = 30_000;
 
+function formatJoinTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
 type PublicGuest = {
   id: string;
   display_name: string;
@@ -124,12 +131,20 @@ export function SessionGuestListPopover({ sessionId, tableLabel, open, onClose }
             <p className="text-sm font-semibold text-stone-500">No diners connected yet.</p>
           ) : (
             <ul className="space-y-2.5">
-              {(data?.guests ?? []).map((guest) => (
-                <li key={guest.id} className="flex items-center gap-2 text-sm font-semibold text-stone-800">
-                  <span aria-hidden="true">{guest.status === 'active' ? '🟢' : '🟡'}</span>
-                  <span className="truncate">{guest.display_name}</span>
-                </li>
-              ))}
+              {(data?.guests ?? []).map((guest) => {
+                const joinTime = formatJoinTime(guest.joined_at);
+                return (
+                  <li key={guest.id} className="flex items-center justify-between gap-2 text-sm font-semibold text-stone-800">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span aria-hidden="true">{guest.status === 'active' ? '🟢' : '🟡'}</span>
+                      <span className="truncate">{guest.display_name}</span>
+                    </span>
+                    {joinTime && (
+                      <span className="shrink-0 text-xs font-semibold text-stone-400">joined {joinTime}</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
