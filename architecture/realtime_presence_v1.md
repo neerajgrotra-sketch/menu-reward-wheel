@@ -232,7 +232,9 @@ Public, no auth — same trust model as `/presence` (§ above): the session ID i
 
 ### Refresh strategy (client)
 
-While the popover is open: fetch once on open, subscribe to the same `table-presence:{sessionId}` Supabase Presence channel the ribbon count uses (refetch on `sync`), and poll every 30s. No fetch and no channel subscription while closed.
+While the popover is open: fetch once on open, then poll every 30s. No fetch while closed.
+
+**Does not** open its own `table-presence:{sessionId}` channel. `TouchpointMenuPage` already owns a subscription on that exact topic for the ribbon count. Because `createClient()` returns a browser singleton and supabase-js dedupes `RealtimeClient.channel()` by topic string, a second `.channel()` call on the same topic returns the same already-joined channel object — and `.on(...)` throws synchronously if called on a channel that's already joined. This crashed the app on open in the initial implementation (2026-07-01 hotfix); the popover now relies solely on the 30s poll.
 
 ### Data privacy boundary
 
