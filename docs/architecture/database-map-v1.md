@@ -1,5 +1,7 @@
 # SpinBite Database Map v1
 
+> **SUPERSEDED.** See [`/architecture/database_schema_map_v1.md`](/architecture/database_schema_map_v1.md) (root) for the current full schema reference, cross-linked from [`docs/architecture/README.md`](./README.md). Kept for historical reference only.
+
 _Supabase project: viaoholpnysccaijfpox (Restaurant-gamify)_  
 _Types last regenerated: 2026-06-08_  
 _Audit date: 2026-06-15_

@@ -10,12 +10,12 @@ const FALLBACK_EXPLAINER_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const FALLBACK_GAME_DEMO_URL = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
 
 const fallbackHero: HomeHeroContent = {
-  eyebrow: 'QR games for restaurants',
-  headline: 'Turn Every Meal Into a Game',
+  eyebrow: 'The restaurant revenue platform',
+  headline: 'One QR Code. Menu, Ordering, and Rewards.',
   subheadline:
-    'Restaurants create spin wheels tied to real menu items. Diners scan a QR code, spin, win, and redeem instantly. Fun that actually drives sales.',
+    'Restaurants publish a live menu with commission-free ordering, then layer in spin-to-win promotions tied to real menu items. Diners scan, order, and play — no app download, instant redemption.',
   badge_1: 'No app download',
-  badge_2: 'Instant redemption',
+  badge_2: 'Commission-free ordering',
   badge_3: 'Margin-safe controls',
   primary_cta_label: 'Get Started Free',
   spin_button_label: 'Spin the Wheel',
@@ -67,7 +67,7 @@ export default async function LandingPage() {
 
   const explainerVideo = {
     title: videoValues.title || 'See SpinBite in Action',
-    description: videoValues.description || 'Watch how restaurants turn menus into interactive games.',
+    description: videoValues.description || 'Watch how restaurants turn one QR code into a live menu, ordering, and reward-driven repeat visits.',
     // CMS value wins when present; otherwise the original hardcoded URL is used
     youtube_url: videoValues.youtube_url || FALLBACK_EXPLAINER_URL,
   };

@@ -4,7 +4,7 @@
 **Date:** 2026-06-29
 **Status:** Current — reflects codebase as of 2026-06-29
 **Supersedes:** n/a (new document; canonical platform overview)
-**See also:** `/docs/architecture/spinbite-platform-architecture-v3.md` (product decisions + security invariants)
+**See also:** `/docs/architecture/spinbite-platform-architecture-v4.md` (product decisions + security invariants)
 
 ---
 

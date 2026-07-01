@@ -1,0 +1,420 @@
+# SpinBite Platform Architecture v4
+
+**Document version:** 4.0
+**Date:** 2026-07-01
+**Status:** Source of truth — supersedes v3
+**Audience:** Engineering, product, CTO
+
+---
+
+## Why v4
+
+v3 (2026-06-22) was accurate for auth, multi-tenancy, menu, promotions, ordering, the AI content-generation intelligence layer, and security. It predates an entire product layer shipped 2026-06-23 through 2026-06-30 — Touchpoint Management, the Session Lifecycle state machine, the Session Presence Engine, the Session Events behavioral log, the Guest Identity Engine, Session Intelligence V3.1, and Decision Runtime V1 — none of which appeared anywhere in v3. That layer has instead lived, undiscoverably, in a second documentation tree at `/architecture/` (repo root, no `docs/` prefix) with no links from either README.
+
+This revision does three things:
+1. Adds the missing layer (§7 Touchpoint Architecture, §9 Session, Presence & Behavioral Intelligence) as decision-level summaries, pointing to `/architecture/` (root) for full implementation detail rather than duplicating it — that tree remains the authoritative technical reference for session/intelligence internals per Rule 42.
+2. Corrects a live schema/doc mismatch found during this audit: v3 §5.4–5.5 described tables named `rewards` and `coupons`. The live database (confirmed via direct schema query) shows those tables exist but are **empty and unused** — the application code and 329/123 live rows respectively are in `promotion_rewards` and `coupon_redemptions`. §8 below reflects the real tables.
+3. Cross-links the two documentation trees so neither is an orphan. See `docs/architecture/README.md` for the full index.
+
+---
+
+## Table of Contents
+
+1. [Platform Overview](#1-platform-overview)
+2. [Authentication Architecture](#2-authentication-architecture)
+3. [Multi-Tenant Restaurant Architecture](#3-multi-tenant-restaurant-architecture)
+4. [Menu Architecture](#4-menu-architecture)
+5. [Touchpoint Architecture](#5-touchpoint-architecture)
+6. [Promotion Engine](#6-promotion-engine)
+7. [Ordering Engine v1](#7-ordering-engine-v1)
+8. [Session, Presence & Behavioral Intelligence](#8-session-presence--behavioral-intelligence)
+9. [Intelligence Layer — AI Content Generation](#9-intelligence-layer--ai-content-generation)
+10. [Security Architecture](#10-security-architecture)
+11. [Future Architecture Roadmap](#11-future-architecture-roadmap)
+12. [Appendix: Key Invariants](#appendix-key-invariants)
+
+---
+
+## 1. Platform Overview
+
+SpinBite is a multi-tenant restaurant revenue platform. A single operator account manages one or more physical restaurant locations. Each location gets an independent public QR menu, per-touchpoint session tracking, a promotion and game engine, commission-free ordering, behavioral intelligence, and AI-powered content generation.
+
+**Core mission:** AI-first Restaurant Revenue Operating System. Near-term: stable, clean operational primitives (menu → item → promotion → reward → coupon → customer → campaign). Long-term: every layer AI-controllable. Do not build autonomous AI execution ahead of stable primitives — see [Appendix](#appendix-key-invariants).
+
+### Core product surfaces
+
+| Surface | Route | Audience |
+|---|---|---|
+| Public QR Menu | `/r/[restaurantSlug]` or `/r/[restaurantSlug]/[touchpointCode]` | Customers |
+| Order Tracker | `/r/order/[orderId]` | Customers |
+| Promotion Play | `/play/[restaurantSlug]/[promotionSlug]` | Customers |
+| Admin Dashboard | `/admin` | Restaurant owners |
+| Restaurant Management | `/admin/restaurants` | Restaurant owners |
+| Menu Builder | `/admin/menu` | Restaurant owners |
+| Promotions | `/admin/promotions` | Restaurant owners |
+| Orders Inbox | `/admin/orders` | Restaurant owners |
+| Sessions & Live Intelligence | `/admin/sessions` | Restaurant owners |
+| Super Admin | `/super-admin` | SpinBite staff |
+
+### Technology stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 14 (App Router) |
+| Database | Supabase (PostgreSQL) |
+| Auth | Supabase Auth (email/password) |
+| Storage | Supabase Storage |
+| Realtime | Supabase Realtime (`postgres_changes` + Broadcast) |
+| AI — text | Anthropic Claude (Haiku / Sonnet) |
+| AI — image | Google Vertex AI (Gemini 2.5 Flash Image / Imagen 3) |
+| Hosting | Vercel |
+| Language | TypeScript |
+
+---
+
+## 2. Authentication Architecture
+
+Unchanged from v3. Restaurant creation only happens after authentication; `owner_id` is assigned explicitly at insert time in `/setup`. No email-claim or pre-auth restaurant creation path exists.
+
+```
+/auth (signup mode) → supabase.auth.signUp() → supabase.auth.signInWithPassword() → goAfterAuth()
+  ├─ owns any restaurants? YES → /admin
+  └─ NO → /admin/restaurants  (then "+ Add Restaurant" → /setup)
+```
+
+`restaurants.owner_id uuid NOT NULL → auth.users(id)` is the single source of truth for multi-tenant access control — `restaurants.owner_id = auth.uid()` is the only ownership derivation used in RLS policies, API guards, and UI data loads.
+
+Roles: `restaurant_owner` (default) and `super_admin` (manual `profiles.role` update, checked via `is_super_admin()`).
+
+---
+
+## 3. Multi-Tenant Restaurant Architecture
+
+### 3.1 Core principle
+
+**Every capability, setting, and configuration is per restaurant, never per account.** Applies without exception to feature flags (`restaurant_capabilities`), UI/UX settings (`restaurant_settings`), the ordering toggle, AI generation quota, intelligence profile, menu content, promotions, touchpoints, QR codes, and orders.
+
+### 3.2 Restaurants table (key columns)
+
+```sql
+restaurants (
+  id uuid PK, owner_id uuid NOT NULL → auth.users(id), name text NOT NULL, slug text UNIQUE NOT NULL,
+  experience_mode text, -- 'promotion_only' | 'menu_only' | 'menu_and_promotion'
+  brand_color, secondary_color, accent_color, description, hero_image_url, logo_url text,
+  hours jsonb, phone, address_line1, city, province_state, postal_code, country,
+  website_url, instagram_url, facebook_url, google_maps_url text,
+  current_promotion_id uuid, deleted_at, created_at, updated_at timestamptz
+)
+```
+
+Soft delete via `deleted_at`. Slug: `slugify(name) + '-' + last5digitsOfTimestamp` — collision-safe across accounts.
+
+### 3.3 Experience modes
+
+| Mode | Public menu behavior |
+|---|---|
+| `promotion_only` | Spin wheel / game only — no menu browsing |
+| `menu_only` | Menu only, no game or promotion |
+| `menu_and_promotion` | Full menu + floating promotion widget |
+
+### 3.4 restaurant_settings and 3.5 restaurant_capabilities
+
+Both are per-restaurant key-value stores (`UNIQUE (restaurant_id, key/capability_name)`). `restaurant_settings` controls presentation (`show_featured_items_on_landing`, `show_prices_on_landing`, `enable_floating_reward_widget`, `widget_position`). `restaurant_capabilities` controls whether a feature operates at all — currently only `ordering` (default `false`). Toggle location: `/admin/restaurants` → Settings tab, saves immediately, no Save button.
+
+### 3.6 Admin UI structure
+
+Each restaurant renders as a card at `/admin/restaurants` with four tabs: Profile, Contact, Settings, QR (`RestaurantProfileTab`, `RestaurantContactTab`, `RestaurantSettingsTab`, `RestaurantQrTab`). `restaurantId` is passed explicitly to every tab — no tab derives restaurant context from global state or `.limit(1)`.
+
+### 3.7 Navigation architecture
+
+`/admin/*` and `/super-admin/*` share a persistent desktop sidebar + mobile burger drawer via a centralized shell (shipped 2026-06-30, PR #83).
+
+- `lib/navigation.ts` — single source of truth: `adminNavigation` and `superAdminNavigation` arrays (`{ label, href, icon }`)
+- `components/layout/AppShell.tsx` — composes sidebar + mobile header + drawer around `children`; route isolation is structural via `app/admin/layout.tsx` / `app/super-admin/layout.tsx`
+- `components/layout/{AdminSidebar,MobileBurgerMenu,AdminHeader,NavigationItem}.tsx`
+- Routes ending in `/print` bypass the shell entirely (exact physical print dimensions)
+- `lib/ui-layers.ts` (`UI_LAYERS`) centralizes z-index — new overlays import from here, never hardcode `z-[N]`
+- `requireSuperAdmin()` lives in `app/super-admin/layout.tsx`; Server Action files keep their own call since Server Actions bypass the layout render tree
+- Auth/role gating is unchanged: middleware still gates `/admin/*`
+
+---
+
+## 4. Menu Architecture
+
+Unchanged from v3.
+
+```
+Restaurant → Menu (one active) → MenuSection (categories) → MenuItem (dishes)
+```
+
+`menu_items` carries the Special Offer Engine columns directly (`special_enabled`, `special_type`, `special_percent`, `special_price`, `special_start_at`, `special_end_at`, `special_no_expiry`) — no separate pricing table. Effective price computed server-side via `calculateSpecialPrice()` in `lib/menu/special-offer.ts`; order items snapshot `effective_price_snapshot` / `special_active_snapshot` at order time.
+
+`ai_metadata` JSONB is the standing contract for all AI-generated content on an item (`description_source`, `description_model`, `image_source`, `image_model`, `import_source`, etc.) — new AI capabilities write into this envelope, no new columns.
+
+`menu_sections` exists in the DB with soft delete and RLS but is **not yet wired to the admin menu builder** — the builder still uses `menus` rows as flat "sections." This is a known, standing technical-debt item (unchanged since before v3; not addressed by this revision).
+
+Public rendering: `/r/[restaurantSlug]` → `components/public/RestaurantPublicPage.tsx`, gated by `experience_mode`, `restaurant_settings`, and `restaurant_capabilities.ordering`.
+
+---
+
+## 5. Touchpoint Architecture
+
+**New since v3.** Shipped `20260623000000_touchpoint_management_v1.sql`. Governed by Rules 31–33 in `docs/engineering/claude-engineering-rules.md`.
+
+### 5.1 Core principle
+
+A restaurant is not one QR code. It is a set of physical entry points — tables, patio seats, a counter, a pickup window, a kiosk, a bar, a waiting area. The canonical entity is `restaurant_touchpoints`, not a `restaurant_tables` table. No code may special-case "table" as the only touchpoint type, hardcode table-specific columns onto `orders`, or name QR params `?table=` instead of `?tp=`.
+
+### 5.2 restaurant_touchpoints table
+
+```sql
+restaurant_touchpoints (
+  id uuid PK, restaurant_id uuid NOT NULL → restaurants(id),
+  name text NOT NULL, type text NOT NULL DEFAULT 'table',
+  touchpoint_code text NOT NULL, section_name text, capacity integer,
+  occupancy_status text DEFAULT 'available',
+  display_order integer NOT NULL DEFAULT 0, active boolean NOT NULL DEFAULT true,
+  created_at, updated_at, deleted_at timestamptz
+)
+```
+
+`type` values include `table`, `patio`, `counter`, `pickup`, `kiosk`, `bar`, `waiting_area`. `touchpoint_code` is restaurant-scoped (renamed from `public_code` — clarified in `90657d0`), unique per restaurant, not globally.
+
+### 5.3 QR encoding
+
+Restaurant-level QR (`/r/{slug}`) encodes the restaurant only. Touchpoint-level QR encodes `/r/{restaurantSlug}?tp={touchpoint_code}` (or the dedicated route `/r/[restaurantSlug]/[touchpointCode]`). The param name is `tp`, never `table` — must not assume touchpoint type.
+
+### 5.4 Orders and touchpoints
+
+`orders.table_identifier` (text) is a legacy display-only field from Ordering Engine v1 — it is not a structured reference and must not be relied on for business logic. The structured reference is `orders.touchpoint_id uuid FK → restaurant_touchpoints(id)`; when both fields are present, `touchpoint_id` is authoritative. Any new feature needing to know where an order originated must use `touchpoint_id`.
+
+### 5.5 Admin UI
+
+Tables/touchpoints admin UI lives under `/admin` (Touchpoint Management v1, Phase A schema + Phase B admin UI). Must render generically over `type`, never assume every touchpoint is a table.
+
+---
+
+## 6. Promotion Engine
+
+### 6.1 Promotions table
+
+```sql
+promotions (
+  id uuid PK, restaurant_id uuid → restaurants(id), name text, slug text UNIQUE,
+  status text, -- 'draft' | 'active' | 'ended'
+  game_type text DEFAULT 'wheel', placement_mode text DEFAULT 'restaurant', -- future: 'menu' | 'section' | 'item'
+  max_spins integer DEFAULT 1, stop_on_win boolean DEFAULT true,
+  daily_redeem_limit integer DEFAULT 100, starts_at, ends_at timestamptz, timezone text
+)
+```
+
+One active promotion per restaurant at a time — launching auto-ends any other active promotion and sets `restaurants.current_promotion_id`.
+
+### 6.2 Game engine
+
+Games are registered in the `games` table (super-admin managed) and resolved through `lib/games/registry.ts` — the single canonical registry for both metadata and runtime component lookup.
+
+| Game | Type key | Status |
+|---|---|---|
+| Spin Wheel | `spin_wheel` (alias `wheel`) | Active |
+| Mystery Box | `mystery_box` | Active |
+| Scratch Card | `scratch_card` | Active |
+| Open The Door | `open_the_door` | Active |
+| Reward Reels | `reward_reels` | Beta / "Coming soon" |
+
+`promotion_game_assignments (promotion_id, game_type, weight, enabled)` lets a promotion pool multiple game types; `resolvePromotionGame()` selects one via weighted random per session.
+
+### 6.3 Rewards — corrected table names
+
+**Audit finding:** v3 described this subsystem as tables `rewards` and `coupons`. Both exist in the live schema but are empty and unreferenced by application code (`rewards`: 0 rows; no live code path queries `coupons` at all). The tables actually in use, confirmed live (329 and 123 rows respectively), are:
+
+```sql
+promotion_rewards (
+  id uuid PK, promotion_id uuid → promotions(id) CASCADE, restaurant_id uuid → restaurants(id) CASCADE,
+  menu_item_id uuid → menu_items(id) SET NULL, custom_name text,
+  reward_type text DEFAULT 'percent_discount', reward_value numeric(10,2),
+  daily_limit integer DEFAULT 25, weight integer DEFAULT 10, display_order integer DEFAULT 0
+)
+
+coupon_redemptions (
+  id uuid PK, promotion_id uuid NOT NULL, promotion_reward_id uuid → promotion_rewards(id),
+  restaurant_id uuid NOT NULL, coupon_code text NOT NULL, status text DEFAULT 'issued',
+  customer_session_id text, play_session_id uuid → play_sessions(id),
+  issued_at timestamptz DEFAULT now(), redeemed_at timestamptz
+)
+```
+
+Reward label resolution: `custom_name` → menu item name (via `menu_item_id`) → `'Reward'`. Coupon codes: `SPIN-XXXXXX` (6 alphanumeric, ambiguous characters excluded), generated by `createCouponCode()` in `lib/rewards.ts`. Reward selection: `pickWeightedReward()`, weighted random over `weight`; `daily_limit` caps redemptions per day.
+
+**Recommendation:** drop or formally deprecate the unused `rewards` and `coupons` tables in a follow-up migration to remove the doc/schema ambiguity permanently — out of scope for this audit (Rule 6: no schema changes without explicit approval).
+
+### 6.4 Play sessions and customer identity
+
+```sql
+play_sessions ( id uuid PK, restaurant_id, promotion_id uuid, session_token text UNIQUE,
+  customer_profile_id uuid → customer_profiles(id) SET NULL, terms_accepted_timestamp timestamptz )
+
+customer_profiles ( id uuid PK, phone_country_code, phone_number_raw, phone_number_e164 text UNIQUE,
+  marketing_consent boolean DEFAULT false, marketing_consent_timestamp timestamptz,
+  terms_accepted_timestamp timestamptz NOT NULL )
+```
+
+Phone capture is optional and separate from marketing consent (privacy: phone ≠ consent). Captured via `CustomerIdentityScreen` before game start, skipped if `localStorage['spinbite_identity_v1']` is set. Writes go through `POST /api/public/customer-identity` using the service role key — customers are never authenticated. This is the foundation for future SMS campaigns, wallet passes, and loyalty (§11.2).
+
+---
+
+## 7. Ordering Engine v1
+
+Unchanged from v3. Commission-free QR ordering; cash or in-restaurant payment; no payment processing in v1.
+
+Capability-gated per restaurant (`restaurant_capabilities.ordering`), never global. `orders` table includes `order_number` (atomic via `next_order_number()` RPC + `restaurant_order_counters` — `UPSERT + increment`, never `SELECT MAX + 1`), `idempotency_key` (client UUID, `UNIQUE`), and (per §5.4) `touchpoint_id`.
+
+`order_items` snapshots `price_snapshot`, `effective_price_snapshot`, `special_active_snapshot` at order time.
+
+`POST /api/public/orders` protections: 8 KB body limit, 20 items max, 99 qty max, 20 req/15min per-IP, 200 orders/hour per-restaurant, idempotency, server-side capability + price re-validation.
+
+Order tracker (`/r/order/[orderId]`) uses the order UUID as an unguessable capability token via Supabase Realtime; anonymous SELECT is scoped to this pattern.
+
+---
+
+## 8. Session, Presence & Behavioral Intelligence
+
+**New since v3 — the largest gap this revision closes.** Full implementation detail lives in `/architecture/` (repo root); this section is the product-decision summary linking each subsystem to its authoritative doc.
+
+### 8.1 Session lifecycle (live 2026-06-25)
+
+`visit_sessions` — one row per touchpoint session, with `touchpoint_id` FK, denormalized counters, a 6-digit `session_access_code`, and a partial unique index enforcing one active session per touchpoint.
+
+Client state machine: `SessionPhase: 'resolving' | 'confirmed' | 'session_ended' | 'resolve_failed'`. `confirmedSessionId` is set only after backend resolve completes; a 3000ms `AbortController` timeout on resolve yields `resolve_failed` with a Retry button. `orders.length` (the real orders table) is the UI source of truth for order counts — never `visit_sessions.orders_count` or `sessionStorage`. This is Rule 34/39 — the session lifecycle is a **terminal** state machine; browser cache is never authoritative.
+
+→ Full detail: `/architecture/session_lifecycle_v1.md`
+
+### 8.2 Session Presence Engine (live 2026-06-29)
+
+Per-device presence via `session_guests` (server-issued 64-char hex `guest_token`, `device_fingerprint`, `status: active | inactive | disconnected | blocked`). Lifecycle: no heartbeat 3 min → `inactive`; 10 min → `disconnected` (via `update_stale_guest_presence` RPC); `disconnect_session_guests()` on session end.
+
+Three independent realtime channels: `session-presence:{sessionId}` (admin guest count), `restaurant-sessions:{restaurantId}` (admin session list), `session-lifecycle:{sessionId}` (Supabase Broadcast REST — used instead of `postgres_changes` for customer-facing session-end because `visit_sessions` has no public SELECT policy, per Rule 40: no direct client access to session/presence tables). Session-end fallback chain: Broadcast (~200ms) → heartbeat `{active:false}` (≤30s) → order `409 SESSION_INVALID` as a last-resort safety net (Rule 41: realtime fallback design).
+
+→ Full detail: `/architecture/realtime_presence_v1.md`
+
+### 8.3 Session Events — behavioral log (live 2026-06-26)
+
+`session_events` is a relational, typed, FK-linked log of every customer interaction (`MENU_OPENED`, `ITEM_VIEWED`, `ITEM_VIEW_DURATION`, `ITEM_ADDED_TO_CART`, `ITEM_REMOVED_FROM_CART`, `ORDER_PLACED`, `PROMOTION_VIEWED`, `PROMOTION_PLAYED`, `SESSION_ENDED`, `CATEGORY_OPENED`) — the foundation for all behavioral intelligence. Supersedes the bounded, non-queryable `session_interaction_log` JSONB column on `visit_sessions` (retained for backward compatibility only; Rule 44: no new code may write to deprecated structures).
+
+→ Full detail: `/architecture/database_schema_map_v1.md`
+
+### 8.4 Guest Identity Engine (live 2026-06-29)
+
+`session_events.guest_id` and `orders.guest_id` are `session_guests.id` (server-assigned), not client-generated UUIDs, as of V1. `POST /api/public/sessions/:vsid/guest-name` captures a per-guest name (`GuestNameModal`, shown once per session).
+
+→ Full detail: `/architecture/guest_identity_v1.md`
+
+### 8.5 Session Intelligence V3.1 (live 2026-06-29)
+
+`lib/session-intelligence.ts` — pure TypeScript, no DB calls. `analyzeGuestBehavior()` → `GuestBehaviorProfile`; `aggregateSessionIntelligence()` → `GuestSessionSummary` with `cross_guest_insights`. API layer enriches with guest names and computes `GuestIdentitySummary` (connected/named/ordered/anonymous). Exposed via `GET /api/admin/sessions/{id}/intelligence`; rendered in the admin Sessions page as named guests, per-guest orders, and group insights.
+
+→ Full detail: `/architecture/intelligence_engine_v3.md`
+
+### 8.6 Decision Runtime V1 (live 2026-06-29)
+
+`engine/decision-runtime/runtime.ts` — `evaluateSession(sessionId, guestId?)`. Autonomous detection of two opportunity types (`high_interest_no_purchase`, `dessert_interest_after_main_order`; min confidence 0.55, 20s in-memory cooldown per session), dispatching only `waiter_notification` (all other dispatcher types remain stubs). No LLM calls, no client-side popups. Writes to `live_interventions` (actionable staff feed, `status: pending → acknowledged | dismissed | converted | expired`) and `intervention_events` (append-only audit log); broadcasts on `restaurant-decisions:{restaurantId}`.
+
+**Rule 46 (No Blocking Intelligence Execution):** trigger points fire-and-forget — `void evaluateSession(sessionId, guestId).catch(() => {})`, never `await`ed inside a customer-facing response cycle. Trigger points: `track/route.ts` (ITEM_VIEW_DURATION, ITEM_REMOVED_FROM_CART), `orders/route.ts` (ORDER_PLACED).
+
+→ Full detail: `/architecture/decision_engine_v1.md` and `/architecture/decision_runtime_v1.md`
+
+### 8.7 Documentation authority for this layer
+
+Per Rule 42, the seven docs in `/architecture/` (root) are the canonical technical reference for this entire section and must be updated in the same PR as any migration, API route, engine function, realtime channel, or RLS policy change touching sessions, presence, or intelligence. This document (`docs/architecture/spinbite-platform-architecture-v4.md`) is the canonical reference for product decisions and invariants. See `docs/architecture/README.md` for the full cross-linked index of both trees.
+
+---
+
+## 9. Intelligence Layer — AI Content Generation
+
+Unchanged from v3 (menu description generation, AI food image generation). This is distinct from §8's behavioral/session intelligence — this layer generates restaurant-facing content (descriptions, images); §8 analyzes customer behavior and drives runtime decisions. Both share the design principle that prompts/config are data, not code.
+
+### 9.1 Design principles
+
+1. All prompts live in the database (`intelligence_prompt_templates`), never in source code (Rule 20)
+2. Provider and model are data, swappable without deployment
+3. Every generation attempt is logged, success or failure (`intelligence_generation_logs`, Rule 21)
+4. Cost is tracked per request at write time — survives pricing changes
+5. Features are togglable via `intelligence_features.enabled` (Rule 18/19/23)
+6. Cheapest capable model first — Haiku by default, escalate only when justified (Rule 24)
+
+### 9.2 Text generation: menu description generation
+
+Feature key `menu_description_generation`, provider Anthropic, model `claude-haiku-4-5-20251001`, route `POST /api/admin/intelligence/generate`. Flow: feature/quota check → load active prompt template → inject `restaurant_intelligence_profile` brand context → call provider → log → increment usage → return.
+
+### 9.3 AI image generation: food photography
+
+Feature key `restaurant_food_image_generation`, provider Google Vertex AI (`gemini-2.5-flash-image`, region `us-central1`), prompt enhancer Claude Haiku, route `POST /api/admin/generate-food-image`. Two-stage: Claude Haiku enhances the prompt → 4 parallel Vertex AI requests (`Promise.allSettled`, prompt-diversified via `VARIANT_SUFFIXES`) → images to Supabase Storage → `ai_generated_assets`. Tolerates partial failure (1–4 images = success, 0 = refund). `contents[].role` is required in every Gemini request payload — omitting it is a `400`.
+
+Provider interface (`lib/intelligence/providers/image-provider.interface.ts`) is abstract; business logic must never couple to the Google provider directly. 1 restaurant credit is charged per generation event regardless of the 4 backend API calls.
+
+### 9.4 Prompts-in-DB invariant
+
+No prompt text in source code, ever (Rule 20). `intelligence_prompt_templates` is the only place prompt strings live; managed via `/super-admin/intelligence-lab`.
+
+---
+
+## 10. Security Architecture
+
+Unchanged from v3.
+
+- RLS on all application tables, single ownership pattern: `restaurant_id IN (SELECT id FROM restaurants WHERE owner_id = auth.uid())`
+- Service role key (`SUPABASE_SERVICE_ROLE_KEY`) only in server-side API routes, never client-exposed
+- Storage buckets are path-scoped (`{uid}/{restaurantId}/...`) and validate both the caller and restaurant-ownership segments
+- No open (`using (true)`) RLS on platform tables — applies to `restaurants`, `restaurant_capabilities`, `restaurant_settings`, `intelligence_*`, `promotion_game_assignments`, `orders`, `order_items`, and (new since v3) `session_guests`, `session_events`, `live_interventions`, `intervention_events`, `restaurant_touchpoints` — all owner-scoped or service-role-only writes
+- `/api/public/orders` remains the highest-risk public endpoint; see §7 for its full protection stack
+
+---
+
+## 11. Future Architecture Roadmap
+
+### 11.1 Customer Identity v2
+Returning-customer recognition via phone lookup, loyalty accumulation, profile enrichment from order history, signed-token order access (replacing UUID-as-capability-token).
+
+### 11.2 Communication Engine
+SMS campaigns (Twilio), Apple/Google Wallet passes, web push, automated post-visit follow-up.
+
+### 11.3 POS Integration
+Webhook-based order attribution, optional table management (touchpoint-generic, not table-only per §5), kitchen display integration, POS→tracker status sync.
+
+### 11.4 Paper Menu AI Import
+Claude Vision extracts menu structure from a photograph; draft items land in the menu builder for review. Feature key `menu_photo_import` (registered, disabled).
+
+### 11.5 AI Image Enhancement
+Automatic background removal, brand-tone style transfer, batch re-generation on brand profile change.
+
+### 11.6 Behavioral Analytics Engine — Phase 2
+Phase 1 (`session_events`, §8.3) is **implemented**, not future. Phase 2: session replay and funnel visualization in the admin dashboard, promotion performance attribution report, A/B analysis for game types and reward pools, natural-language → SQL query interface over `session_events`.
+
+### 11.7 AI Restaurant Command Center
+Natural-language operations ("run a happy hour 20% off wings every Friday 4–7pm"), autonomous specials scheduling, revenue-goal-driven AI action plans. Feature key `sales_optimization` (registered, disabled).
+
+### 11.8 Autonomous Customer Agents
+Performance-monitoring agents, proactive promotion creation, churn-triggered reactivation campaigns — all gated by operator approval thresholds. Explicitly not-yet: Decision Runtime V1 (§8.6) is the first production step toward this, currently limited to one dispatcher (`waiter_notification`) and two opportunity types by hard V1 constraint.
+
+---
+
+## Appendix: Key Invariants
+
+These rules must never be violated. They apply to all future engineering work.
+
+1. **Capabilities are always per restaurant.** Never account-level. Never global.
+2. **Ownership is always explicit at insert time.** `owner_id` from `auth.uid()` in the authenticated session.
+3. **Touchpoints, not tables.** `restaurant_touchpoints` is the canonical entry-point entity; never architect around a `restaurant_tables` concept (Rule 31).
+4. **Prompts live in the database.** No prompt text in source code.
+5. **Prices are server-derived.** Client-submitted prices are never trusted.
+6. **Order numbers are atomic.** Use `next_order_number()` RPC. Never `SELECT MAX + 1`.
+7. **Service role key stays server-side.** Never in client components, never in `NEXT_PUBLIC_*` vars.
+8. **No open RLS on platform tables.** Every write must be owner-scoped or service-role.
+9. **Session lifecycle is terminal and server-confirmed.** `sessionPhase === 'confirmed'` + `confirmedSessionId` gate any session-dependent feature; browser cache is never authoritative (Rules 34, 39).
+10. **No direct client access to session/presence tables.** Realtime propagation to customers goes through Broadcast or polling, never an open `postgres_changes` policy on `visit_sessions`/`session_guests` (Rule 40).
+11. **Intelligence and telemetry are never on the customer-facing critical path.** Fire-and-forget only (`void evaluateSession(...).catch(() => {})`); never `await`ed inside a customer response cycle (Rule 46).
+12. **All AI features are feature-flagged.** `intelligence_features.enabled` is the gate — no hardcoded feature detection.
+13. **Cost is recorded at write time.** `estimated_cost_usd` uses the price active at generation, not at read time.
+14. **Cheapest capable model first.** Haiku for short text; escalate to Sonnet only when complexity requires it; Opus never for routine generation.
+15. **Architecture documentation must be updated in the same PR as the infrastructure change it describes** (Rule 42) — this document for product decisions/invariants, `/architecture/` (root) for session/intelligence/runtime implementation detail.
+16. **Architecture audit is mandatory before any implementation.** No AI session, engineer, or developer may implement architecture changes, new features, schema modifications, API routes, or security decisions without first reading this document in full. Violations of any documented invariant require an explicit architecture decision and a version update to this document before work proceeds.
