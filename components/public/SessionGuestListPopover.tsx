@@ -1,13 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { UI_LAYERS } from '@/lib/ui-layers';
 
 // ─── Session Guest List Popover ────────────────────────────────────────────────
 // Customer-facing "who's connected to this table" view. Tapping the 👥 count
 // pill on the session ribbon opens this. Read-only, privacy-safe — the API it
 // calls never returns guest_token, device_fingerprint, or user_agent.
+//
+// Does NOT open its own `table-presence:{sessionId}` Realtime channel.
+// TouchpointMenuPage already owns a channel on that exact topic for the
+// ribbon's live count. Since createClient() returns a browser singleton and
+// supabase-js dedupes channels by topic, a second `.channel(sameTopic)` here
+// returns that same already-joined channel object — and calling `.on(...)`
+// on an already-joined channel throws synchronously ("cannot add `presence`
+// callbacks ... after `subscribe()`"), inside a useEffect with no error
+// boundary above it, which is what was crashing the whole app on open.
+// The 30s poll below is this component's only refresh mechanism.
 
 const POLL_MS = 30_000;
 
@@ -41,11 +50,22 @@ export function SessionGuestListPopover({ sessionId, tableLabel, open, onClose }
   const fetchGuests = useCallback(async () => {
     try {
       const res = await fetch(`/api/public/sessions/${sessionId}/guests`, { cache: 'no-store' });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setData({ session_active: false, active_guest_count: 0, guests: [] });
+        return;
+      }
       const json = await res.json() as GuestsResponse;
-      setData(json);
-    } catch { /* network error — keep showing last known state */ }
-    finally { setLoading(false); }
+      setData({
+        session_active: !!json?.session_active,
+        active_guest_count: json?.active_guest_count ?? 0,
+        guests: json?.guests ?? [],
+      });
+    } catch {
+      // Network error — don't crash, show the safe empty/ended state instead.
+      setData({ session_active: false, active_guest_count: 0, guests: [] });
+    } finally {
+      setLoading(false);
+    }
   }, [sessionId]);
 
   // Fetch on open; poll every 30s while open; stop entirely when closed.
@@ -56,17 +76,6 @@ export function SessionGuestListPopover({ sessionId, tableLabel, open, onClose }
     const pollId = setInterval(fetchGuests, POLL_MS);
     return () => clearInterval(pollId);
   }, [open, fetchGuests]);
-
-  // Refresh on presence sync events from the same channel the ribbon count uses.
-  useEffect(() => {
-    if (!open) return;
-    const supabase = createClient();
-    const channel = supabase.channel(`table-presence:${sessionId}`);
-    channel
-      .on('presence', { event: 'sync' }, () => { fetchGuests(); })
-      .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [open, sessionId, fetchGuests]);
 
   // Escape key closes the modal.
   useEffect(() => {
@@ -111,11 +120,11 @@ export function SessionGuestListPopover({ sessionId, tableLabel, open, onClose }
             <p className="text-sm font-semibold text-stone-400">Loading…</p>
           ) : !data || !data.session_active ? (
             <p className="text-sm font-semibold text-stone-500">This dining session has ended.</p>
-          ) : data.guests.length === 0 ? (
+          ) : (data?.guests ?? []).length === 0 ? (
             <p className="text-sm font-semibold text-stone-500">No diners connected yet.</p>
           ) : (
             <ul className="space-y-2.5">
-              {data.guests.map((guest) => (
+              {(data?.guests ?? []).map((guest) => (
                 <li key={guest.id} className="flex items-center gap-2 text-sm font-semibold text-stone-800">
                   <span aria-hidden="true">{guest.status === 'active' ? '🟢' : '🟡'}</span>
                   <span className="truncate">{guest.display_name}</span>

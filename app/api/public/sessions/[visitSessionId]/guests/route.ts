@@ -73,7 +73,8 @@ export async function GET(
       .order('joined_at', { ascending: true });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error('[spinbite:session-guests] query error', error.message);
+      return NextResponse.json({ session_active: false, active_guest_count: 0, guests: [] });
     }
 
     const guestRows = (rows ?? []) as GuestRow[];
@@ -114,6 +115,8 @@ export async function GET(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     console.error('[spinbite:session-guests] GET error', message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Never let an unhandled exception surface a malformed body to the client —
+    // always the same safe shape the popover expects.
+    return NextResponse.json({ session_active: false, active_guest_count: 0, guests: [] });
   }
 }
