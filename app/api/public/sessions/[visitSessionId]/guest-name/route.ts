@@ -7,6 +7,9 @@ function makeServiceClient() {
   if (!url || !serviceKey) throw new Error('Supabase service client is not configured.');
   return createServiceClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) => fetch(input as RequestInfo, { ...(init as RequestInit), cache: 'no-store' }),
+    },
   });
 }
 
