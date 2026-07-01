@@ -4,9 +4,9 @@ import React from 'react';
 
 export default function PricingSection(): JSX.Element {
   const plans: [string, string, string][] = [
-    ['Starter', 'Free', 'Launch one reward wheel'],
-    ['Pro', '$49/mo', 'Analytics, caps, QR campaigns'],
-    ['Enterprise', 'Custom', 'Multi-location controls'],
+    ['Starter', 'Free', 'One QR menu, commission-free ordering, and your first promotion'],
+    ['Pro', '$49/mo', 'Unlimited promotions, AI menu content, session intelligence'],
+    ['Enterprise', 'Custom', 'Multi-location controls, priority support, custom integrations'],
   ];
 
   return (

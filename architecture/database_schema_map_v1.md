@@ -450,7 +450,7 @@ customer_profiles (
 
 ## 8. Intelligence Layer Tables
 
-See `/docs/architecture/spinbite-platform-architecture-v3.md` Section 7 for full schema.
+See `/docs/architecture/spinbite-platform-architecture-v4.md` Section 9 for full schema.
 
 | Table | Purpose |
 |---|---|

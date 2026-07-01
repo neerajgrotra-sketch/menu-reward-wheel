@@ -1,8 +1,10 @@
 # SpinBite Intelligence Layer Architecture V1
 
+> **SUPERSEDED.** This doc covers only AI content generation (text/image). Behavioral/session intelligence is a separate, newer system — see [`/architecture/intelligence_engine_v3.md`](/architecture/intelligence_engine_v3.md) (root). For current AI content-generation architecture see `spinbite-platform-architecture-v4.md` §9. Kept for historical reference only.
+
 **Document version:** 1.0  
 **Date:** 2026-06-19  
-**Status:** Production live — authoritative reference  
+**Status:** Superseded — see above  
 **Audience:** Engineering, product, and future AI coding sessions
 
 ---

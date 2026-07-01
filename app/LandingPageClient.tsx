@@ -11,16 +11,16 @@ import FooterSection from '@/components/home/FooterSection';
 import { getGameVisual } from '@/components/game-visuals/GameVisual';
 
 const steps = [
-  { icon: ChefHat, title: 'Build your menu', body: 'Add dishes, drinks, combos, and chef specials in minutes.' },
-  { icon: Sparkles, title: 'Create promotions', body: 'Turn menu items into spin rewards with discounts, free items, and limits.' },
-  { icon: QrCode, title: 'Publish QR codes', body: 'Place QR codes on tables, receipts, posters, or takeout bags.' },
-  { icon: Trophy, title: 'Customers play', body: 'Diners spin, win, redeem, and order more with a fun reward moment.', learnMore: true },
+  { icon: ChefHat, title: 'Build your menu', body: 'Add dishes, photos, AI-written descriptions, and time-boxed specials in minutes.' },
+  { icon: QrCode, title: 'Publish one QR code', body: 'One code per table, counter, or pickup point — guests scan straight into your live menu.' },
+  { icon: Sparkles, title: 'Turn on ordering & promotions', body: 'Enable commission-free ordering, then layer in spin-to-win rewards tied to real menu items.' },
+  { icon: Trophy, title: 'Guests order, play, come back', body: 'Diners order directly, play for a reward, and every visit becomes data that helps you serve them better next time.', learnMore: true },
 ];
 
 const benefits = [
-  { icon: Flame, title: 'Move slow items', body: 'Promote specific dishes without discounting the whole menu.' },
-  { icon: BarChart3, title: 'Boost order value', body: 'Use minimum spend and item-specific rewards to nudge bigger baskets.' },
-  { icon: ShieldCheck, title: 'Control margins', body: 'Set probability weights, expiry windows, and daily caps.' },
+  { icon: Flame, title: 'Zero-commission ordering', body: 'Customers order straight from the QR menu — no third-party marketplace cut.' },
+  { icon: BarChart3, title: 'See the table, not just the check', body: 'Live session and behavioral intelligence show what guests view, add, and skip — so staff can act in the moment.' },
+  { icon: ShieldCheck, title: 'Control margins, not just discounts', body: 'Set probability weights, minimum spend, expiry windows, and daily caps on every promotion.' },
 ];
 
 const GAME_DEFINITIONS = [

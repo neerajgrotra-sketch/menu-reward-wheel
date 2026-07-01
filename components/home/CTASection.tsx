@@ -84,13 +84,13 @@ export default function CTASection(): JSX.Element {
         <RestaurantIcon />
 
         <h2 className="mx-auto max-w-5xl text-4xl font-black leading-[0.92] tracking-tight text-white drop-shadow-[0_8px_18px_rgba(0,0,0,0.2)] sm:text-6xl lg:text-7xl">
-          Ready to gamify
+          Ready to turn every
           <br />
-          your restaurant?
+          scan into a sale?
         </h2>
 
         <p className="mx-auto mt-6 max-w-3xl text-base leading-relaxed text-white/92 sm:text-2xl">
-          Create your first menu-powered reward wheel and publish a QR code diners can play instantly.
+          Set up your menu, turn on commission-free ordering, and launch your first promotion — all from one QR code diners can scan today.
         </p>
 
         <a

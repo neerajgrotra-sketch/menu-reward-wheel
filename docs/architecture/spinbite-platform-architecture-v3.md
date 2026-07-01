@@ -1,8 +1,10 @@
 # SpinBite Platform Architecture v3
 
+> **SUPERSEDED as of 2026-07-01.** See [`spinbite-platform-architecture-v4.md`](./spinbite-platform-architecture-v4.md) — v3 predates Touchpoint Architecture and the entire Session/Presence/Behavioral Intelligence/Decision Runtime layer, and describes the Promotion Engine's reward/coupon tables under names (`rewards`, `coupons`) that do not match the live, in-use schema (`promotion_rewards`, `coupon_redemptions`). Kept for historical reference only.
+
 **Document version:** 3.0
 **Date:** 2026-06-22
-**Status:** Source of truth — supersedes v2
+**Status:** Superseded — see v4
 **Audience:** Engineering, product, CTO
 
 ---
