@@ -208,6 +208,10 @@ WHERE session_id = ? AND status='inactive'
   AND last_seen_at < now() - interval '10 minutes';
 ```
 
+**`disconnected` is not terminal (corrected 2026-07-01).** It is only an *inference* from 13 minutes of heartbeat silence, not proof the device is gone. `updateGuestPresence()` (`engine/session-presence/presence-heartbeat.ts`) resurrects `disconnected` → `active` on the next heartbeat that actually arrives, exactly like `resolveSessionJoin`'s reattach path already did — a heartbeat is definitive evidence the tab is still open, which falsifies the earlier inference. Only `blocked` (an explicit staff action) refuses to be overridden by a heartbeat.
+
+Found via a real report: a guest left their iPhone Safari tab open in the background for 30 minutes (not closed) and came back to the session ribbon still showing 0 connected. iOS Safari throttles/suspends timers in backgrounded tabs, so the guest's `session_guests` row crossed the 13-minute disconnect threshold before their heartbeat resumed. Before this fix, every heartbeat after that point was a silent no-op — the guest could only be resurrected by a full page reload re-triggering `resolveSessionJoin`'s reattach, not by the heartbeat that was, in fact, still arriving.
+
 This sweep is called:
 - At the start of `GET /api/public/sessions/{id}/presence`
 - At the start of `GET /api/admin/sessions/{id}/guest-count`
