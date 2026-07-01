@@ -1008,6 +1008,9 @@ export function RestaurantPublicPage({
   promotion,
   promotionRewards,
   orderingEnabled = false,
+  paymentSimulationEnabled = false,
+  taxRatePercent = 0,
+  serviceFeePercent = 0,
   confirmedSessionId = null,
   guestId = null,
   guestName = null,
@@ -1030,6 +1033,11 @@ export function RestaurantPublicPage({
   promotion?: PublicPromotion | null;
   promotionRewards?: PublicReward[];
   orderingEnabled?: boolean;
+  // Capability-gated Cart -> Payment -> Order flow (restaurant_capabilities.payment_simulation).
+  // Default false — every restaurant not explicitly enabled keeps today's direct-order flow.
+  paymentSimulationEnabled?: boolean;
+  taxRatePercent?: number;
+  serviceFeePercent?: number;
   confirmedSessionId?: string | null;
   guestId?: string | null;
   guestName?: string | null;
@@ -1673,6 +1681,10 @@ export function RestaurantPublicPage({
           sessionConnecting={sessionConfirmed === false}
           onSessionEnded={onSessionEnded}
           onItemRemovedFromCart={onItemRemovedFromCart}
+          paymentSimulationEnabled={paymentSimulationEnabled}
+          restaurantName={restaurant.name}
+          taxRatePercent={taxRatePercent}
+          serviceFeePercent={serviceFeePercent}
         />
       )}
     </div>

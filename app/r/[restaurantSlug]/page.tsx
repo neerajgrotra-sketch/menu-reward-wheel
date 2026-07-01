@@ -258,7 +258,7 @@ export default async function PermanentRestaurantQrPage({
         ? fetchPromotionForCard(supabase, restaurant, now)
         : Promise.resolve([null, [], new Set<string>()]);
 
-    const [menusResult, itemsResult, [activePromotion, promotionRewards], capabilityResult] = await Promise.all([
+    const [menusResult, itemsResult, [activePromotion, promotionRewards], capabilityResult, paymentCapabilityResult, restaurantSettingsResult] = await Promise.all([
       supabase
         .from('menus')
         .select('id,name,display_order')
@@ -277,9 +277,24 @@ export default async function PermanentRestaurantQrPage({
         .eq('restaurant_id', restaurant.id)
         .eq('capability_name', 'ordering')
         .maybeSingle(),
+      supabase
+        .from('restaurant_capabilities')
+        .select('enabled')
+        .eq('restaurant_id', restaurant.id)
+        .eq('capability_name', 'payment_simulation')
+        .maybeSingle(),
+      supabase
+        .from('restaurant_settings')
+        .select('key,value')
+        .eq('restaurant_id', restaurant.id)
+        .in('key', ['tax_rate_percent', 'service_fee_percent']),
     ]);
 
     const orderingEnabled = capabilityResult.data?.enabled === true;
+    const paymentSimulationEnabled = paymentCapabilityResult.data?.enabled === true;
+    const settingsRows = (restaurantSettingsResult.data ?? []) as Array<{ key: string; value: unknown }>;
+    const taxRatePercent = Number(settingsRows.find((r) => r.key === 'tax_rate_percent')?.value ?? 0) || 0;
+    const serviceFeePercent = Number(settingsRows.find((r) => r.key === 'service_fee_percent')?.value ?? 0) || 0;
 
     const menus = (menusResult.data || []) as Array<{
       id: string;
@@ -337,6 +352,9 @@ export default async function PermanentRestaurantQrPage({
         promotion={activePromotion}
         promotionRewards={promotionRewards}
         orderingEnabled={orderingEnabled}
+        paymentSimulationEnabled={paymentSimulationEnabled}
+        taxRatePercent={taxRatePercent}
+        serviceFeePercent={serviceFeePercent}
       />
     );
   }

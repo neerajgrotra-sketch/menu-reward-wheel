@@ -315,6 +315,9 @@ interface Props {
   promotion: PublicPromotion | null;
   promotionRewards: PublicReward[];
   orderingEnabled: boolean;
+  paymentSimulationEnabled?: boolean;
+  taxRatePercent?: number;
+  serviceFeePercent?: number;
   touchpoint: PublicTouchpoint;
 }
 
@@ -324,6 +327,9 @@ export function TouchpointMenuPage({
   promotion,
   promotionRewards,
   orderingEnabled,
+  paymentSimulationEnabled = false,
+  taxRatePercent = 0,
+  serviceFeePercent = 0,
   touchpoint,
 }: Props) {
   // ── Session state machine ───────────────────────────────────────────────────
@@ -844,6 +850,9 @@ export function TouchpointMenuPage({
         promotion={promotion}
         promotionRewards={promotionRewards}
         orderingEnabled={orderingEnabled}
+        paymentSimulationEnabled={paymentSimulationEnabled}
+        taxRatePercent={taxRatePercent}
+        serviceFeePercent={serviceFeePercent}
         confirmedSessionId={confirmedSessionId}
         guestId={guestId}
         guestName={guestName}
