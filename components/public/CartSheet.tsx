@@ -30,6 +30,7 @@ type CartSheetProps = {
   onClose: () => void;
   confirmedSessionId?: string | null;
   guestId?: string | null;
+  guestName?: string | null;
   tableLabel?: string | null;
   onOrderPlaced?: (placedOrder: PlacedOrder) => void;
   onSessionEnded?: () => void;
@@ -43,8 +44,18 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart }: CartSheetProps) {
-  const [customerName, setCustomerName] = useState('');
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart }: CartSheetProps) {
+  const [customerName, setCustomerName] = useState(guestName ?? '');
+
+  // The guest already gave their name once (GuestNameModal, on session join) — never
+  // ask again. This only back-fills while the field is still untouched/empty, so it
+  // covers guestName arriving after this component's first mount (e.g. the cart is
+  // opened before the identity modal resolves) without clobbering anything the guest
+  // deliberately typed or cleared.
+  useEffect(() => {
+    if (guestName && !customerName) setCustomerName(guestName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guestName]);
   const [tableIdentifier, setTableIdentifier] = useState('');
   const [orderState, setOrderState] = useState<OrderState>('idle');
   const [errorMessage, setErrorMessage] = useState('');

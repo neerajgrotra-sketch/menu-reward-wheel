@@ -1010,6 +1010,7 @@ export function RestaurantPublicPage({
   orderingEnabled = false,
   confirmedSessionId = null,
   guestId = null,
+  guestName = null,
   touchpointName = null,
   onItemViewed,
   onItemClosed,
@@ -1031,6 +1032,7 @@ export function RestaurantPublicPage({
   orderingEnabled?: boolean;
   confirmedSessionId?: string | null;
   guestId?: string | null;
+  guestName?: string | null;
   touchpointName?: string | null;
   onItemViewed?: (itemId: string, itemName: string, snapshot?: ItemViewSnapshot) => void;
   onItemClosed?: () => void;
@@ -1665,6 +1667,7 @@ export function RestaurantPublicPage({
           onClose={() => setCartSheetOpen(false)}
           confirmedSessionId={confirmedSessionId}
           guestId={guestId}
+          guestName={guestName}
           tableLabel={touchpointName}
           onOrderPlaced={onOrderPlaced}
           sessionConnecting={sessionConfirmed === false}
