@@ -9,6 +9,9 @@ function makeServiceClient() {
   if (!serviceKey) throw new Error('Service key is not configured.');
   return createServiceClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) => fetch(input as RequestInfo, { ...(init as RequestInit), cache: 'no-store' }),
+    },
   });
 }
 

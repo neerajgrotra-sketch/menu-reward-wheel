@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
+import { getActiveGuestCount } from '@/engine/session-presence';
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -8,6 +9,9 @@ function makeServiceClient() {
   if (!url || !serviceKey) throw new Error('Supabase service client is not configured.');
   return createServiceClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: (input, init) => fetch(input as RequestInfo, { ...(init as RequestInit), cache: 'no-store' }),
+    },
   });
 }
 
@@ -57,16 +61,12 @@ export async function GET(
       return NextResponse.json({ error: 'Not authorised.' }, { status: 403 });
     }
 
-    // Sweep stale guests then count active
-    await supabase.rpc('update_stale_guest_presence', { p_session_id: sessionId });
+    // Same sweep-then-count helper the public /presence and /guests routes
+    // use — one code path for "what is the active count" across admin and
+    // customer surfaces.
+    const count = await getActiveGuestCount(sessionId, supabase);
 
-    const { count } = await supabase
-      .from('session_guests')
-      .select('id', { count: 'exact', head: true })
-      .eq('session_id', sessionId)
-      .eq('status', 'active');
-
-    return NextResponse.json({ count: count ?? 0 });
+    return NextResponse.json({ count });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });
