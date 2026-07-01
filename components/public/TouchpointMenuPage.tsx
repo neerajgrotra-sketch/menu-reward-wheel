@@ -172,6 +172,12 @@ function OrdersDrawer({
                   </p>
                 </div>
 
+                {order.customer_name && (
+                  <p className="mt-1 text-xs font-semibold text-stone-500">
+                    Ordered by {order.customer_name}
+                  </p>
+                )}
+
                 <div className="mt-2 space-y-0.5">
                   {order.order_items.map((item) => (
                     <p key={item.id} className="text-xs text-stone-600">
