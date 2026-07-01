@@ -327,11 +327,10 @@ export function TouchpointMenuPage({
   const [showNameModal, setShowNameModal] = useState(false);
 
   // ── Presence state ───────────────────────────────────────────────────────────
-  // activeGuestCount: null = not yet fetched, number = confirmed from presence API.
-  // presenceKeyRef: stable per-tab UUID used as the Supabase Presence channel key
-  // so each browser tab is counted as a unique connected guest.
+  // activeGuestCount: null = not yet fetched, number = the database's current
+  // count (session_guests, status='active'). Always set directly from the API
+  // response — never merged with a prior value. See the presence effect below.
   const [activeGuestCount, setActiveGuestCount] = useState<number | null>(null);
-  const presenceKeyRef = useRef(crypto.randomUUID());
 
   // ── Guest list popover ───────────────────────────────────────────────────────
   const [guestListOpen, setGuestListOpen] = useState(false);
@@ -410,7 +409,20 @@ export function TouchpointMenuPage({
       let candidateSessionId: string | null = null;
       try { candidateSessionId = sessionStorage.getItem(sKey); } catch { /* ignore */ }
 
-      console.log('[SESSION][RESOLVE_START]', { candidateSessionId, attempt: resolveAttempt });
+      // If we've resolved this session before (e.g. a page refresh), send our
+      // existing guest_token so the server reattaches to the same session_guests
+      // row instead of creating a duplicate one. Best-effort hint only — if the
+      // session turned out to be stale/recreated server-side, the token simply
+      // won't match and a fresh guest row is created, same as having none.
+      let candidateGuestToken: string | null = null;
+      if (candidateSessionId) {
+        try {
+          const stored = sessionStorage.getItem(`spinbite_guest_${candidateSessionId}`);
+          if (stored) candidateGuestToken = (JSON.parse(stored) as { guest_token?: string }).guest_token ?? null;
+        } catch { /* ignore */ }
+      }
+
+      console.log('[SESSION][RESOLVE_START]', { candidateSessionId, hasGuestToken: !!candidateGuestToken, attempt: resolveAttempt });
 
       try {
         const res = await fetch('/api/public/sessions/resolve', {
@@ -420,6 +432,7 @@ export function TouchpointMenuPage({
             restaurant_id: restaurant.id,
             touchpoint_id: touchpoint.id,
             known_session_id: candidateSessionId,
+            known_guest_token: candidateGuestToken,
           }),
           signal: controller.signal,
         });
@@ -445,6 +458,18 @@ export function TouchpointMenuPage({
 
         // Write confirmed session to cache so future resolves can send the correct hint
         try { sessionStorage.setItem(sKey, sessionId); } catch { /* ignore */ }
+
+        // Persist guest identity so a page refresh reattaches to this exact
+        // session_guests row (via known_guest_token above) instead of the
+        // server minting a brand new one every reload.
+        if (serverGuestToken) {
+          try {
+            sessionStorage.setItem(
+              `spinbite_guest_${sessionId}`,
+              JSON.stringify({ guest_token: serverGuestToken, guest_id: serverGuestId, visit_session_id: sessionId }),
+            );
+          } catch { /* ignore */ }
+        }
 
         setGuestId(serverGuestId);
         setGuestToken(serverGuestToken);
@@ -528,12 +553,16 @@ export function TouchpointMenuPage({
   }, [confirmedSessionId, fetchOrders]);
 
   // ── Presence — guest count + live updates + session-end detection ────────────
-  // Two layers:
-  //   1. Poll /presence every 30s → authoritative count from session_guests DB.
-  //      Also detects session_active: false (admin ended session) faster than orders.
-  //   2. Supabase Presence channel → instant count update when another guest scans.
-  //      Uses presenceKeyRef (stable per tab UUID) as the channel key.
-  //      Presence requires no RLS — it's client-to-client pub/sub.
+  //
+  // session_guests (via GET /presence) is the ONLY source of truth for the
+  // displayed count. Supabase Presence is transport only — a 'sync' event
+  // means "something changed, go re-read the database," never a number to
+  // display directly. No Math.max ratchet: every fetch REPLACES the count,
+  // it never merges with a locally-remembered high-water mark. That ratchet
+  // was the root cause of the ribbon showing a higher, stale count than the
+  // guest list popover (2026-07-01 audit) — a transient presence blip (e.g.
+  // the brief overlap between a tab's old and new WebSocket connection on
+  // refresh) would get "locked in" forever since Math.max never decreases.
   useEffect(() => {
     if (!confirmedSessionId) return;
 
@@ -555,26 +584,22 @@ export function TouchpointMenuPage({
           return;
         }
 
-        // Presence channel count may already be higher (live joins) — take the max
-        setActiveGuestCount((prev) =>
-          Math.max(prev ?? 0, data.active_guest_count),
-        );
+        // Always replace — the DB value is authoritative, not a floor.
+        setActiveGuestCount(data.active_guest_count);
       } catch { /* network error — silent */ }
     }
 
     fetchPresence();
     const pollId = setInterval(fetchPresence, TICK_MS);
 
-    // Supabase Presence for instant live count (no RLS needed)
+    // Supabase Presence: notification transport only. A 'sync' event (another
+    // tab joined/left) triggers an immediate re-fetch of the real count from
+    // the database — it never supplies a count itself.
     const supabase = createClient();
     const presenceChannel = supabase.channel(`table-presence:${sid}`);
 
     presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = presenceChannel.presenceState();
-        const liveCount = Object.keys(state).length;
-        setActiveGuestCount((prev) => Math.max(prev ?? 0, liveCount));
-      })
+      .on('presence', { event: 'sync' }, () => { fetchPresence(); })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await presenceChannel.track({ joined_at: new Date().toISOString() });

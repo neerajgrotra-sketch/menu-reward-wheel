@@ -92,11 +92,14 @@ The system distinguishes between:
 - `increment_guest_count()` RPC atomically increments `visit_sessions.guest_count`
 - The customer UI shows an updated 👥 count
 
-**Same device reconnecting (page refresh):**
-- `known_session_id` matches the active session ID
-- A new `session_guests` row is still created (new `guest_token` issued)
-- `guest_count` is NOT incremented (prevents inflation on page refreshes)
+**Same device reconnecting (page refresh) — corrected 2026-07-01:**
+- Client sends `known_guest_token` (persisted in `sessionStorage['spinbite_guest_{sessionId}']` from the prior resolve) alongside `known_session_id`
+- Server looks up that token scoped to the resolved `session_id`; if found and not `blocked`, **reattaches** — reuses the existing `session_guests` row (`status='active'`, `last_seen_at` refreshed) instead of inserting a new one
+- `guest_count` is NOT incremented (reattached guest was already counted)
 - `last_activity_at` is updated
+- Falls back to the "new device" path (new row, new token) only if no token was sent, or the token doesn't match any row on this exact session (new device, cleared storage, or the prior session was abandoned/recreated)
+
+**Why this changed:** the previous behavior ("new device" comment aside — reconnects always inserted a fresh `session_guests` row) meant every page refresh left the guest's *previous* row dangling with `status='active'` for up to 3 minutes until the stale sweep caught it. `session_guests` COUNT(status='active') — the number both the ribbon and the guest-list popover are supposed to agree on — would be inflated by one extra row per recent refresh. Root-caused during the 2026-07-01 session presence architecture audit.
 
 ---
 

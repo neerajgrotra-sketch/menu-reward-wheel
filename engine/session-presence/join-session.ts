@@ -6,13 +6,20 @@
 //   1. Finds any existing active session for that touchpoint
 //   2. Abandons it if stale (no activity for STALE_HOURS)
 //   3. Creates a new dining session when needed
-//   4. Always creates a new session_guests row for the joining device
-//   5. Atomically increments visit_sessions.guest_count for new devices
+//   4. Reattaches to the caller's existing session_guests row when a valid
+//      known_guest_token is provided for THIS session — otherwise creates one
+//   5. Atomically increments visit_sessions.guest_count only for genuinely new devices
 //
 // Called by POST /api/public/sessions/resolve.
 // Returns everything the route needs to compose its response.
 //
 // DB calls use the service-role client — no RLS bypass needed at call sites.
+//
+// session_guests is the single source of truth for "who is connected." A page
+// refresh must reuse the caller's existing row, never create a second one —
+// otherwise the same physical guest counts twice until the 3-minute stale
+// sweep catches up, which is exactly what caused the ribbon/popover guest
+// count mismatch and refresh-triggered fluctuation (2026-07-01 audit).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { JoinSessionResult } from './types';
@@ -35,6 +42,7 @@ export async function resolveSessionJoin(
   deviceFingerprint: string,
   userAgent: string | null,
   knownSessionId: string | null,
+  knownGuestToken: string | null,
   supabase: SupabaseClient,
 ): Promise<JoinSessionResult> {
   // ── 1. Look for an existing active session on this touchpoint ─────────────
@@ -130,43 +138,79 @@ export async function resolveSessionJoin(
 
   const isNewDevice = !knownSessionId || knownSessionId !== sessionId;
 
-  // ── 3. Create a session_guests row for this device ────────────────────────
-  // Non-fatal: if session_guests table is unavailable (e.g. pending migration),
-  // session resolution still succeeds. Guest tracking degrades gracefully.
+  // ── 3. Reattach to an existing session_guests row, or create one ──────────
+  //
+  // A valid known_guest_token scoped to THIS resolved session is definitive
+  // proof this is the same device reconnecting (e.g. a page refresh) — reuse
+  // its row instead of inserting a new one. Only fall back to inserting when
+  // no token was provided, or the token doesn't belong to this session (new
+  // device, cleared storage, or the prior session was abandoned/recreated).
+  // Non-fatal throughout: if session_guests is unavailable, session
+  // resolution still succeeds and guest tracking degrades gracefully.
 
-  const guestToken = generateGuestToken();
+  let guestToken = '';
   let guestId = '';
+  let reattached = false;
 
-  try {
-    const { data: guest, error: guestErr } = await supabase
-      .from('session_guests')
-      .insert({
-        session_id: sessionId,
-        restaurant_id: restaurantId,
-        guest_token: guestToken,
-        device_fingerprint: deviceFingerprint,
-        user_agent: userAgent,
-        status: 'active',
-      })
-      .select('id')
-      .single();
+  if (knownGuestToken) {
+    try {
+      const { data: existingGuest } = await supabase
+        .from('session_guests')
+        .select('id, status')
+        .eq('guest_token', knownGuestToken)
+        .eq('session_id', sessionId)
+        .maybeSingle();
 
-    if (guestErr) {
-      console.warn('[spinbite:presence] session_guests insert failed', guestErr.message);
-    } else if (guest) {
-      guestId = guest.id;
+      if (existingGuest && existingGuest.status !== 'blocked') {
+        const { error: reattachErr } = await supabase
+          .from('session_guests')
+          .update({ status: 'active', last_seen_at: new Date().toISOString() })
+          .eq('id', existingGuest.id);
+
+        if (!reattachErr) {
+          guestId = existingGuest.id;
+          guestToken = knownGuestToken;
+          reattached = true;
+        }
+      }
+    } catch (e: unknown) {
+      console.warn('[spinbite:presence] guest reattach lookup failed', e);
     }
-  } catch (e: unknown) {
-    console.warn('[spinbite:presence] session_guests unavailable', e);
   }
 
-  // ── 4. Increment guest_count on the session for new devices ───────────────
+  if (!reattached) {
+    guestToken = generateGuestToken();
+    try {
+      const { data: guest, error: guestErr } = await supabase
+        .from('session_guests')
+        .insert({
+          session_id: sessionId,
+          restaurant_id: restaurantId,
+          guest_token: guestToken,
+          device_fingerprint: deviceFingerprint,
+          user_agent: userAgent,
+          status: 'active',
+        })
+        .select('id')
+        .single();
+
+      if (guestErr) {
+        console.warn('[spinbite:presence] session_guests insert failed', guestErr.message);
+      } else if (guest) {
+        guestId = guest.id;
+      }
+    } catch (e: unknown) {
+      console.warn('[spinbite:presence] session_guests unavailable', e);
+    }
+  }
+
+  // ── 4. Increment guest_count on the session for genuinely new devices ─────
   //
   // For new sessions, guest_count was seeded to 1 at insert time.
   // For existing sessions with a new device joining, increment atomically.
-  // Same-device reconnects do not increment (prevents inflation on refreshes).
+  // Reattached devices never increment — they were already counted.
 
-  if (!isNewSession && isNewDevice) {
+  if (!isNewSession && isNewDevice && !reattached) {
     void Promise.resolve(
       supabase.rpc('increment_guest_count', { p_session_id: sessionId })
     ).catch((e: unknown) => {
@@ -175,7 +219,7 @@ export async function resolveSessionJoin(
   }
 
   // Touch last_activity_at on reconnects (keeps session alive without inflating count)
-  if (!isNewSession && !isNewDevice) {
+  if (!isNewSession && (!isNewDevice || reattached)) {
     await supabase
       .from('visit_sessions')
       .update({
@@ -191,7 +235,7 @@ export async function resolveSessionJoin(
     guest_id: guestId,
     guest_token: guestToken,
     is_new_session: isNewSession,
-    is_new_device: isNewDevice,
+    is_new_device: isNewDevice && !reattached,
     session_access_code: sessionAccessCode,
   };
 }
