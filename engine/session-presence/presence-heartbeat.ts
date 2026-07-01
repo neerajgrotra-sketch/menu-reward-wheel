@@ -42,12 +42,25 @@ export async function updateGuestPresence(
     return { updated: false, status: 'disconnected', session_active: false };
   }
 
-  // Blocked guests cannot heartbeat
-  if (guest.status === 'blocked' || guest.status === 'disconnected') {
+  // Blocked guests cannot heartbeat — that's an explicit staff action and
+  // must never be silently overridden by a client that's still pinging.
+  //
+  // 'disconnected' is NOT excluded here (was previously, which was the bug):
+  // disconnected only means "no heartbeat for 13+ minutes," an *inference*
+  // from absence. The moment a heartbeat actually arrives, that inference is
+  // false — the device is provably still there — so it must be allowed to
+  // resurrect the guest back to 'active', exactly like resolveSessionJoin's
+  // reattach path already does (which excludes only 'blocked', not
+  // 'disconnected'). Without this, a guest whose tab survives backgrounding
+  // long enough to cross the disconnect threshold (e.g. iOS Safari
+  // suspending a backgrounded tab's timers) gets stuck showing as
+  // permanently gone even while still actively heartbeating, because every
+  // heartbeat after that point was a silent no-op.
+  if (guest.status === 'blocked') {
     return { updated: false, status: guest.status as GuestStatus, session_active: true };
   }
 
-  // Refresh presence — reactivate if the guest was inactive
+  // Refresh presence — reactivate if the guest was inactive or disconnected
   const { error } = await supabase
     .from('session_guests')
     .update({
