@@ -840,6 +840,7 @@ export function TouchpointMenuPage({
         orderingEnabled={orderingEnabled}
         confirmedSessionId={confirmedSessionId}
         guestId={guestId}
+        guestName={guestName}
         touchpointName={touchpointLabel}
         onItemViewed={onItemOpen}
         onItemClosed={onItemClose}
