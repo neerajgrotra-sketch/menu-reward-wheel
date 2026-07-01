@@ -204,3 +204,36 @@ This fallback chain ensures no customer device is permanently stuck in an active
 | Wire `session-lifecycle:{id}` Broadcast subscription into `RestaurantPublicPage.tsx` | High | Broadcast dispatched by server; client not yet subscribed |
 | Add presence poll status ribbon to customer page | Medium | `/api/public/sessions/{id}/presence` exists; UI not wired |
 | Session-ended redirect page | Medium | Route target for broadcast + heartbeat fallback |
+
+---
+
+## 9. Customer-Facing Guest List Popover (live 2026-07-01)
+
+Tapping the 👥 count pill on the session ribbon (`TouchpointMenuPage.tsx`) opens `SessionGuestListPopover.tsx`, a read-only view of who else is connected to the current table session.
+
+### Route: `GET /api/public/sessions/{visitSessionId}/guests`
+
+Public, no auth — same trust model as `/presence` (§ above): the session ID is a semi-public capability held only by guests who scanned the table QR. Uses the service-role client; never exposes an anon-writable path.
+
+```
+{
+  session_active: boolean,
+  active_guest_count: number,
+  guests: [
+    { id, display_name, is_named, status, joined_at, last_seen_at }
+  ]
+}
+```
+
+- Ended/completed session → `session_active: false`, `guests: []`
+- Only `session_guests.status IN ('active', 'inactive')` are returned — `disconnected`/`blocked` guests are excluded
+- Named guests sorted first, then anonymous guests, both `joined_at` ascending
+- Unnamed guests get a deterministic label (`Anonymous Guest 1`, `Anonymous Guest 2`, …) computed per-request from sort order — not stored
+
+### Refresh strategy (client)
+
+While the popover is open: fetch once on open, subscribe to the same `table-presence:{sessionId}` Supabase Presence channel the ribbon count uses (refetch on `sync`), and poll every 30s. No fetch and no channel subscription while closed.
+
+### Data privacy boundary
+
+`guest_name` may be shown to other active diners in the same session — it is intentionally shared context for a shared table. **`guest_token`, `device_fingerprint`, and `user_agent` must never be exposed** by this or any future public-facing guest endpoint; they remain service-role-only fields, matching the boundary already established for `/presence` and `/guest-name`.

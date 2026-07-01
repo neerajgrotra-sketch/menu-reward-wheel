@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
+import { SessionGuestListPopover } from '@/components/public/SessionGuestListPopover';
 import type { PlacedOrder } from '@/components/public/CartSheet';
 import { useSessionTracking, useItemViewTracking } from '@/hooks/useSessionTracking';
 import type {
@@ -332,6 +333,9 @@ export function TouchpointMenuPage({
   const [activeGuestCount, setActiveGuestCount] = useState<number | null>(null);
   const presenceKeyRef = useRef(crypto.randomUUID());
 
+  // ── Guest list popover ───────────────────────────────────────────────────────
+  const [guestListOpen, setGuestListOpen] = useState(false);
+
   // ── Orders state ─────────────────────────────────────────────────────────────
   // sessionOrders is fetched fresh from the orders table on every relevant event.
   // Button count and drawer count both derive from sessionOrders.length so they
@@ -375,6 +379,7 @@ export function TouchpointMenuPage({
         console.log('[STEP_5_PHASE_CHANGE]', 'session_ended (status_check)');
         setSessionPhase('session_ended');
         setOrdersDrawerOpen(false);
+        setGuestListOpen(false);
         console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: 'session_status', status: data.session_status });
         return;
       }
@@ -546,6 +551,7 @@ export function TouchpointMenuPage({
           setConfirmedSessionId(null);
           setSessionOrders([]);
           setSessionPhase('session_ended');
+          setGuestListOpen(false);
           return;
         }
 
@@ -630,6 +636,7 @@ export function TouchpointMenuPage({
     setSessionOrders([]);
     console.log('[STEP_5_PHASE_CHANGE]', 'session_ended (409)');
     setSessionPhase('session_ended');
+    setGuestListOpen(false);
     console.log('[SESSION][PHASE_TRANSITION]', { to: 'session_ended', reason: '409_session_invalid' });
   }, [sKey]);
 
@@ -686,14 +693,30 @@ export function TouchpointMenuPage({
             <span className="truncate">{touchpointLabel}</span>
           </div>
 
-          {/* Live guest count */}
+          {/* Live guest count — tap to view connected diners */}
           {activeGuestCount !== null && (
-            <span className="shrink-0 flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black tabular-nums">
-              <span>👥</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (sessionPhase === 'confirmed' && confirmedSessionId) setGuestListOpen(true);
+              }}
+              aria-label="View connected diners"
+              className="shrink-0 flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-black tabular-nums active:bg-white/30"
+            >
+              <span aria-hidden="true">👥</span>
               <span>{activeGuestCount}</span>
-            </span>
+            </button>
           )}
         </div>
+      )}
+
+      {confirmedSessionId && (
+        <SessionGuestListPopover
+          sessionId={confirmedSessionId}
+          tableLabel={touchpointLabel}
+          open={guestListOpen}
+          onClose={() => setGuestListOpen(false)}
+        />
       )}
 
       {/* Connecting banner */}
