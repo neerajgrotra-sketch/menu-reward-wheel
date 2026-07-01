@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { getActiveGuestCount } from '@/engine/session-presence';
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -42,16 +43,12 @@ export async function GET(
       return NextResponse.json({ active_guest_count: 0, session_active: false });
     }
 
-    // Sweep stale guests then count active
-    await supabase.rpc('update_stale_guest_presence', { p_session_id: visitSessionId });
+    // session_guests is the single source of truth for this count — same
+    // sweep-then-count helper used by GET /guests, so the ribbon and the
+    // "Connected Diners" popover can never disagree.
+    const activeCount = await getActiveGuestCount(visitSessionId, supabase);
 
-    const { count } = await supabase
-      .from('session_guests')
-      .select('id', { count: 'exact', head: true })
-      .eq('session_id', visitSessionId)
-      .eq('status', 'active');
-
-    return NextResponse.json({ active_guest_count: count ?? 0, session_active: true });
+    return NextResponse.json({ active_guest_count: activeCount, session_active: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     console.error('[spinbite:presence] GET error', message);

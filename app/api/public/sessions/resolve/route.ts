@@ -53,14 +53,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid JSON.' }, { status: 400 });
     }
 
-    const { restaurant_id, touchpoint_id, known_session_id, device_fingerprint, user_agent } =
-      body as {
-        restaurant_id?: string;
-        touchpoint_id?: string;
-        known_session_id?: string | null;
-        device_fingerprint?: string;
-        user_agent?: string | null;
-      };
+    const {
+      restaurant_id,
+      touchpoint_id,
+      known_session_id,
+      known_guest_token,
+      device_fingerprint,
+      user_agent,
+    } = body as {
+      restaurant_id?: string;
+      touchpoint_id?: string;
+      known_session_id?: string | null;
+      known_guest_token?: string | null;
+      device_fingerprint?: string;
+      user_agent?: string | null;
+    };
 
     if (!restaurant_id || !touchpoint_id) {
       return NextResponse.json(
@@ -98,6 +105,7 @@ export async function POST(req: NextRequest) {
       fingerprint,
       ua,
       known_session_id ?? null,
+      known_guest_token ?? null,
       supabase,
     );
 

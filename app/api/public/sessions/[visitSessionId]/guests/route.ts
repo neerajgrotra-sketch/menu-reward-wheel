@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { sweepStaleGuests } from '@/engine/session-presence';
 
 function makeServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -62,8 +63,9 @@ export async function GET(
       return NextResponse.json({ session_active: false, active_guest_count: 0, guests: [] });
     }
 
-    // Sweep stale guests first so status reflects the 3/10-minute presence rules
-    await supabase.rpc('update_stale_guest_presence', { p_session_id: visitSessionId });
+    // Sweep stale guests first so status reflects the 3/10-minute presence rules.
+    // Same helper GET /presence uses — one sweep implementation, one source of truth.
+    await sweepStaleGuests(visitSessionId, supabase);
 
     const { data: rows, error } = await supabase
       .from('session_guests')

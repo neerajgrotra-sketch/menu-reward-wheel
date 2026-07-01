@@ -138,18 +138,18 @@ const channel = supabase
 
 ---
 
-## 5. Supabase Presence Usage
+## 5. Supabase Presence Usage — transport only, never state (corrected 2026-07-01)
 
-**Not currently in use** for SpinBite's session presence architecture.
-
-Supabase Presence (the collaborative multiplayer feature) tracks which clients are actively connected to a channel using WebSocket heartbeats. We chose not to use it because:
+`TouchpointMenuPage.tsx` does use Supabase Presence, on channel `table-presence:{sessionId}` — but strictly as a **change-notification transport**, never as the count itself:
 
 1. Our guest presence is server-authoritative (heartbeat → DB → sweep), not client-authoritative
 2. Supabase Presence state is ephemeral in memory; `session_guests` is durable in the DB
 3. Supabase Presence has a limited number of clients per channel for free-tier projects
 4. Our model requires the guest token to be server-issued and invalidated atomically on session end
 
-The `session_guests` table with HTTP heartbeats + SQL sweep functions provides durable, auditable, and owner-queryable presence tracking.
+**Rule (session presence architecture audit, 2026-07-01):** no distributed state may be simultaneously owned by the database and a realtime ephemeral transport layer. Realtime may only *signal* that something changed; the database remains the sole authority for what the new value is. Concretely: the channel's `'sync'` handler calls `fetchPresence()` (a fresh `GET /presence` read) — it never reads `channel.presenceState()` to compute a number, and the client never merges a fetched count with a locally-remembered one (no `Math.max`). A previous version did both, which let a transient presence blip during a page-refresh reconnect get permanently "stuck" as an inflated ribbon count that the DB-backed guest-list popover correctly didn't share — see `session_lifecycle_v1.md` § 5 for the paired root cause (duplicate `session_guests` rows on refresh).
+
+The `session_guests` table with HTTP heartbeats + SQL sweep functions remains the durable, auditable, owner-queryable presence record. Presence is a faster doorbell, not a second ledger.
 
 ---
 
