@@ -1,45 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
-import { isSpecialOfferActive, calculateSpecialPrice } from '@/lib/menu/special-offer';
-import { evaluateSession } from '@/engine/decision-runtime/runtime';
+import { resolveOrderItems } from '@/lib/orders/resolve-order-items';
+import { createOrderWithItems } from '@/lib/orders/create-order';
+import { createIpRateLimiter, checkRestaurantRateLimit, extractClientIp } from '@/lib/http/rate-limit';
 
 // ── Payload limits ─────────────────────────────────────────────────────────────
 const MAX_BODY_BYTES = 8 * 1024; // 8 KB
 const MAX_ITEMS = 20;
 const MAX_QUANTITY = 99;
 const MAX_KEY_LENGTH = 128;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ── Per-IP rate limit (in-memory, per Lambda instance — soft limit) ────────────
-// Stops naive single-origin attacks. Not globally distributed across Vercel instances.
+// ── Rate limits ─────────────────────────────────────────────────────────────────
 const IP_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const IP_MAX = 20;
-const ipBuckets = new Map<string, number[]>();
-let ipCleanupCounter = 0;
+const ipLimiter = createIpRateLimiter(IP_WINDOW_MS, IP_MAX);
 
-function checkIpRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const cutoff = now - IP_WINDOW_MS;
-
-  // Prune stale entries every 100 requests to prevent unbounded memory growth
-  ipCleanupCounter++;
-  if (ipCleanupCounter % 100 === 0) {
-    ipBuckets.forEach((ts, key) => {
-      const fresh = ts.filter((t: number) => t > cutoff);
-      if (fresh.length === 0) ipBuckets.delete(key);
-      else ipBuckets.set(key, fresh);
-    });
-  }
-
-  const timestamps = (ipBuckets.get(ip) ?? []).filter((t) => t > cutoff);
-  if (timestamps.length >= IP_MAX) return true;
-  timestamps.push(now);
-  ipBuckets.set(ip, timestamps);
-  return false;
-}
-
-// ── Per-restaurant rate limit constants ────────────────────────────────────────
-// DB-backed — globally accurate across all Lambda instances
 const RESTAURANT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const RESTAURANT_MAX = 200;
 
@@ -71,30 +46,13 @@ type OrderRequest = {
   idempotency_key: string;
 };
 
-type RawMenuItem = {
-  id: string;
-  name: string;
-  price: number | null;
-  available: boolean;
-  special_enabled: boolean;
-  special_type: string | null;
-  special_percent: number | null;
-  special_price: number | null;
-  special_start_at: string | null;
-  special_end_at: string | null;
-  special_no_expiry: boolean;
-};
-
 // ── POST handler ───────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     // 1. Per-IP rate limit — cheapest check first, no DB
-    const ip =
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-      req.headers.get('x-real-ip') ??
-      'unknown';
+    const ip = extractClientIp(req);
 
-    if (checkIpRateLimit(ip)) {
+    if (ipLimiter.check(ip)) {
       console.warn('[spinbite:orders] rate-limit:ip', { ip });
       return NextResponse.json(
         { error: 'Too many requests' },
@@ -199,268 +157,81 @@ export async function POST(req: NextRequest) {
     }
 
     // 9. Per-restaurant rate limit — DB-backed COUNT, globally accurate
-    const restaurantWindowStart = new Date(Date.now() - RESTAURANT_WINDOW_MS).toISOString();
-    const { count: recentOrderCount, error: countError } = await supabase
-      .from('orders')
-      .select('id', { count: 'exact', head: true })
-      .eq('restaurant_id', restaurant_id)
-      .gte('created_at', restaurantWindowStart);
-
-    // Fail open on count error (DB connectivity issue would block order insert too)
-    if (!countError && (recentOrderCount ?? 0) >= RESTAURANT_MAX) {
-      console.warn('[spinbite:orders] rate-limit:restaurant', { restaurant_id, recent_count: recentOrderCount });
+    const restaurantLimited = await checkRestaurantRateLimit(
+      supabase,
+      'orders',
+      restaurant_id,
+      RESTAURANT_WINDOW_MS,
+      RESTAURANT_MAX,
+    );
+    if (restaurantLimited) {
+      console.warn('[spinbite:orders] rate-limit:restaurant', { restaurant_id });
       return NextResponse.json(
         { error: 'Too many requests' },
         { status: 429, headers: { 'Retry-After': '3600' } },
       );
     }
 
-    // 10. Fetch menu items server-side — never trust frontend prices
-    const menuItemIds = items.map((i) => i.menu_item_id);
-    const { data: menuItemsRaw, error: menuError } = await supabase
-      .from('menu_items')
-      .select(
-        'id,name,price,available,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry',
-      )
-      .eq('restaurant_id', restaurant_id)
-      .is('deleted_at', null)
-      .in('id', menuItemIds);
-
-    if (menuError || !menuItemsRaw) {
-      return NextResponse.json({ error: 'Failed to load menu items.' }, { status: 500 });
+    // 10-11. Fetch menu items server-side and compute server-authoritative prices —
+    // never trust frontend prices (Invariant #5)
+    const resolution = await resolveOrderItems(supabase, restaurant_id, items);
+    if (!resolution.ok) {
+      return NextResponse.json({ error: resolution.error }, { status: resolution.status });
     }
+    const { resolvedItems, subtotal } = resolution;
 
-    const menuItemMap = new Map<string, RawMenuItem>(
-      (menuItemsRaw as RawMenuItem[]).map((m) => [m.id, m]),
-    );
-
-    // 11. Validate items and compute server-authoritative prices
-    const now = new Date();
-    let subtotal = 0;
-
-    type ResolvedItem = {
-      menu_item_id: string;
-      name_snapshot: string;
-      price_snapshot: number;
-      effective_price_snapshot: number;
-      special_active_snapshot: boolean;
-      quantity: number;
-      line_total: number;
-    };
-
-    const resolvedItems: ResolvedItem[] = [];
-
-    for (const input of items) {
-      const mi = menuItemMap.get(input.menu_item_id);
-      if (!mi) {
-        return NextResponse.json(
-          { error: `Menu item ${input.menu_item_id} not found.` },
-          { status: 400 },
-        );
-      }
-      if (!mi.available) {
-        return NextResponse.json(
-          { error: `"${mi.name}" is currently unavailable.` },
-          { status: 400 },
-        );
-      }
-      if (mi.price == null) {
-        return NextResponse.json({ error: `"${mi.name}" has no price set.` }, { status: 400 });
-      }
-
-      const specialActive = isSpecialOfferActive(mi, now);
-      const effectivePrice =
-        specialActive && mi.special_type
-          ? calculateSpecialPrice(mi.price, mi.special_type, mi.special_percent, mi.special_price)
-          : mi.price;
-
-      const lineTotal = Math.round(effectivePrice * input.quantity * 100) / 100;
-      subtotal = Math.round((subtotal + lineTotal) * 100) / 100;
-
-      resolvedItems.push({
-        menu_item_id: input.menu_item_id,
-        name_snapshot: mi.name,
-        price_snapshot: mi.price,
-        effective_price_snapshot: effectivePrice,
-        special_active_snapshot: specialActive,
-        quantity: input.quantity,
-        line_total: lineTotal,
-      });
-    }
-
-    // 12. Atomic restaurant-scoped order number — single UPSERT+increment, no race condition
-    const { data: counterData, error: counterError } = await supabase.rpc('next_order_number', {
-      p_restaurant_id: restaurant_id,
+    // 12, 15-17. Atomic order number, session (re-)validation, order + order_items insert,
+    // session analytics — extracted so this route and the payment-checkout route create
+    // identical order rows.
+    const created = await createOrderWithItems({
+      supabase,
+      restaurantId: restaurant_id,
+      resolvedItems,
+      subtotal,
+      tableIdentifier: table_identifier ?? null,
+      customerName: customer_name ?? null,
+      legacySessionId: session_id ?? null,
+      visitSessionId: visit_session_id ?? null,
+      rawGuestId,
+      idempotencyKey: idempotency_key,
     });
 
-    if (counterError || counterData == null) {
-      return NextResponse.json({ error: 'Failed to generate order number.' }, { status: 500 });
-    }
-
-    const nextOrderNumber = counterData as number;
-
-    // 13. Validate visit_session_id if provided
-    // Rule 4: if a session ID is supplied but is not active, reject with 409.
-    // Never silently detach the session and insert an orphan order.
-    let resolvedSessionId: string | null = null;
-    if (visit_session_id) {
-      const { data: sessionRow } = await supabase
-        .from('visit_sessions')
-        .select('id')
-        .eq('id', visit_session_id)
-        .eq('restaurant_id', restaurant_id)
-        .eq('status', 'active')
-        .maybeSingle();
-
-      if (!sessionRow) {
-        console.warn('[SESSION][ORDER_REJECTED]', { visit_session_id, restaurant_id, reason: 'session_not_active' });
+    if (!created.ok) {
+      // Rule 4: 409 SESSION_INVALID means the session ended between confirmation and order placement
+      if (created.status === 409) {
         return NextResponse.json(
-          { error: 'SESSION_INVALID', message: 'Dining session is no longer active.' },
+          { error: created.error, message: created.message },
           { status: 409 },
         );
       }
-      resolvedSessionId = sessionRow.id;
+      return NextResponse.json({ error: created.error }, { status: created.status });
     }
 
-    // 14. Sanitize guest_id — must be a valid UUID if provided; reject silently otherwise
-    const resolvedGuestId =
-      rawGuestId && typeof rawGuestId === 'string' && UUID_RE.test(rawGuestId.trim())
-        ? rawGuestId.trim()
-        : null;
-
-    // 15. Insert order
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert({
-        restaurant_id,
-        order_number: nextOrderNumber,
-        status: 'pending',
-        order_origin: resolvedSessionId ? 'restaurant_qr' : 'direct_link',
-        table_identifier: table_identifier ?? null,
-        customer_name: customer_name ?? null,
-        // @deprecated orders.session_id (text) — use visit_session_id (uuid FK) for all session linkage.
-        // Retained for backward compatibility; always null for current clients.
-        session_id: session_id ?? null,
-        visit_session_id: resolvedSessionId,
-        guest_id: resolvedGuestId,
-        idempotency_key,
-        subtotal,
-      })
-      .select('id, order_number, status, subtotal')
-      .single();
-
-    if (orderError || !order) {
-      // 23505 = unique_violation — concurrent idempotency_key race
-      if (orderError?.code === '23505') {
-        const { data: raceExisting } = await supabase
-          .from('orders')
-          .select('id, order_number, status, subtotal')
-          .eq('idempotency_key', idempotency_key)
-          .maybeSingle();
-        if (raceExisting) {
-          return NextResponse.json({ order: raceExisting, idempotent: true }, { status: 200 });
-        }
-      }
-      return NextResponse.json(
-        { error: orderError?.message || 'Failed to create order.' },
-        { status: 500 },
-      );
-    }
-
-    // 16. Insert order items
-    const orderItems = resolvedItems.map((ri) => ({
-      order_id: order.id,
-      restaurant_id,
-      menu_item_id: ri.menu_item_id,
-      name_snapshot: ri.name_snapshot,
-      price_snapshot: ri.price_snapshot,
-      effective_price_snapshot: ri.effective_price_snapshot,
-      special_active_snapshot: ri.special_active_snapshot,
-      quantity: ri.quantity,
-      line_total: ri.line_total,
-    }));
-
-    const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-
-    if (itemsError) {
-      return NextResponse.json(
-        { error: 'Order created but items failed to save.' },
-        { status: 500 },
-      );
-    }
-
-    // 17. Update session analytics and fetch post-increment session totals for frontend sync.
-    // increment_session_counters is awaited so orders_count is authoritative before 201 returns.
-    // append_session_interaction is fire-and-forget (analytics, non-blocking).
-    let sessionOrdersCount = 0;
-    let sessionTotalSpend = 0;
-    if (resolvedSessionId) {
-      const sid = resolvedSessionId;
-      const { error: incrErr } = await supabase.rpc('increment_session_counters', {
-        p_session_id: sid,
-        p_orders_delta: 1,
-        p_spend_delta: subtotal,
-      });
-      if (incrErr) {
-        console.error('[SESSION][COUNTER_UPDATE_FAILED]', incrErr.message);
-      }
-      // Write ORDER_PLACED to session_events (server-side; not fireable by client)
-      Promise.resolve(supabase.from('session_events').insert({
-        session_id: sid,
-        restaurant_id,
-        event_type: 'ORDER_PLACED',
-        metadata: {
-          order_id: order.id,
-          order_number: nextOrderNumber,
-          item_count: resolvedItems.length,
-          subtotal,
-        },
-      })).catch((err: unknown) => {
-        console.error('[spinbite:orders] session_events ORDER_PLACED failed', err);
-      });
-
-      // Trigger Decision Runtime — ORDER_PLACED unlocks dessert_interest opportunity
-      void evaluateSession(sid, resolvedGuestId).catch(() => { /* runtime is self-contained */ });
-
-      // @deprecated visit_sessions.session_interaction_log — use session_events table instead.
-      // append_session_interaction writes to the JSONB column retained for backward compat only.
-      Promise.resolve(supabase.rpc('append_session_interaction', {
-        p_session_id: sid,
-        p_event: {
-          event: 'order_submitted',
-          order_id: order.id,
-          order_number: nextOrderNumber,
-          subtotal,
-          ts: new Date().toISOString(),
-        },
-      })).catch((err: unknown) => {
-        console.error('[spinbite:orders] session interaction log failed', err);
-      });
-
-      // Fetch updated session totals so frontend can sync count/spend without a separate GET.
-      const { data: updatedSession } = await supabase
-        .from('visit_sessions')
-        .select('orders_count, total_spend')
-        .eq('id', sid)
-        .maybeSingle();
-      sessionOrdersCount = updatedSession?.orders_count ?? 0;
-      sessionTotalSpend = Number(updatedSession?.total_spend ?? 0);
+    if (created.idempotent) {
+      return NextResponse.json({ order: created.order, idempotent: true }, { status: 200 });
     }
 
     console.log('[POST_ROUTE_DB]', {
       visit_session_id,
-      resolved_session_id: resolvedSessionId,
-      session_orders_count: sessionOrdersCount,
+      session_orders_count: created.sessionOrdersCount,
     });
 
     console.log('[spinbite:orders] created', {
-      order_id: order.id,
-      order_number: nextOrderNumber,
+      order_id: created.order.id,
+      order_number: created.order.order_number,
       restaurant_id,
       item_count: resolvedItems.length,
-      session_orders_count: sessionOrdersCount,
+      session_orders_count: created.sessionOrdersCount,
     });
-    return NextResponse.json({ order, session_orders_count: sessionOrdersCount, session_total_spend: sessionTotalSpend }, { status: 201 });
+
+    return NextResponse.json(
+      {
+        order: created.order,
+        session_orders_count: created.sessionOrdersCount,
+        session_total_spend: created.sessionTotalSpend,
+      },
+      { status: 201 },
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error.';
     return NextResponse.json({ error: message }, { status: 500 });

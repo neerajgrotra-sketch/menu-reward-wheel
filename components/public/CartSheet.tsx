@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { useCart } from '@/hooks/useCart';
+import { PaymentCheckoutScreen } from './PaymentCheckoutScreen';
 
 export type PlacedOrder = {
   id: string;
@@ -36,16 +37,25 @@ type CartSheetProps = {
   onSessionEnded?: () => void;
   sessionConnecting?: boolean;
   onItemRemovedFromCart?: (itemId: string, itemName: string, quantityRemoved: number, previousQuantity: number, cartSubtotalBefore: number, cartSubtotalAfter: number) => void;
+  // Payment simulation — opt-in per restaurant (restaurant_capabilities.payment_simulation).
+  // When false (every restaurant not explicitly enabled), CartSheet behaves exactly as
+  // it does today: no payment step, direct order submission via handlePlaceOrder().
+  paymentSimulationEnabled?: boolean;
+  restaurantName?: string;
+  taxRatePercent?: number;
+  serviceFeePercent?: number;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
+type Screen = 'cart' | 'checkout';
 
 function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart, paymentSimulationEnabled = false, restaurantName = '', taxRatePercent = 0, serviceFeePercent = 0 }: CartSheetProps) {
   const [customerName, setCustomerName] = useState(guestName ?? '');
+  const [screen, setScreen] = useState<Screen>('cart');
 
   // The guest already gave their name once (GuestNameModal, on session join) — never
   // ask again. This only back-fills while the field is still untouched/empty, so it
@@ -81,10 +91,11 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
     };
   }, [open]);
 
-  // Reset idempotency key each time the sheet opens fresh (not after success)
+  // Reset idempotency key and checkout screen each time the sheet opens fresh (not after success)
   useEffect(() => {
     if (open && orderState === 'idle') {
       idempotencyKeyRef.current = generateIdempotencyKey();
+      setScreen('cart');
     }
   }, [open, orderState]);
 
@@ -167,6 +178,17 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
     }
   }
 
+  // Called by PaymentCheckoutScreen once the mock payment succeeds and the order
+  // has been created. Mirrors handlePlaceOrder's success tail so both paths show
+  // the exact same inline success screen below.
+  function handlePaymentSuccess(placedOrder: PlacedOrder) {
+    setConfirmedOrderNumber(placedOrder.order_number);
+    setConfirmedOrderId(placedOrder.id);
+    setOrderState('success');
+    setScreen('cart');
+    onOrderPlaced?.(placedOrder);
+  }
+
   function handleClose() {
     if (orderState === 'submitting') return;
     if (orderState === 'success') {
@@ -176,6 +198,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
       setCustomerName('');
       setTableIdentifier('');
     }
+    setScreen('cart');
     onClose();
   }
 
@@ -200,23 +223,25 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
           <div className="h-1 w-10 rounded-full bg-stone-300" />
         </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
-          <div>
-            <h2 className="text-lg font-black text-stone-800">Your Order</h2>
-            {confirmedSessionId && tableLabel && (
-              <p className="text-xs font-semibold text-stone-400">{tableLabel}</p>
-            )}
+        {/* Header — suppressed while PaymentCheckoutScreen renders its own header */}
+        {screen !== 'checkout' && (
+          <div className="flex items-center justify-between px-5 py-3 border-b border-stone-100">
+            <div>
+              <h2 className="text-lg font-black text-stone-800">Your Order</h2>
+              {confirmedSessionId && tableLabel && (
+                <p className="text-xs font-semibold text-stone-400">{tableLabel}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleClose}
+              aria-label="Close cart"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100 text-stone-600 active:bg-stone-200"
+            >
+              ✕
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleClose}
-            aria-label="Close cart"
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100 text-stone-600 active:bg-stone-200"
-          >
-            ✕
-          </button>
-        </div>
+        )}
 
         {orderState === 'success' ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
@@ -242,6 +267,22 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
               Back to Menu
             </button>
           </div>
+        ) : screen === 'checkout' ? (
+          <PaymentCheckoutScreen
+            cart={cart}
+            restaurantId={restaurantId}
+            restaurantName={restaurantName}
+            brandColor={brandColor}
+            tableLabel={confirmedSessionId ? (tableLabel ?? null) : (tableIdentifier.trim() || null)}
+            customerName={customerName}
+            confirmedSessionId={confirmedSessionId}
+            guestId={guestId}
+            taxRatePercent={taxRatePercent}
+            serviceFeePercent={serviceFeePercent}
+            onBack={() => setScreen('cart')}
+            onSuccess={handlePaymentSuccess}
+            onSessionEnded={onSessionEnded}
+          />
         ) : (
           <>
             {/* Scrollable content */}
@@ -392,7 +433,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
 
                 <button
                   type="button"
-                  onClick={handlePlaceOrder}
+                  onClick={paymentSimulationEnabled ? () => setScreen('checkout') : handlePlaceOrder}
                   disabled={orderState === 'submitting' || sessionConnecting}
                   className="w-full rounded-2xl py-4 text-base font-black text-white shadow-lg active:opacity-80 disabled:opacity-60"
                   style={{ backgroundColor: brandColor }}
@@ -401,7 +442,9 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                     ? 'Placing Order…'
                     : sessionConnecting
                       ? `Connecting to ${tableLabel ?? 'table'}…`
-                      : 'Place Order'}
+                      : paymentSimulationEnabled
+                        ? 'Pay & Place Order'
+                        : 'Place Order'}
                 </button>
               </div>
             )}
