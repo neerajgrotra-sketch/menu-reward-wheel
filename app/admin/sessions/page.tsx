@@ -18,6 +18,7 @@ type RestaurantSummary = {
   activeSessions: number;
   currentGuests: number;
   activeOrders: number;
+  activeTables: number;
 };
 
 function address(r: Restaurant): string {
@@ -58,7 +59,11 @@ function RestaurantTile({ restaurant, summary }: { restaurant: Restaurant; summa
           <p className="mt-1 truncate text-sm font-semibold text-stone-500">📍 {address(restaurant)}</p>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-4 gap-2">
+          <div className="rounded-2xl bg-stone-50 p-3 text-center">
+            <p className="text-lg font-black text-stone-900">{summary.activeTables}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500">Active Tables</p>
+          </div>
           <div className="rounded-2xl bg-stone-50 p-3 text-center">
             <p className="text-lg font-black text-stone-900">{summary.activeSessions}</p>
             <p className="text-[10px] font-bold uppercase tracking-wide text-stone-500">Active Sessions</p>
@@ -111,7 +116,7 @@ export default function DiningIntelligencePage() {
     load();
   }, [supabase]);
 
-  const emptySummary: RestaurantSummary = { activeSessions: 0, currentGuests: 0, activeOrders: 0 };
+  const emptySummary: RestaurantSummary = { activeSessions: 0, currentGuests: 0, activeOrders: 0, activeTables: 0 };
 
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F]">

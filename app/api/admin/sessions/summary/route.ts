@@ -31,6 +31,7 @@ type RestaurantSummary = {
   activeSessions: number;
   currentGuests: number;
   activeOrders: number;
+  activeTables: number;
 };
 
 export async function GET() {
@@ -56,7 +57,7 @@ export async function GET() {
 
     const summary: Record<string, RestaurantSummary> = {};
     for (const id of restaurantIds) {
-      summary[id] = { activeSessions: 0, currentGuests: 0, activeOrders: 0 };
+      summary[id] = { activeSessions: 0, currentGuests: 0, activeOrders: 0, activeTables: 0 };
     }
 
     if (restaurantIds.length === 0) {
@@ -73,7 +74,7 @@ export async function GET() {
 
     const activeSessionsResult = await supabase
       .from('visit_sessions')
-      .select('id,restaurant_id')
+      .select('id,restaurant_id,touchpoint_id')
       .in('restaurant_id', restaurantIds)
       .eq('status', 'active');
 
@@ -83,9 +84,16 @@ export async function GET() {
 
     const activeSessions = activeSessionsResult.data || [];
     const sessionToRestaurant = new Map<string, string>();
+    const occupiedTouchpoints = new Map<string, Set<string>>();
+    for (const id of restaurantIds) occupiedTouchpoints.set(id, new Set());
     for (const s of activeSessions) {
-      sessionToRestaurant.set(s.id as string, s.restaurant_id as string);
-      summary[s.restaurant_id as string].activeSessions += 1;
+      const restaurantId = s.restaurant_id as string;
+      sessionToRestaurant.set(s.id as string, restaurantId);
+      summary[restaurantId].activeSessions += 1;
+      if (s.touchpoint_id) occupiedTouchpoints.get(restaurantId)?.add(s.touchpoint_id as string);
+    }
+    for (const id of restaurantIds) {
+      summary[id].activeTables = occupiedTouchpoints.get(id)?.size || 0;
     }
 
     // Sweep presence for every active session before counting guests, so the
@@ -110,18 +118,22 @@ export async function GET() {
       }
     }
 
-    const ordersResult = await supabase
-      .from('orders')
-      .select('restaurant_id')
-      .in('restaurant_id', restaurantIds)
-      .in('status', ACTIVE_ORDER_STATUSES);
+    // Scoped to orders placed within a currently active session — not every
+    // in-flight order the restaurant has ever taken (that's the Orders Inbox).
+    if (activeSessionIds.length > 0) {
+      const ordersResult = await supabase
+        .from('orders')
+        .select('restaurant_id')
+        .in('visit_session_id', activeSessionIds)
+        .in('status', ACTIVE_ORDER_STATUSES);
 
-    if (ordersResult.error) {
-      return NextResponse.json({ error: ordersResult.error.message }, { status: 500 });
-    }
+      if (ordersResult.error) {
+        return NextResponse.json({ error: ordersResult.error.message }, { status: 500 });
+      }
 
-    for (const o of ordersResult.data || []) {
-      summary[o.restaurant_id as string].activeOrders += 1;
+      for (const o of ordersResult.data || []) {
+        summary[o.restaurant_id as string].activeOrders += 1;
+      }
     }
 
     return NextResponse.json({ summary });
