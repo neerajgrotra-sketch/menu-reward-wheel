@@ -1103,7 +1103,7 @@ export function RestaurantPublicPage({
     setActiveFilters(new Set());
   }
 
-  const cart = useCart();
+  const cart = useCart(confirmedSessionId);
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
 
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
