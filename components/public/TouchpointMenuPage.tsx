@@ -222,10 +222,20 @@ function GuestNameModal({
 }) {
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Explicitly blur before the modal unmounts. Without this, iOS Safari can
+  // leave the page's visual viewport zoomed in after a focused input is
+  // removed from the DOM — it never gets the focus-out transition it needs
+  // to animate the zoom back out.
+  function blurActiveInput() {
+    inputRef.current?.blur();
+  }
 
   async function handleConfirm() {
     const trimmed = name.trim();
-    if (!trimmed) { onSkip(); return; }
+    if (!trimmed) { blurActiveInput(); onSkip(); return; }
+    blurActiveInput();
     setSubmitting(true);
     try {
       const res = await fetch(`/api/public/sessions/${sessionId}/guest-name`, {
@@ -271,6 +281,7 @@ function GuestNameModal({
           </div>
 
           <input
+            ref={inputRef}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value.slice(0, 32))}
@@ -294,7 +305,7 @@ function GuestNameModal({
             {name.trim() !== '' && (
               <button
                 type="button"
-                onClick={onSkip}
+                onClick={() => { blurActiveInput(); onSkip(); }}
                 className="w-full rounded-xl py-2.5 text-sm font-semibold text-stone-500 active:bg-stone-50"
               >
                 Skip

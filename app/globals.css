@@ -6,6 +6,22 @@
 body { margin: 0; background: #fff7ed; }
 * { box-sizing: border-box; }
 
+/* Prevent iOS Safari's auto-zoom-on-focus for text entry.
+   Safari zooms the viewport whenever a focused input's computed font-size
+   is below 16px — this is a fixed browser heuristic, not something that
+   can be disabled via the viewport meta tag (setting user-scalable=no /
+   maximum-scale=1 there would also kill pinch-to-zoom for every user, an
+   accessibility regression, so that's not the fix). The only reliable fix
+   is keeping input text at >= 16px on phone-width screens. This overrides
+   any Tailwind text-size utility (text-xs/text-sm/etc.) applied to a
+   field, present or future, everywhere in the app — one rule instead of a
+   per-component font-size audit. */
+@media screen and (max-width: 767px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
 /* Promotion Builder hero cleanup:
    Hide only the embedded promotion URL panel inside the orange builder hero.
    Keep the restaurant name/address visible and keep the top Copy Link button. */
