@@ -12,7 +12,7 @@ export const adminNavigation: NavItem[] = [
   { label: 'Promotions', href: '/admin/promotions', icon: '🎯' },
   { label: 'Coupons', href: '/admin/coupons', icon: '🎟️' },
   { label: 'Validate Coupon', href: '/admin/validate', icon: '✅' },
-  { label: 'Sessions', href: '/admin/sessions', icon: '📡' },
+  { label: 'Dining Intelligence', href: '/admin/sessions', icon: '📡' },
 ];
 
 export const superAdminNavigation: NavItem[] = [

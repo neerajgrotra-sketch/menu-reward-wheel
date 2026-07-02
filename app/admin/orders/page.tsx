@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-
-type OrderStatus = 'pending' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+import { type OrderStatus, ACTIVE_ORDER_STATUSES } from '@/lib/orders/order-status';
 
 type OrderItem = {
   id: string;
@@ -47,7 +46,7 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   cancelled: 'bg-red-100 text-red-500',
 };
 
-const INBOX_STATUSES: OrderStatus[] = ['pending', 'preparing', 'ready'];
+const INBOX_STATUSES = ACTIVE_ORDER_STATUSES;
 
 function timeElapsed(createdAt: string): string {
   const diffMs = Date.now() - new Date(createdAt).getTime();
