@@ -13,6 +13,9 @@ export type PlacedOrder = {
   created_at: string;
   session_orders_count: number;
   session_total_spend: number;
+  // Only set for the payment-simulation flow (PaymentCheckoutScreen) — null
+  // for the direct-order flow, which has no payments row to reference.
+  payment_confirmation_number?: string | null;
   order_items: Array<{
     id: string;
     name_snapshot: string;
@@ -71,6 +74,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
   const [errorMessage, setErrorMessage] = useState('');
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState<number | null>(null);
   const [confirmedOrderId, setConfirmedOrderId] = useState<string | null>(null);
+  const [confirmedPaymentConfirmation, setConfirmedPaymentConfirmation] = useState<string | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const idempotencyKeyRef = useRef<string>(generateIdempotencyKey());
 
@@ -184,6 +188,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
   function handlePaymentSuccess(placedOrder: PlacedOrder) {
     setConfirmedOrderNumber(placedOrder.order_number);
     setConfirmedOrderId(placedOrder.id);
+    setConfirmedPaymentConfirmation(placedOrder.payment_confirmation_number ?? null);
     setOrderState('success');
     setScreen('cart');
     onOrderPlaced?.(placedOrder);
@@ -195,6 +200,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
       setOrderState('idle');
       setConfirmedOrderNumber(null);
       setConfirmedOrderId(null);
+      setConfirmedPaymentConfirmation(null);
       setCustomerName('');
       setTableIdentifier('');
     }
@@ -250,6 +256,14 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
             <p className="text-sm text-stone-500">
               Order #{confirmedOrderNumber} has been sent to the kitchen.
             </p>
+            {confirmedPaymentConfirmation && (
+              <p className="rounded-xl bg-stone-50 px-3 py-2 text-xs text-stone-500">
+                Payment confirmation
+                <span className="ml-1.5 font-mono font-semibold text-stone-700">
+                  {confirmedPaymentConfirmation}
+                </span>
+              </p>
+            )}
             {confirmedOrderId && (
               <a
                 href={`/r/order/${confirmedOrderId}`}

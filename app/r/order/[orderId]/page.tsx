@@ -17,6 +17,7 @@ export type TrackedOrder = {
   ready_at: string | null;
   restaurant_id: string;
   restaurant_name: string;
+  payment_confirmation: string | null;
 };
 
 export type TrackedOrderItem = {
@@ -94,9 +95,17 @@ export default async function OrderTrackingPage({
       .eq('order_id', orderId)
       .order('created_at', { ascending: true });
 
+    const { data: paymentRaw } = await supabase
+      .from('payments')
+      .select('transaction_id')
+      .eq('order_id', orderId)
+      .eq('status', 'succeeded')
+      .maybeSingle();
+
     order = {
-      ...(orderRaw as Omit<TrackedOrder, 'restaurant_name'>),
+      ...(orderRaw as Omit<TrackedOrder, 'restaurant_name' | 'payment_confirmation'>),
       restaurant_name: (restaurantRaw as { name: string } | null)?.name ?? 'Restaurant',
+      payment_confirmation: (paymentRaw as { transaction_id: string } | null)?.transaction_id ?? null,
     };
     items = (itemsRaw || []) as TrackedOrderItem[];
   } catch {

@@ -62,6 +62,28 @@ export async function GET(
     console.log('[session-orders-api] orders count', orderList.length);
     console.log('[session-orders-api] order numbers returned', orderList.map((o) => o.order_number));
 
+    // Attach each order's payment confirmation number (payments.transaction_id),
+    // if one exists — orders placed via the direct (no payment_simulation)
+    // flow never have a payments row, so this stays null for them.
+    const orderIds = orderList.map((o) => o.id);
+    const confirmationByOrderId = new Map<string, string>();
+    if (orderIds.length > 0) {
+      const { data: paymentRows } = await supabase
+        .from('payments')
+        .select('order_id, transaction_id')
+        .in('order_id', orderIds)
+        .eq('status', 'succeeded');
+
+      for (const p of paymentRows ?? []) {
+        if (p.order_id) confirmationByOrderId.set(p.order_id as string, p.transaction_id as string);
+      }
+    }
+
+    const ordersWithPayment = orderList.map((o) => ({
+      ...o,
+      payment_confirmation: confirmationByOrderId.get(o.id as string) ?? null,
+    }));
+
     console.log('[GET_ROUTE_DB]', {
       visitSessionId,
       session_status: session.status,
@@ -71,7 +93,7 @@ export async function GET(
 
     console.log('[ORDERS][SESSION_ORDERS_FETCHED]', { visitSessionId, orders_count: session.orders_count, returned: orderList.length });
     return NextResponse.json(
-      { orders: orderList, session_status: session.status, orders_count: session.orders_count ?? 0 },
+      { orders: ordersWithPayment, session_status: session.status, orders_count: session.orders_count ?? 0 },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (err: unknown) {
