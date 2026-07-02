@@ -1,7 +1,12 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+
+// Realtime is a signal to re-check truth, not truth itself (Rule 41) — every
+// postgres_changes event just triggers a refetch of the summary endpoint,
+// and the poll below is the fallback in case a channel silently drops.
+const SUMMARY_POLL_MS = 45_000;
 
 type Restaurant = {
   id: string;
@@ -93,6 +98,12 @@ export default function DiningIntelligencePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const loadSummary = useCallback(async () => {
+    const res = await fetch('/api/admin/sessions/summary', { cache: 'no-store' });
+    const payload = await res.json().catch(() => ({}));
+    if (res.ok) setSummaries(payload.summary || {});
+  }, []);
+
   useEffect(() => {
     async function load() {
       const { data: userData } = await supabase.auth.getUser();
@@ -107,14 +118,42 @@ export default function DiningIntelligencePage() {
       if (result.error) { setError(result.error.message); setLoading(false); return; }
       setRestaurants((result.data || []) as Restaurant[]);
 
-      const res = await fetch('/api/admin/sessions/summary', { cache: 'no-store' });
-      const payload = await res.json().catch(() => ({}));
-      if (res.ok) setSummaries(payload.summary || {});
-
+      await loadSummary();
       setLoading(false);
     }
     load();
-  }, [supabase]);
+  }, [supabase, loadSummary]);
+
+  // Live refresh — a session becoming active/completed/abandoned or an order
+  // changing status should update the tiles without a manual reload. Scoped
+  // per restaurant_id because visit_sessions/orders only allow owner SELECT
+  // (Rule 40), and postgres_changes filters can't express "in restaurantIds".
+  useEffect(() => {
+    if (restaurants.length === 0) return;
+
+    const channel = supabase.channel('dining-intelligence-summary');
+    for (const r of restaurants) {
+      channel
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'visit_sessions', filter: `restaurant_id=eq.${r.id}` },
+          () => { void loadSummary(); },
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${r.id}` },
+          () => { void loadSummary(); },
+        );
+    }
+    channel.subscribe();
+
+    const pollId = setInterval(() => { void loadSummary(); }, SUMMARY_POLL_MS);
+
+    return () => {
+      clearInterval(pollId);
+      supabase.removeChannel(channel);
+    };
+  }, [restaurants, supabase, loadSummary]);
 
   const emptySummary: RestaurantSummary = { activeSessions: 0, currentGuests: 0, activeOrders: 0, activeTables: 0 };
 
