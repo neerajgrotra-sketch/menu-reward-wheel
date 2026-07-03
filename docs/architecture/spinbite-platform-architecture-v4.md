@@ -1,9 +1,15 @@
 # SpinBite Platform Architecture v4
 
-**Document version:** 4.1
-**Date:** 2026-07-01
+**Document version:** 4.2
+**Date:** 2026-07-03
 **Status:** Source of truth — supersedes v3
 **Audience:** Engineering, product, CTO
+
+---
+
+## Why v4.2
+
+§4 (Menu Architecture) is rewritten for the Menu Library redesign (`20260703000000_menu_library_v1.sql`), which replaces the "one restaurant = one menu" model with owner-scoped, reusable menus assignable to multiple restaurants via `restaurant_menu_assignments`. See §4 for the full detail; no other section changed.
 
 ---
 
@@ -50,7 +56,7 @@ SpinBite is a multi-tenant restaurant revenue platform. A single operator accoun
 | Promotion Play | `/play/[restaurantSlug]/[promotionSlug]` | Customers |
 | Admin Dashboard | `/admin` | Restaurant owners |
 | Restaurant Management | `/admin/restaurants` | Restaurant owners |
-| Menu Builder | `/admin/menu` | Restaurant owners |
+| Menu Library | `/admin/menus`, `/admin/menus/[menuId]` | Restaurant owners |
 | Promotions | `/admin/promotions` | Restaurant owners |
 | Orders Inbox | `/admin/orders` | Restaurant owners |
 | Sessions & Live Intelligence | `/admin/sessions` | Restaurant owners |
@@ -141,19 +147,43 @@ Each restaurant renders as a card at `/admin/restaurants` with four tabs: Profil
 
 ## 4. Menu Architecture
 
-Unchanged from v3.
+**Redesigned 2026-07-03 — Menu Library v1** (`20260703000000_menu_library_v1.sql`). Replaces the v3 "one restaurant = one menu" model.
 
 ```
-Restaurant → Menu (one active) → MenuSection (categories) → MenuItem (dishes)
+Owner → Menu (owner-scoped, reusable) → MenuCategory → MenuItem
+Restaurant ←→ Menu   via restaurant_menu_assignments (many-to-many)
 ```
 
-`menu_items` carries the Special Offer Engine columns directly (`special_enabled`, `special_type`, `special_percent`, `special_price`, `special_start_at`, `special_end_at`, `special_no_expiry`) — no separate pricing table. Effective price computed server-side via `calculateSpecialPrice()` in `lib/menu/special-offer.ts`; order items snapshot `effective_price_snapshot` / `special_active_snapshot` at order time.
+`menus` (new, top-level) is owned directly by `owner_id uuid → auth.users(id)` — not by a restaurant. A menu (e.g. "Lunch Menu", "Kids Menu") can be assigned to zero, one, or many restaurants via `restaurant_menu_assignments (restaurant_id, menu_id, active, display_order)`. `active_start_time` / `active_end_time` / `active_days` columns exist on this table, reserved and unused, for the future time-based auto-switching roadmap item (§11) — no runtime logic reads them yet.
+
+`menu_categories` is the renamed v3 `menus` table (what the admin builder actually operated on as flat "categories" — the old table name never matched what it held). It is now scoped by `menu_id uuid → menus(id)` instead of `restaurant_id`. The dead `menu_sections` table (never wired to any UI since before v3) was dropped in the same migration, along with the equally-unused `menu_items.section_id`.
+
+`menu_items.category_id` (renamed from `menu_id`) points at `menu_categories`. `menu_items.restaurant_id` is **kept** as the item's authoring/originating restaurant — a deliberate simplification: cross-location reuse of a menu is governed entirely by `restaurant_menu_assignments`, not by items themselves being multi-restaurant-aware. This keeps RLS on `menu_items` and existing API routes (`generate-food-image`, coupons, promotion-performance, session tracking) unchanged. `menu_items` still carries the Special Offer Engine columns directly (`special_enabled`, `special_type`, `special_percent`, `special_price`, `special_start_at`, `special_end_at`, `special_no_expiry`) — no separate pricing table. Effective price computed server-side via `calculateSpecialPrice()` in `lib/menu/special-offer.ts`; order items snapshot `effective_price_snapshot` / `special_active_snapshot` at order time.
 
 `ai_metadata` JSONB is the standing contract for all AI-generated content on an item (`description_source`, `description_model`, `image_source`, `image_model`, `import_source`, etc.) — new AI capabilities write into this envelope, no new columns.
 
-`menu_sections` exists in the DB with soft delete and RLS but is **not yet wired to the admin menu builder** — the builder still uses `menus` rows as flat "sections." This is a known, standing technical-debt item (unchanged since before v3; not addressed by this revision).
+Shared fetch helpers live in `lib/menu/queries.ts` (`fetchAssignedMenus`, `fetchMenuContents`) — used by both the public menu pages and the admin builder so the assignment → menu → category → item traversal isn't duplicated.
 
-Public rendering: `/r/[restaurantSlug]` → `components/public/RestaurantPublicPage.tsx`, gated by `experience_mode`, `restaurant_settings`, and `restaurant_capabilities.ordering`.
+### 4.1 Admin UI
+
+`/admin/menus` — Menu Library: grid of all menus owned by the current user (not restaurant-scoped), with category/item/assigned-location counts and Create Menu. `/admin/menus/[menuId]` — the category/item builder (formerly `/admin/menu`), scoped to one menu via the route param rather than a restaurant picker; shows its currently assigned restaurant(s) and links to Assign Locations. `/admin/menus/[menuId]/assign` — checkbox list of the owner's restaurants toggling `restaurant_menu_assignments` rows.
+
+### 4.2 Public rendering
+
+`/r/[restaurantSlug]` and `/r/[restaurantSlug]/[touchpointCode]` resolve a restaurant's active menus via `restaurant_menu_assignments` (not a direct `restaurant_id` query on `menus`). `components/public/RestaurantPublicPage.tsx` and `TouchpointMenuPage.tsx` themselves are unmodified and still only ever receive one flat `sections: PublicSection[]` array (now sourced from `menu_categories` of whichever menu is selected). Gated by `experience_mode`, `restaurant_settings`, and `restaurant_capabilities.ordering`, unchanged from v3.
+
+#### 4.2.1 Deterministic resolution algorithm
+
+Given `(restaurant_id, menu query param)`, resolution is a pure server-side function of DB state — no client-side selection logic, no caching, no randomness:
+
+1. **Assigned menus** — `restaurant_menu_assignments` rows where `restaurant_id = X AND active = true`, ordered by `display_order ASC, created_at ASC`. The `created_at` tiebreaker is load-bearing, not decorative: `display_order` defaults to `0` for every assignment today (the Assign Locations UI has no reordering control yet), so without it, Postgres does not guarantee stable ordering among ties and which menu appears "first" could vary between requests. With it, the first-ever-assigned menu always wins ties.
+2. **Filter to active menus** — join to `menus` where `active = true`, preserving the assignment order from step 1 (a menu deactivated after assignment silently drops out, it is not an error state).
+3. **Select one menu** — if a `?menu=<id>` query param matches one of the assigned menu IDs, use it; otherwise use the first (per step 1/2 ordering). Zero assigned menus → `selectedMenu = null`.
+4. **Categories** — `menu_categories` where `menu_id = selectedMenu.id AND active = true`, ordered by `display_order ASC`. (No `selectedMenu` → skipped, empty array.)
+5. **Items** — `menu_items` where `category_id IN (category IDs from step 4) AND deleted_at IS NULL AND active = true`, ordered by `display_order ASC`.
+6. **Render** — zero assigned menus renders the existing empty-state branch already built into `RestaurantPublicPage`/`TouchpointMenuPage` (`sections.length === 0`), not a crash or redirect. More than one assigned menu renders a server-rendered pill-nav (`?menu=<id>` anchor links, one per assigned menu in step-1 order) above the menu; exactly one assigned menu (the common case, and what every pre-existing restaurant was backfilled to) renders with no nav at all — byte-for-byte the same DOM shape as the pre-redesign single-menu experience.
+
+Verified 2026-07-03 against live data via reversible transactions (insert + rollback): a restaurant with an active assignment temporarily deactivated resolves to zero assigned menus with no error; a restaurant temporarily given a second active assignment correctly isolates each menu's categories/items with no cross-contamination, and the tiebreaker produces a stable order across repeated runs.
 
 ---
 

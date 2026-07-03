@@ -17,6 +17,7 @@ SpinBite has two living architecture documentation trees. This page is the index
 | Guest Identity v1 | [`/architecture/guest_identity_v1.md`](/architecture/guest_identity_v1.md) | Server-assigned `guest_id`, per-guest event/order attribution |
 | Database Schema Map v1 | [`/architecture/database_schema_map_v1.md`](/architecture/database_schema_map_v1.md) | Full current schema reference — session/presence/intelligence tables |
 | Production Release Checklist v1 | [`/architecture/production_release_checklist_v1.md`](/architecture/production_release_checklist_v1.md) | Release gates |
+| Menu Library Hardening Audit | [`menu-library-hardening-audit-2026-07-03.md`](./menu-library-hardening-audit-2026-07-03.md) | Pre-merge audit for the Menu Library redesign — RLS sweep findings, deterministic resolution verification, owner-scoping decision, builder refactor boundaries |
 | Engineering Rules | [`/docs/engineering/claude-engineering-rules.md`](../engineering/claude-engineering-rules.md) | 46 mandatory engineering rules, including Rule 42 (docs must update with infra changes) |
 
 **Rule (Rule 42):** any migration, new API route, new engine function, new realtime channel, or RLS policy change touching sessions/presence/intelligence must update the relevant `/architecture/` (root) doc in the same PR. Any change to product decisions, invariants, or the multi-tenant/security model must update `spinbite-platform-architecture-v4.md`.
@@ -37,7 +38,7 @@ app/
 ├── r/[restaurantSlug]/[touchpointCode]/   ← touchpoint-scoped entry point
 ├── play/[restaurantSlug]/[promotionSlug]/ ← game play
 ├── admin/
-│   ├── menu/                 ← menu builder
+│   ├── menus/                 ← Menu Library (grid + [menuId] builder + [menuId]/assign)
 │   ├── promotions/           ← promotion list, create, builder
 │   ├── restaurants/          ← restaurant profile tabs + touchpoints
 │   ├── orders/                ← orders inbox
@@ -87,9 +88,9 @@ docs/engineering/                ← engineering rules
 
 ### Known technical debt (still open)
 
-- `menu_sections` table exists (soft-deleted, RLS'd) but the admin menu builder does not yet write to it — the builder still treats flat `menus` rows as "sections." Highest-impact open item.
-- `restaurants` schema also has unused legacy `rewards` and `coupons` tables (0 live rows / no code references) left over from an earlier reward-engine design — superseded by `promotion_rewards` / `coupon_redemptions` but not yet dropped.
-- `app/admin/menu/page.tsx` and `app/admin/promotions/[id]/builder/page.tsx` remain large client-side monoliths with direct Supabase calls rather than server actions.
+- `restaurants` schema also has unused legacy `rewards` and `coupons` tables (0 live rows / no code references) left over from an earlier reward-engine design — superseded by `promotion_rewards` / `coupon_redemptions` but not yet dropped. `guest_sessions` (legacy, superseded by `session_guests`, 14 rows, fully open RLS) is the same category of debt — see the hardening audit doc.
+- `app/admin/menus/[menuId]/page.tsx` and `app/admin/promotions/[id]/builder/page.tsx` remain large client-side monoliths with direct Supabase calls rather than server actions — see the hardening audit doc §8 for a mapped-out refactor plan for the former.
+- `intelligence_generation_logs` has an open (unused but exploitable) authenticated INSERT policy — see the hardening audit doc §3.
 - `api.qrserver.com` external dependency for QR generation — no SLA, privacy consideration; candidate for internalization.
 
 For anything not covered here, start at `spinbite-platform-architecture-v4.md`.
