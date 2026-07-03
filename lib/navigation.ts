@@ -7,7 +7,7 @@ export type NavItem = {
 export const adminNavigation: NavItem[] = [
   { label: 'Dashboard', href: '/admin', icon: '🏠' },
   { label: 'Restaurants', href: '/admin/restaurants', icon: '🏪' },
-  { label: 'Menu', href: '/admin/menu', icon: '🍽️' },
+  { label: 'Menus', href: '/admin/menus', icon: '🍽️' },
   { label: 'Orders', href: '/admin/orders', icon: '🧾' },
   { label: 'Promotions', href: '/admin/promotions', icon: '🎯' },
   { label: 'Coupons', href: '/admin/coupons', icon: '🎟️' },

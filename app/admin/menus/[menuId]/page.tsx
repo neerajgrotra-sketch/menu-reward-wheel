@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
 import { MenuItemImageUploader } from '@/components/admin/restaurants/MenuItemImageUploader';
@@ -44,12 +45,10 @@ type MenuItem = {
 const fallbackCopy = {
   eyebrow: 'Categories',
   headline: 'Build your menu categories.',
-  subheadline:
-    'Categories are tied to one restaurant location. Select the exact location before creating or editing items.',
-  select_location_label: 'Step 1: Select Restaurant Location',
-  create_menu_label: 'Step 2: Create Category',
-  no_menus_title: 'No categories for this location yet',
-  no_menus_copy: 'Create the first category for this restaurant location.',
+  subheadline: 'Organize this menu into categories, then add items to each one.',
+  create_menu_label: 'Create Category',
+  no_menus_title: 'No categories in this menu yet',
+  no_menus_copy: 'Create the first category for this menu.',
 };
 
 // Extend this array in Phase 3 to add Promotions, AI, Analytics tabs.
@@ -67,16 +66,15 @@ function restaurantAddress(restaurant?: Restaurant | null) {
   return [restaurant?.address_line1, restaurant?.city].filter(Boolean).join(', ') || 'Address not added';
 }
 
-function locationLabel(restaurant: Restaurant) {
-  return `${restaurant.name} — ${restaurantAddress(restaurant)}`;
-}
-
 export default function MenuPage() {
   const supabase = useMemo(() => createClient(), []);
+  const params = useParams();
+  const libraryMenuId = params.menuId as string;
   const [copy, setCopy] = useState(fallbackCopy);
   const [userId, setUserId] = useState('');
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [selectedRestaurantId, setSelectedRestaurantId] = useState('');
+  const [menuName, setMenuName] = useState('');
+  const [assignedRestaurantCount, setAssignedRestaurantCount] = useState(0);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menus, setMenus] = useState<Menu[]>([]);
   // Items keyed by menu ID so multiple categories can be expanded simultaneously.
   const [itemsByMenuId, setItemsByMenuId] = useState<Record<string, MenuItem[]>>({});
@@ -185,8 +183,6 @@ export default function MenuPage() {
       !!editingItemAdvancedStart &&
       !!editingItemAdvancedEnd);
 
-  const restaurant = restaurants.find((r) => r.id === selectedRestaurantId) || null;
-
   // Live item snapshot used inside the sheet (image URL, latest display values).
   // Recomputed whenever itemsByMenuId updates (e.g. after image upload).
   const editingItem = useMemo(
@@ -197,29 +193,37 @@ export default function MenuPage() {
     [editingItemMenuId, editingItemId, itemsByMenuId]
   );
 
-  // Loads all menus and all their items in parallel.
-  async function loadMenus(restaurantId: string, expandAll = false) {
-    const [menuResult, itemResult] = await Promise.all([
-      supabase.from('menus').select('id,name,menu_type').eq('restaurant_id', restaurantId),
-      supabase
-        .from('menu_items')
-        .select('id,name,price,description,image_url,is_featured,available,tags,display_order,menu_id,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
-        .eq('restaurant_id', restaurantId)
-        .order('display_order', { ascending: true }),
-    ]);
+  // Loads a menu's categories and all their items. Categories must be fetched
+  // first — items are then fetched by category_id, since menu_items no longer
+  // has a direct menu-level FK (it's scoped via menu_categories.menu_id now).
+  async function loadMenus(menuId: string, expandAll = false) {
+    const categoryResult = await supabase
+      .from('menu_categories')
+      .select('id,name,menu_type')
+      .eq('menu_id', menuId);
 
-    if (menuResult.error) { setError(menuResult.error.message); return; }
+    if (categoryResult.error) { setError(categoryResult.error.message); return; }
+
+    const categoryIds = (categoryResult.data || []).map((c: any) => c.id as string);
+    const itemResult = categoryIds.length
+      ? await supabase
+          .from('menu_items')
+          .select('id,name,price,description,image_url,is_featured,available,tags,display_order,category_id,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
+          .in('category_id', categoryIds)
+          .order('display_order', { ascending: true })
+      : { data: [] as any[], error: null };
+
     if (itemResult.error) { setError(itemResult.error.message); return; }
 
-    const allItems = (itemResult.data || []) as unknown as Array<MenuItem & { menu_id: string }>;
+    const allItems = (itemResult.data || []) as unknown as Array<MenuItem & { category_id: string }>;
 
     const grouped: Record<string, MenuItem[]> = {};
     allItems.forEach((item) => {
-      if (!grouped[item.menu_id]) grouped[item.menu_id] = [];
-      grouped[item.menu_id].push(item);
+      if (!grouped[item.category_id]) grouped[item.category_id] = [];
+      grouped[item.category_id].push(item);
     });
 
-    const loadedMenus = (menuResult.data || []).map((menu: any) => ({
+    const loadedMenus = (categoryResult.data || []).map((menu: any) => ({
       ...menu,
       item_count: (grouped[menu.id] || []).length,
     }));
@@ -235,19 +239,17 @@ export default function MenuPage() {
   // Refreshes items for a single category without touching the rest of the state.
   // Also refreshes the image URL visible inside an open sheet.
   // Returns the fresh item list so callers can use it immediately.
-  async function reloadItemsForMenu(menuId: string): Promise<MenuItem[]> {
-    if (!restaurant) return [];
+  async function reloadItemsForMenu(categoryId: string): Promise<MenuItem[]> {
     const result = await supabase
       .from('menu_items')
       .select('id,name,price,description,image_url,is_featured,available,tags,display_order,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
-      .eq('restaurant_id', restaurant.id)
-      .eq('menu_id', menuId)
+      .eq('category_id', categoryId)
       .order('display_order', { ascending: true });
     if (result.error) { setError(result.error.message); return []; }
     const freshItems = (result.data || []) as unknown as MenuItem[];
     setItemsByMenuId((prev) => ({
       ...prev,
-      [menuId]: freshItems,
+      [categoryId]: freshItems,
     }));
     return freshItems;
   }
@@ -260,34 +262,39 @@ export default function MenuPage() {
       const user = userData.user;
       if (!user) { window.location.href = '/auth'; return; }
       setUserId(user.id);
-      const requestedSlug = new URLSearchParams(window.location.search).get('slug');
-      const result = await supabase
-        .from('restaurants')
-        .select('id,name,slug,address_line1,city')
-        .eq('owner_id', user.id)
-        .order('created_at', { ascending: false });
-      if (result.error) { setError(result.error.message); setLoading(false); return; }
-      const owned = (result.data || []) as Restaurant[];
-      if (owned.length === 0) { window.location.href = '/admin/restaurants'; return; }
-      setRestaurants(owned);
-      const requested = requestedSlug ? owned.find((r) => r.slug === requestedSlug) : null;
-      setSelectedRestaurantId((requested || owned[0]).id);
+
+      const menuResult = await supabase
+        .from('menus')
+        .select('id,name,owner_id')
+        .eq('id', libraryMenuId)
+        .single();
+      if (menuResult.error || !menuResult.data || menuResult.data.owner_id !== user.id) {
+        window.location.href = '/admin/menus';
+        return;
+      }
+      setMenuName(menuResult.data.name);
+
+      // Authoring restaurant for new items: the first restaurant this menu is
+      // currently assigned to (restaurant_menu_assignments.display_order asc).
+      // A brand-new, unassigned menu has none yet — category/item creation is
+      // gated on this being present (see the banner below).
+      const assignmentResult = await supabase
+        .from('restaurant_menu_assignments')
+        .select('display_order,restaurants(id,name,slug,address_line1,city)')
+        .eq('menu_id', libraryMenuId)
+        .eq('active', true)
+        .order('display_order', { ascending: true });
+      const assignedRestaurants = (assignmentResult.data || [])
+        .map((a: any) => a.restaurants)
+        .filter(Boolean) as Restaurant[];
+      setAssignedRestaurantCount(assignedRestaurants.length);
+      setRestaurant(assignedRestaurants[0] ?? null);
+
+      await loadMenus(libraryMenuId, true);
       setLoading(false);
     }
-    init();
-  }, [supabase]);
-
-  useEffect(() => {
-    if (!selectedRestaurantId) return;
-    setExpandedMenuIds(new Set());
-    setSettingsOpenMenuId(null);
-    setRenamingMenuId(null);
-    setItemsByMenuId({});
-    setNewItemByMenuId({});
-    setNewMenu('');
-    setError('');
-    loadMenus(selectedRestaurantId, true);
-  }, [selectedRestaurantId]);
+    if (libraryMenuId) init();
+  }, [supabase, libraryMenuId]);
 
   // ── Job recovery: resume polling or restore variants on item reopen ──────
   // Fires when the restaurant opens (or reopens) the item editor. Checks
@@ -485,7 +492,7 @@ export default function MenuPage() {
       })
       .eq('id', itemId)
       .eq('restaurant_id', restaurant.id)
-      .eq('menu_id', menuId);
+      .eq('category_id', menuId);
 
     if (result.error) { setError(result.error.message); return; }
     await reloadItemsForMenu(menuId);
@@ -496,23 +503,23 @@ export default function MenuPage() {
   // ── Data mutations ─────────────────────────────────────────────────
 
   async function addMenu() {
-    if (!newMenu.trim() || !restaurant) return;
+    if (!newMenu.trim()) return;
     setError('');
     const slug =
       newMenu.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
     const result = await supabase
-      .from('menus')
-      .insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), restaurant_id: restaurant.id, slug })
+      .from('menu_categories')
+      .insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), menu_id: libraryMenuId, slug })
       .select('id')
       .single();
     if (result.error) { setError(result.error.message); return; }
     const newMenuId = result.data?.id as string | undefined;
     setNewMenu('');
-    await loadMenus(restaurant.id);
+    await loadMenus(libraryMenuId);
     if (newMenuId) {
       setExpandedMenuIds((prev) => new Set(Array.from(prev).concat(newMenuId)));
     }
-    setNotice(`Category created for ${restaurant.name} — ${restaurantAddress(restaurant)}`);
+    setNotice('Category created');
     setTimeout(() => setNotice(''), 1800);
   }
 
@@ -544,18 +551,18 @@ export default function MenuPage() {
   }
 
   async function saveMenuName(menuId: string) {
-    if (!restaurant || !editingMenuName.trim()) return;
+    if (!editingMenuName.trim()) return;
     const newSlug =
       editingMenuName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
     const result = await supabase
-      .from('menus')
+      .from('menu_categories')
       .update({ name: editingMenuName.trim(), menu_type: editingMenuName.trim().toLowerCase(), slug: newSlug })
       .eq('id', menuId)
-      .eq('restaurant_id', restaurant.id);
+      .eq('menu_id', libraryMenuId);
     if (result.error) { setError(result.error.message); return; }
     setRenamingMenuId(null);
     setSettingsOpenMenuId(null);
-    await loadMenus(restaurant.id);
+    await loadMenus(libraryMenuId);
     setNotice('Category name saved');
     setTimeout(() => setNotice(''), 1500);
   }
@@ -567,12 +574,12 @@ export default function MenuPage() {
     const result = await supabase.from('menu_items').insert({
       name: itemForm.name.trim(),
       price: parseCadPrice(itemForm.price || ''),
-      menu_id: menuId,
+      category_id: menuId,
       restaurant_id: restaurant.id,
     });
     if (result.error) { setError(result.error.message); return; }
     setNewItemByMenuId((prev) => ({ ...prev, [menuId]: { name: '', price: '' } }));
-    await loadMenus(restaurant.id);
+    await loadMenus(libraryMenuId);
     setNotice('Item added');
     setTimeout(() => setNotice(''), 1500);
   }
@@ -678,7 +685,7 @@ export default function MenuPage() {
     const result = await (supabase.from('menu_items').update(updatePayload as any) as any)
       .eq('id', itemId)
       .eq('restaurant_id', restaurant.id)
-      .eq('menu_id', menuId);
+      .eq('category_id', menuId);
 
     if (result.error) {
       setError(result.error.message);
@@ -793,32 +800,30 @@ export default function MenuPage() {
       .delete()
       .eq('id', item.id)
       .eq('restaurant_id', restaurant.id)
-      .eq('menu_id', menuId);
+      .eq('category_id', menuId);
     if (result.error) { setError(result.error.message); return; }
     if (editingItemId === item.id) closeSheet();
-    await loadMenus(restaurant.id);
+    await loadMenus(libraryMenuId);
     setNotice('Item deleted');
     setTimeout(() => setNotice(''), 1500);
   }
 
   async function deleteMenu(menu: Menu) {
-    if (!restaurant) return;
     const ok = window.confirm(
-      `Delete the entire ${menu.name} category for ${restaurant.name} at ${restaurantAddress(restaurant)}? This will also delete all items in that category.`
+      `Delete the entire ${menu.name} category? This will also delete all items in that category.`
     );
     if (!ok) return;
     setError('');
     const itemDelete = await supabase
       .from('menu_items')
       .delete()
-      .eq('menu_id', menu.id)
-      .eq('restaurant_id', restaurant.id);
+      .eq('category_id', menu.id);
     if (itemDelete.error) { setError(itemDelete.error.message); return; }
     const menuDelete = await supabase
-      .from('menus')
+      .from('menu_categories')
       .delete()
       .eq('id', menu.id)
-      .eq('restaurant_id', restaurant.id);
+      .eq('menu_id', libraryMenuId);
     if (menuDelete.error) { setError(menuDelete.error.message); return; }
     setExpandedMenuIds((prev) => {
       const next = new Set(prev);
@@ -827,7 +832,7 @@ export default function MenuPage() {
     });
     if (settingsOpenMenuId === menu.id) setSettingsOpenMenuId(null);
     if (editingItemMenuId === menu.id) closeSheet();
-    await loadMenus(restaurant.id);
+    await loadMenus(libraryMenuId);
     setNotice('Category deleted');
     setTimeout(() => setNotice(''), 1500);
   }
@@ -842,10 +847,10 @@ export default function MenuPage() {
           {/* Header */}
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-black text-[#FF6B00]">Menu builder</h1>
+              <h1 className="text-3xl font-black text-[#FF6B00]">{menuName || 'Menu builder'}</h1>
             </div>
-            <a href="/admin" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">
-              Dashboard
+            <a href="/admin/menus" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">
+              Menu Library
             </a>
           </div>
 
@@ -856,25 +861,34 @@ export default function MenuPage() {
             <p className="mt-3 text-sm font-semibold text-white/85">{copy.subheadline}</p>
           </div>
 
-          {/* Restaurant selector */}
+          {/* Assigned locations status */}
           <div className="mt-5 rounded-3xl bg-white p-5 shadow-xl">
-            <p className="text-sm font-black uppercase text-[#FF6B00]">{copy.select_location_label}</p>
-            <select
-              value={selectedRestaurantId}
-              onChange={(e) => setSelectedRestaurantId(e.target.value)}
-              className="mt-3 w-full rounded-2xl border border-stone-200 bg-white px-4 py-4 font-black outline-none focus:border-[#FF6B00]"
-            >
-              {restaurants.map((r) => (
-                <option key={r.id} value={r.id}>{locationLabel(r)}</option>
-              ))}
-            </select>
-            {restaurant && (
-              <div className="mt-4 rounded-2xl bg-orange-50 p-4">
-                <p className="text-xl font-black">{restaurant.name}</p>
-                <p className="mt-1 text-sm font-bold text-stone-600">{restaurantAddress(restaurant)}</p>
-                <p className="mt-1 text-xs font-bold text-stone-500">/{restaurant.slug}</p>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-black uppercase text-[#FF6B00]">Assigned Locations</p>
+                {restaurant ? (
+                  <>
+                    <p className="mt-2 text-xl font-black">{restaurant.name}</p>
+                    <p className="mt-1 text-sm font-bold text-stone-600">{restaurantAddress(restaurant)}</p>
+                    {assignedRestaurantCount > 1 && (
+                      <p className="mt-1 text-xs font-bold text-stone-500">
+                        + {assignedRestaurantCount - 1} more location{assignedRestaurantCount - 1 === 1 ? '' : 's'}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm font-bold text-stone-600">
+                    Not assigned to any restaurant yet. Assign it before adding items.
+                  </p>
+                )}
               </div>
-            )}
+              <a
+                href={`/admin/menus/${libraryMenuId}/assign`}
+                className="shrink-0 rounded-full bg-[#FF6B00] px-4 py-3 text-sm font-black text-white shadow"
+              >
+                Assign Locations
+              </a>
+            </div>
           </div>
 
           {/* Create category */}
@@ -907,12 +921,7 @@ export default function MenuPage() {
             {menus.length === 0 && (
               <div className="rounded-3xl bg-white p-6 shadow-xl">
                 <p className="text-2xl font-black">{copy.no_menus_title}</p>
-                <p className="mt-2 text-sm font-semibold text-stone-600">
-                  {copy.no_menus_copy.replace(
-                    'this restaurant location',
-                    restaurant ? `${restaurant.name} — ${restaurantAddress(restaurant)}` : 'this restaurant location'
-                  )}
-                </p>
+                <p className="mt-2 text-sm font-semibold text-stone-600">{copy.no_menus_copy}</p>
               </div>
             )}
 
@@ -1581,11 +1590,11 @@ export default function MenuPage() {
             </div>
 
             {/* Image */}
-            {userId && (
+            {userId && restaurant && (
               <MenuItemImageUploader
                 currentUrl={editingItem?.image_url}
                 itemId={editingItemId}
-                restaurantId={restaurant!.id}
+                restaurantId={restaurant.id}
                 ownerId={userId}
                 supabase={supabase}
                 onSaved={() => reloadItemsForMenu(editingItemMenuId)}

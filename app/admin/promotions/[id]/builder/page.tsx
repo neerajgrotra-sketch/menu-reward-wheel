@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import SpinWheelPreview from '@/components/admin/SpinWheelPreview';
 import { getGameMeta } from '@/lib/games/game-registry';
 import { getGameVisual } from '@/components/game-visuals/GameVisual';
+import { fetchAssignedMenus } from '@/lib/menu/queries';
 
 type RewardType = 'free' | 'discount' | 'custom';
 type WeightLabel = 'Common' | 'Normal' | 'Rare';
@@ -236,16 +237,29 @@ export default function PromotionBuilderPage() {
         .single();
       if (restaurantResult.data) setRestaurant(restaurantResult.data);
 
-      const menuResult = await supabase
-        .from('menus')
-        .select('id,name,menu_type,restaurant_id')
-        .eq('restaurant_id', loadedPromotion.restaurant_id)
-        .order('name');
+      // "Menu" here means category (menu_categories) — the set of categories
+      // reachable through whichever menus are currently assigned to this
+      // restaurant, per the Menu Library redesign.
+      const assignedMenus = await fetchAssignedMenus(supabase, loadedPromotion.restaurant_id);
+      const assignedMenuIds = assignedMenus.map((m) => m.id);
 
-      const rawMenus = (menuResult.data || []) as BuilderMenu[];
-      const itemData = await supabase.from('menu_items').select('id,menu_id').eq('restaurant_id', loadedPromotion.restaurant_id);
+      const categoryResult = assignedMenuIds.length
+        ? await supabase
+            .from('menu_categories')
+            .select('id,name,menu_type,menu_id')
+            .in('menu_id', assignedMenuIds)
+            .order('name')
+        : { data: [] as any[] };
+
+      const rawMenus = (categoryResult.data || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        menu_type: c.menu_type,
+        restaurant_id: loadedPromotion.restaurant_id,
+      })) as BuilderMenu[];
+      const itemData = await supabase.from('menu_items').select('id,category_id').eq('restaurant_id', loadedPromotion.restaurant_id);
       const counts = new Map<string, number>();
-      (itemData.data || []).forEach((item: any) => counts.set(item.menu_id, (counts.get(item.menu_id) || 0) + 1));
+      (itemData.data || []).forEach((item: any) => counts.set(item.category_id, (counts.get(item.category_id) || 0) + 1));
       const loadedMenus = dedupeMenus(rawMenus.map((menu) => ({ ...menu, item_count: counts.get(menu.id) || 0 })));
       setMenus(loadedMenus);
       if (loadedMenus[0]) setMenuId(loadedMenus[0].id);
@@ -321,8 +335,8 @@ export default function PromotionBuilderPage() {
       const supabase = createClient();
       const result = await supabase
         .from('menu_items')
-        .select('id,menu_id,restaurant_id,name,price')
-        .eq('menu_id', menuId)
+        .select('id,category_id,restaurant_id,name,price')
+        .eq('category_id', menuId)
         .order('name');
       setMenuItems(result.data || []);
       if ((result.data || []).length === 0) {

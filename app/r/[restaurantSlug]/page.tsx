@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
 import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
 import { isSpecialOfferActive, calculateSpecialPrice, getDiscountLabel } from '@/lib/menu/special-offer';
+import { fetchAssignedMenus, fetchMenuContents } from '@/lib/menu/queries';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ export type PublicMenuItem = {
   is_featured: boolean;
   available: boolean;
   tags: string[];
-  menu_id: string | null;
+  category_id: string | null;
   display_order: number;
   // Special Offer Engine — computed server-side at request time (Rule 52)
   special_active: boolean;
@@ -218,8 +219,10 @@ export const revalidate = 0;
 
 export default async function PermanentRestaurantQrPage({
   params,
+  searchParams,
 }: {
   params: { restaurantSlug: string };
+  searchParams?: { menu?: string };
 }) {
   const now = new Date();
   let supabase;
@@ -258,18 +261,11 @@ export default async function PermanentRestaurantQrPage({
         ? fetchPromotionForCard(supabase, restaurant, now)
         : Promise.resolve([null, [], new Set<string>()]);
 
-    const [menusResult, itemsResult, [activePromotion, promotionRewards], capabilityResult, paymentCapabilityResult, restaurantSettingsResult] = await Promise.all([
-      supabase
-        .from('menus')
-        .select('id,name,display_order')
-        .eq('restaurant_id', restaurant.id)
-        .order('display_order', { ascending: true }),
-      supabase
-        .from('menu_items')
-        .select('id,name,description,image_url,price,is_featured,available,tags,menu_id,display_order,special_enabled,special_type,special_percent,special_price,special_start_at,special_end_at,special_no_expiry')
-        .eq('restaurant_id', restaurant.id)
-        .is('deleted_at', null)
-        .order('display_order', { ascending: true }),
+    const assignedMenus = await fetchAssignedMenus(supabase, restaurant.id);
+    const selectedMenu = assignedMenus.find((m) => m.id === searchParams?.menu) ?? assignedMenus[0] ?? null;
+
+    const [{ categories, items }, [activePromotion, promotionRewards], capabilityResult, paymentCapabilityResult, restaurantSettingsResult] = await Promise.all([
+      selectedMenu ? fetchMenuContents(supabase, [selectedMenu.id]) : Promise.resolve({ categories: [], items: [] }),
       promotionFetch,
       supabase
         .from('restaurant_capabilities')
@@ -296,12 +292,6 @@ export default async function PermanentRestaurantQrPage({
     const taxRatePercent = Number(settingsRows.find((r) => r.key === 'tax_rate_percent')?.value ?? 0) || 0;
     const serviceFeePercent = Number(settingsRows.find((r) => r.key === 'service_fee_percent')?.value ?? 0) || 0;
 
-    const menus = (menusResult.data || []) as Array<{
-      id: string;
-      name: string;
-      display_order: number;
-    }>;
-
     // Compute special offer state server-side (Rule 52 — never trust frontend calculations)
     type RawMenuItem = Omit<PublicMenuItem, 'special_active' | 'effective_price' | 'discount_label'> & {
       special_enabled: boolean;
@@ -312,7 +302,7 @@ export default async function PermanentRestaurantQrPage({
       special_end_at: string | null;
       special_no_expiry: boolean;
     };
-    const rawItems = (itemsResult.data || []) as RawMenuItem[];
+    const rawItems = items as unknown as RawMenuItem[];
     const allItems: PublicMenuItem[] = rawItems.map((raw) => {
       const active = isSpecialOfferActive(raw, now);
       let effective_price = raw.price;
@@ -330,7 +320,7 @@ export default async function PermanentRestaurantQrPage({
         is_featured: raw.is_featured,
         available: raw.available,
         tags: raw.tags,
-        menu_id: raw.menu_id,
+        category_id: raw.category_id,
         display_order: raw.display_order,
         special_active: active,
         effective_price,
@@ -338,24 +328,43 @@ export default async function PermanentRestaurantQrPage({
       };
     });
 
-    const sections: PublicSection[] = menus.map((menu) => ({
-      id: menu.id,
-      name: menu.name,
-      display_order: menu.display_order,
-      items: allItems.filter((item) => item.menu_id === menu.id),
+    const sections: PublicSection[] = categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      display_order: category.display_order,
+      items: allItems.filter((item) => item.category_id === category.id),
     }));
 
     return (
-      <RestaurantPublicPage
-        restaurant={restaurant}
-        sections={sections}
-        promotion={activePromotion}
-        promotionRewards={promotionRewards}
-        orderingEnabled={orderingEnabled}
-        paymentSimulationEnabled={paymentSimulationEnabled}
-        taxRatePercent={taxRatePercent}
-        serviceFeePercent={serviceFeePercent}
-      />
+      <>
+        {assignedMenus.length > 1 && (
+          <div className="mx-auto flex max-w-3xl flex-wrap gap-2 px-4 pt-4">
+            {assignedMenus.map((menu) => (
+              <a
+                key={menu.id}
+                href={`?menu=${menu.id}`}
+                className={`rounded-full px-4 py-2 text-sm font-black transition ${
+                  menu.id === selectedMenu?.id
+                    ? 'bg-[#FF6B00] text-white shadow-md'
+                    : 'bg-white text-stone-600 shadow-sm hover:bg-stone-50'
+                }`}
+              >
+                {menu.name}
+              </a>
+            ))}
+          </div>
+        )}
+        <RestaurantPublicPage
+          restaurant={restaurant}
+          sections={sections}
+          promotion={activePromotion}
+          promotionRewards={promotionRewards}
+          orderingEnabled={orderingEnabled}
+          paymentSimulationEnabled={paymentSimulationEnabled}
+          taxRatePercent={taxRatePercent}
+          serviceFeePercent={serviceFeePercent}
+        />
+      </>
     );
   }
 

@@ -120,7 +120,7 @@ export default function AdminPage() {
     { title: copy.manage_promotions_title, copy: copy.manage_promotions_copy, href: `/admin/promotions?slug=${restaurant.slug}&mode=manage`, icon: '📊', primary: false },
     { title: 'Issued Coupons', copy: 'Review coupon codes, reward details, issue times, expiry status, and redemptions.', href: '/admin/coupons', icon: '🎟️', primary: false },
     { title: copy.validate_coupons_title, copy: copy.validate_coupons_copy, href: '/admin/validate', icon: '✅', primary: false },
-    { title: copy.menus_title, copy: copy.menus_copy, href: `/admin/menu?slug=${restaurant.slug}`, icon: '🍽️', primary: false },
+    { title: copy.menus_title, copy: copy.menus_copy, href: '/admin/menus', icon: '🍽️', primary: false },
     { title: 'Dining Intelligence', copy: 'Monitor active dining sessions, table metrics, and spending intelligence in real time.', href: '/admin/sessions', icon: '📡', primary: false },
     { title: copy.restaurants_title, copy: copy.restaurants_copy, href: '/admin/restaurants', icon: '🏪', primary: false },
   ];
