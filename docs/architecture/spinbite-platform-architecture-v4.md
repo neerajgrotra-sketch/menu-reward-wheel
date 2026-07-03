@@ -1,9 +1,15 @@
 # SpinBite Platform Architecture v4
 
-**Document version:** 4.2
+**Document version:** 4.3
 **Date:** 2026-07-03
 **Status:** Source of truth — supersedes v3
 **Audience:** Engineering, product, CTO
+
+---
+
+## Why v4.3
+
+§3.6 (Admin UI structure) is rewritten for the Restaurant Directory + Workspace redesign: `/admin/restaurants` moves from a single page rendering every restaurant as an expanded inline-form card to a two-level Directory (grid of summary tiles, read-only, with search/filter) → Workspace (`/admin/restaurants/[restaurantId]`, 8 tabs) pattern — the same Directory→Workspace shape already used by the Dining Intelligence admin UI (`/admin/sessions` → `/admin/sessions/[restaurantId]`) and Menu Library (§4.1). No functionality was removed; every existing tab/form moved into the Workspace. See §3.6 for the full detail; no other section changed.
 
 ---
 
@@ -125,11 +131,22 @@ Soft delete via `deleted_at`. Slug: `slugify(name) + '-' + last5digitsOfTimestam
 
 ### 3.4 restaurant_settings and 3.5 restaurant_capabilities
 
-Both are per-restaurant key-value stores (`UNIQUE (restaurant_id, key/capability_name)`). `restaurant_settings` controls presentation (`show_featured_items_on_landing`, `show_prices_on_landing`, `enable_floating_reward_widget`, `widget_position`). `restaurant_capabilities` controls whether a feature operates at all — currently only `ordering` (default `false`). Toggle location: `/admin/restaurants` → Settings tab, saves immediately, no Save button.
+Both are per-restaurant key-value stores (`UNIQUE (restaurant_id, key/capability_name)`). `restaurant_settings` controls presentation (`show_featured_items_on_landing`, `show_prices_on_landing`, `enable_floating_reward_widget`, `widget_position`). `restaurant_capabilities` controls whether a feature operates at all — `ordering` and `table_management` (Settings tab), `payment_simulation` (Payments tab), all default `false`. Toggle location: `/admin/restaurants/[restaurantId]` Workspace → the relevant tab, saves immediately, no Save button.
 
 ### 3.6 Admin UI structure
 
-Each restaurant renders as a card at `/admin/restaurants` with four tabs: Profile, Contact, Settings, QR (`RestaurantProfileTab`, `RestaurantContactTab`, `RestaurantSettingsTab`, `RestaurantQrTab`). `restaurantId` is passed explicitly to every tab — no tab derives restaurant context from global state or `.limit(1)`.
+**Restaurant Directory + Workspace** (redesigned 2026-07-03) — two levels, replacing the old single-page-with-inline-forms model:
+
+- **Directory** (`/admin/restaurants`) — a grid of read-only summary tiles (`RestaurantDirectoryTile`): cover photo, logo, name, address, live counts (tables, assigned menus, active promotions, active sessions — from `GET /api/admin/restaurants/summary`), operational badges (ordering/payments enabled, experience mode). Search + filter (All / Ordering Enabled / Promotion Enabled / Active Locations). No editing happens here — "Open Workspace" is the only action per tile, plus an `AddRestaurantTile` linking to `/setup`.
+- **Workspace** (`/admin/restaurants/[restaurantId]`) — where all configuration lives, behind 8 tabs: Overview, Branding, Menus, Promotions, Tables, QR Codes, Payments, Settings.
+  - **Overview** — live stat tiles for this restaurant (tables, assigned menus, active promotions, orders today, revenue today, active dining sessions).
+  - **Branding** — composes the existing `RestaurantProfileTab` (experience mode, description, brand colors, logo) and `RestaurantContactTab` (phone, address, hours, socials) under one tab; neither component's internals changed.
+  - **Menus** — read-only list of this restaurant's `restaurant_menu_assignments`; menus are owner-scoped platform objects (§4), not restaurant-owned, so editing happens only via "Manage Menus →" to the Menu Library.
+  - **Promotions** — read-only summary of this restaurant's `promotions` rows; "Manage Promotions →" deep-links to `/admin/promotions?slug={slug}`. (Promotions remain `restaurant_id`-scoped, not yet a shared library like Menus — that would be its own redesign.)
+  - **Tables** (`RestaurantTablesTab`), **QR Codes** (`RestaurantQrTab`), **Settings** (`RestaurantSettingsTab`) — unchanged from before, just relocated.
+  - **Payments** (`RestaurantPaymentsTab`) — new: exposes the `payment_simulation` capability toggle, which existed in `restaurant_capabilities` and was enforced server-side but had no admin UI until this change.
+
+`restaurantId` is passed explicitly to every tab — no tab derives restaurant context from global state or `.limit(1)`.
 
 ### 3.7 Navigation architecture
 
