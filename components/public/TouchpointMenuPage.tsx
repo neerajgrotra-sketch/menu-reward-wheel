@@ -25,6 +25,7 @@ type SessionOrder = {
   customer_name: string | null;
   subtotal: number;
   created_at: string;
+  payment_confirmation: string | null;
   order_items: Array<{
     id: string;
     name_snapshot: string;
@@ -192,6 +193,15 @@ function OrdersDrawer({
                     ${Number(order.subtotal).toFixed(2)}
                   </p>
                 </div>
+
+                {order.payment_confirmation && (
+                  <p className="mt-2 text-[10px] text-stone-400">
+                    Payment confirmation{' '}
+                    <span className="font-mono font-semibold text-stone-500">
+                      {order.payment_confirmation}
+                    </span>
+                  </p>
+                )}
               </div>
             ))
           )}
@@ -714,6 +724,7 @@ export function TouchpointMenuPage({
         customer_name: placedOrder.customer_name,
         subtotal: placedOrder.subtotal,
         created_at: placedOrder.created_at,
+        payment_confirmation: placedOrder.payment_confirmation_number ?? null,
         order_items: placedOrder.order_items,
       },
     ]);

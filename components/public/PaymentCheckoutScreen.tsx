@@ -181,6 +181,7 @@ export function PaymentCheckoutScreen({
         created_at: new Date().toISOString(),
         session_orders_count: data.session_orders_count ?? 0,
         session_total_spend: data.session_total_spend ?? 0,
+        payment_confirmation_number: data.payment?.transaction_id ?? null,
         order_items: cart.items.map((item) => ({
           id: item.menu_item_id,
           name_snapshot: item.name,

@@ -108,6 +108,14 @@ export function OrderTracker({ initialOrder, initialItems }: Props) {
           <p className="mt-1 text-xs text-stone-400">
             Placed at {formatTime(order.created_at)} · {elapsed(order.created_at)}
           </p>
+          {order.payment_confirmation && (
+            <p className="mt-1 text-xs text-stone-400">
+              Payment confirmation{' '}
+              <span className="font-mono font-semibold text-stone-500">
+                {order.payment_confirmation}
+              </span>
+            </p>
+          )}
         </div>
 
         {/* Status card */}
