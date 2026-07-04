@@ -12,6 +12,8 @@ import { CartBar } from '@/components/public/CartBar';
 import { CartSheet } from '@/components/public/CartSheet';
 import type { PlacedOrder } from '@/components/public/CartSheet';
 import type { ItemViewSnapshot } from '@/hooks/useSessionTracking';
+import { useDirectOrders } from '@/hooks/useDirectOrders';
+import { OrdersDrawer } from '@/components/public/OrdersDrawer';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -1106,6 +1108,17 @@ export function RestaurantPublicPage({
   const cart = useCart(confirmedSessionId);
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
 
+  // Direct-link orders (no touchpoint/table session — see sessionConfirmed's
+  // undefined case above). Tracked locally per browser tab since there's no
+  // shared session to attach them to; see hooks/useDirectOrders.ts.
+  const noSessionContext = sessionConfirmed === undefined;
+  const directOrders = useDirectOrders(restaurant.id);
+  const [directOrdersDrawerOpen, setDirectOrdersDrawerOpen] = useState(false);
+  const handleOrderPlaced = useCallback((placed: PlacedOrder) => {
+    onOrderPlaced?.(placed);
+    if (noSessionContext) directOrders.addOrder(placed);
+  }, [onOrderPlaced, noSessionContext, directOrders]);
+
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const stickyRef = useRef<HTMLDivElement>(null);
   const [activeSection, setActiveSection] = useState<string>(sections[0]?.id ?? '');
@@ -1436,6 +1449,28 @@ export function RestaurantPublicPage({
                   </span>
                 </button>
               )}
+              {noSessionContext && directOrders.orders.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void directOrders.refreshStatuses();
+                    setDirectOrdersDrawerOpen(true);
+                  }}
+                  aria-label={`My Orders, ${directOrders.orders.length} order${directOrders.orders.length !== 1 ? 's' : ''}`}
+                  className="flex h-11 items-center gap-2 rounded-full px-4 active:scale-95"
+                  style={{
+                    transition: 'transform 150ms',
+                    backgroundColor: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                    border: '1px solid #e7e5e4',
+                  }}
+                >
+                  <ShoppingCart className="h-4 w-4 text-stone-600" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-stone-700">
+                    My Orders ({directOrders.orders.length})
+                  </span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setFilterDrawerOpen(true)}
@@ -1677,7 +1712,7 @@ export function RestaurantPublicPage({
           guestId={guestId}
           guestName={guestName}
           tableLabel={touchpointName}
-          onOrderPlaced={onOrderPlaced}
+          onOrderPlaced={handleOrderPlaced}
           sessionConnecting={sessionConfirmed === false}
           onSessionEnded={onSessionEnded}
           onItemRemovedFromCart={onItemRemovedFromCart}
@@ -1685,6 +1720,15 @@ export function RestaurantPublicPage({
           restaurantName={restaurant.name}
           taxRatePercent={taxRatePercent}
           serviceFeePercent={serviceFeePercent}
+        />
+      )}
+      {directOrdersDrawerOpen && (
+        <OrdersDrawer
+          orders={directOrders.orders}
+          brandColor={brandColor}
+          touchpointLabel={restaurant.name}
+          onClose={() => setDirectOrdersDrawerOpen(false)}
+          fetching={directOrders.refreshing}
         />
       )}
     </div>
