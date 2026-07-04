@@ -20,6 +20,7 @@ type Menu = {
   id: string;
   name: string;
   menu_type?: string | null;
+  display_order: number;
   item_count?: number;
 };
 
@@ -88,6 +89,7 @@ export default function MenuPage() {
   const [settingsOpenMenuId, setSettingsOpenMenuId] = useState<string | null>(null);
   const [renamingMenuId, setRenamingMenuId] = useState<string | null>(null);
   const [editingMenuName, setEditingMenuName] = useState('');
+  const [reorderingMenuId, setReorderingMenuId] = useState<string | null>(null);
   // Per-category add-item form state keyed by menu ID.
   const [newItemByMenuId, setNewItemByMenuId] = useState<Record<string, { name: string; price: string }>>({});
 
@@ -202,8 +204,9 @@ export default function MenuPage() {
   async function loadMenus(menuId: string, expandAll = false) {
     const categoryResult = await supabase
       .from('menu_categories')
-      .select('id,name,menu_type')
-      .eq('menu_id', menuId);
+      .select('id,name,menu_type,display_order')
+      .eq('menu_id', menuId)
+      .order('display_order', { ascending: true });
 
     if (categoryResult.error) { setError(categoryResult.error.message); return; }
 
@@ -510,9 +513,19 @@ export default function MenuPage() {
     setError('');
     const slug =
       newMenu.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section';
+    // New categories append to the end — display_order defaults to 0 in the
+    // schema, which would tie every new category with whichever one was
+    // created first unless we set it explicitly here.
+    const nextDisplayOrder = menus.reduce((max, m) => Math.max(max, m.display_order), -1) + 1;
     const result = await supabase
       .from('menu_categories')
-      .insert({ name: newMenu.trim(), menu_type: newMenu.trim().toLowerCase(), menu_id: libraryMenuId, slug })
+      .insert({
+        name: newMenu.trim(),
+        menu_type: newMenu.trim().toLowerCase(),
+        menu_id: libraryMenuId,
+        slug,
+        display_order: nextDisplayOrder,
+      })
       .select('id')
       .single();
     if (result.error) { setError(result.error.message); return; }
@@ -594,6 +607,31 @@ export default function MenuPage() {
     await loadMenus(libraryMenuId);
     setNotice('Category name saved');
     setTimeout(() => setNotice(''), 1500);
+  }
+
+  // Swaps display_order with the adjacent sibling in the currently-sorted
+  // `menus` array — `menus` is loaded ordered by display_order, so index-1/+1
+  // is always the visual neighbor.
+  async function moveCategory(menuId: string, direction: 'up' | 'down') {
+    const index = menus.findIndex((m) => m.id === menuId);
+    const neighborIndex = direction === 'up' ? index - 1 : index + 1;
+    if (index === -1 || neighborIndex < 0 || neighborIndex >= menus.length) return;
+
+    const current = menus[index];
+    const neighbor = menus[neighborIndex];
+    setReorderingMenuId(menuId);
+    setError('');
+
+    const [currentResult, neighborResult] = await Promise.all([
+      supabase.from('menu_categories').update({ display_order: neighbor.display_order }).eq('id', current.id),
+      supabase.from('menu_categories').update({ display_order: current.display_order }).eq('id', neighbor.id),
+    ]);
+    setReorderingMenuId(null);
+    if (currentResult.error || neighborResult.error) {
+      setError(currentResult.error?.message || neighborResult.error?.message || 'Failed to reorder categories.');
+      return;
+    }
+    await loadMenus(libraryMenuId);
   }
 
   async function addItem(menuId: string) {
@@ -988,18 +1026,40 @@ export default function MenuPage() {
               </div>
             )}
 
-            {menus.map((menu) => {
+            {menus.map((menu, index) => {
               const isExpanded = expandedMenuIds.has(menu.id);
               const isSettingsOpen = settingsOpenMenuId === menu.id;
               const isRenaming = renamingMenuId === menu.id;
               const menuItems = itemsByMenuId[menu.id] || [];
               const newItem = newItemByMenuId[menu.id] || { name: '', price: '' };
+              const isReordering = reorderingMenuId === menu.id;
 
               return (
                 <article key={menu.id} className="rounded-3xl bg-white p-5 shadow-xl">
 
                   {/* Category header */}
                   <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 flex-col gap-1">
+                      <button
+                        onClick={() => moveCategory(menu.id, 'up')}
+                        disabled={index === 0 || isReordering}
+                        aria-label="Move category up"
+                        title="Move category up"
+                        className="flex h-5 w-8 items-center justify-center rounded-t-lg bg-stone-100 text-xs font-black text-stone-500 disabled:opacity-30"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        onClick={() => moveCategory(menu.id, 'down')}
+                        disabled={index === menus.length - 1 || isReordering}
+                        aria-label="Move category down"
+                        title="Move category down"
+                        className="flex h-5 w-8 items-center justify-center rounded-b-lg bg-stone-100 text-xs font-black text-stone-500 disabled:opacity-30"
+                      >
+                        ▼
+                      </button>
+                    </div>
+
                     <button
                       onClick={() => toggleMenu(menu.id)}
                       className="flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
