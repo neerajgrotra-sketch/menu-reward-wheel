@@ -40,7 +40,11 @@ export function RestaurantMenusTab({ restaurantId, supabase }: Props) {
       if (menuIds.length === 0) { setMenus([]); setLoading(false); return; }
 
       const activeByMenuId = new Map(assignments.map((a) => [a.menu_id, a.active]));
-      const menusResult = await supabase.from('menus').select('id,name,menu_type').in('id', menuIds);
+      const menusResult = await supabase
+        .from('menus')
+        .select('id,name,menu_type')
+        .in('id', menuIds)
+        .is('deleted_at', null);
 
       if (cancelled) return;
       if (menusResult.error) { setError(menusResult.error.message); setLoading(false); return; }

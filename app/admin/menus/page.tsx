@@ -12,6 +12,7 @@ type MenuCard = {
   categoryCount: number;
   itemCount: number;
   assignedCount: number;
+  previewSlug: string | null;
 };
 
 const fallbackCopy = {
@@ -34,6 +35,7 @@ export default function MenusLibraryPage() {
   const [newMenuName, setNewMenuName] = useState('');
   const [creating, setCreating] = useState(false);
   const [cloningId, setCloningId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [savingRename, setSavingRename] = useState(false);
@@ -64,7 +66,11 @@ export default function MenusLibraryPage() {
 
     const [categoriesResult, assignmentsResult] = await Promise.all([
       supabase.from('menu_categories').select('id,menu_id').in('menu_id', menuIds),
-      supabase.from('restaurant_menu_assignments').select('menu_id').eq('active', true).in('menu_id', menuIds),
+      supabase
+        .from('restaurant_menu_assignments')
+        .select('menu_id,restaurants(slug)')
+        .eq('active', true)
+        .in('menu_id', menuIds),
     ]);
 
     const categoryRows = categoriesResult.data || [];
@@ -85,7 +91,12 @@ export default function MenusLibraryPage() {
     });
 
     const assignedCountByMenu = new Map<string, number>();
-    (assignmentsResult.data || []).forEach((a) => assignedCountByMenu.set(a.menu_id, (assignedCountByMenu.get(a.menu_id) || 0) + 1));
+    const previewSlugByMenu = new Map<string, string>();
+    (assignmentsResult.data || []).forEach((a: any) => {
+      assignedCountByMenu.set(a.menu_id, (assignedCountByMenu.get(a.menu_id) || 0) + 1);
+      const slug = a.restaurants?.slug;
+      if (slug && !previewSlugByMenu.has(a.menu_id)) previewSlugByMenu.set(a.menu_id, slug);
+    });
 
     setMenus(menuRows.map((m) => ({
       id: m.id,
@@ -95,6 +106,7 @@ export default function MenusLibraryPage() {
       categoryCount: categoryCountByMenu.get(m.id) || 0,
       itemCount: itemCountByMenu.get(m.id) || 0,
       assignedCount: assignedCountByMenu.get(m.id) || 0,
+      previewSlug: previewSlugByMenu.get(m.id) || null,
     })));
     setLoading(false);
   }
@@ -160,6 +172,25 @@ export default function MenusLibraryPage() {
     setRenamingId(null);
     setNotice('Menu name saved');
     setTimeout(() => setNotice(''), 1500);
+  }
+
+  // Soft delete: sets deleted_at + active=false rather than removing the row.
+  // Assignments are left alone — menus."Public read assigned menus" already
+  // requires menus.active=true, so a soft-deleted menu drops off every public
+  // page immediately without needing a cascade.
+  async function deleteMenu(menu: MenuCard) {
+    if (!window.confirm(`Delete "${menu.name}"? This removes it from every assigned location.`)) return;
+    setDeletingId(menu.id);
+    setError('');
+    const result = await supabase
+      .from('menus')
+      .update({ deleted_at: new Date().toISOString(), active: false })
+      .eq('id', menu.id);
+    setDeletingId(null);
+    if (result.error) { setError(result.error.message); return; }
+    setMenus((prev) => prev.filter((m) => m.id !== menu.id));
+    setNotice(`Deleted "${menu.name}"`);
+    setTimeout(() => setNotice(''), 2000);
   }
 
   // Deep clone: new menu + all its active categories + all their active items.
@@ -330,12 +361,24 @@ export default function MenusLibraryPage() {
               </div>
               <p className="mt-3 text-xs font-bold text-stone-400">Updated {formatUpdatedAt(menu.updated_at)}</p>
               <div className="mt-4 grid grid-cols-2 gap-2">
-                <a
-                  href={`/admin/menus/${menu.id}`}
-                  className="rounded-2xl bg-stone-100 px-3 py-2 text-center text-sm font-black text-stone-700"
-                >
-                  View
-                </a>
+                {menu.previewSlug ? (
+                  <a
+                    href={`/r/${menu.previewSlug}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-2xl bg-stone-100 px-3 py-2 text-center text-sm font-black text-stone-700"
+                  >
+                    View
+                  </a>
+                ) : (
+                  <button
+                    disabled
+                    title="Assign this menu to a location to preview it"
+                    className="rounded-2xl bg-stone-100 px-3 py-2 text-center text-sm font-black text-stone-400"
+                  >
+                    View
+                  </button>
+                )}
                 <a
                   href={`/admin/menus/${menu.id}`}
                   className="rounded-2xl bg-[#FF6B00] px-3 py-2 text-center text-sm font-black text-white"
@@ -354,6 +397,13 @@ export default function MenusLibraryPage() {
                   className="rounded-2xl bg-stone-200 px-3 py-2 text-center text-sm font-black text-stone-700 disabled:opacity-50"
                 >
                   {cloningId === menu.id ? 'Cloning…' : 'Clone'}
+                </button>
+                <button
+                  onClick={() => deleteMenu(menu)}
+                  disabled={deletingId === menu.id}
+                  className="col-span-2 rounded-2xl bg-red-50 px-3 py-2 text-center text-sm font-black text-red-600 disabled:opacity-50"
+                >
+                  {deletingId === menu.id ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
             </div>
