@@ -34,6 +34,9 @@ export default function MenusLibraryPage() {
   const [newMenuName, setNewMenuName] = useState('');
   const [creating, setCreating] = useState(false);
   const [cloningId, setCloningId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [savingRename, setSavingRename] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -114,14 +117,49 @@ export default function MenusLibraryPage() {
     const user = userData.user;
     if (!user) { window.location.href = '/auth'; return; }
 
+    const trimmedName = newMenuName.trim();
     const result = await supabase
       .from('menus')
-      .insert({ owner_id: user.id, name: newMenuName.trim() })
+      .insert({ owner_id: user.id, name: trimmedName })
       .select('id')
       .single();
     setCreating(false);
-    if (result.error) { setError(result.error.message); return; }
+    if (result.error) {
+      setError(
+        result.error.code === '23505'
+          ? `You already have a menu named "${trimmedName}". Choose a different name.`
+          : result.error.message
+      );
+      return;
+    }
     window.location.href = `/admin/menus/${result.data.id}`;
+  }
+
+  function startRename(menu: MenuCard) {
+    setRenamingId(menu.id);
+    setRenameDraft(menu.name);
+  }
+
+  async function saveRename(menuId: string) {
+    const trimmed = renameDraft.trim();
+    const current = menus.find((m) => m.id === menuId)?.name;
+    if (!trimmed || trimmed === current) { setRenamingId(null); return; }
+    setSavingRename(true);
+    setError('');
+    const result = await supabase.from('menus').update({ name: trimmed }).eq('id', menuId);
+    setSavingRename(false);
+    if (result.error) {
+      setError(
+        result.error.code === '23505'
+          ? `You already have a menu named "${trimmed}". Choose a different name.`
+          : result.error.message
+      );
+      return;
+    }
+    setMenus((prev) => prev.map((m) => (m.id === menuId ? { ...m, name: trimmed } : m)));
+    setRenamingId(null);
+    setNotice('Menu name saved');
+    setTimeout(() => setNotice(''), 1500);
   }
 
   // Deep clone: new menu + all its active categories + all their active items.
@@ -135,12 +173,21 @@ export default function MenusLibraryPage() {
     const user = userData.user;
     if (!user) { window.location.href = '/auth'; return; }
 
+    const cloneName = `${menu.name} (Copy)`;
     const newMenuResult = await supabase
       .from('menus')
-      .insert({ owner_id: user.id, name: `${menu.name} (Copy)`, menu_type: menu.menu_type })
+      .insert({ owner_id: user.id, name: cloneName, menu_type: menu.menu_type })
       .select('id')
       .single();
-    if (newMenuResult.error) { setError(newMenuResult.error.message); setCloningId(null); return; }
+    if (newMenuResult.error) {
+      setError(
+        newMenuResult.error.code === '23505'
+          ? `You already have a menu named "${cloneName}". Rename or delete it first, then clone again.`
+          : newMenuResult.error.message
+      );
+      setCloningId(null);
+      return;
+    }
     const newMenuId = newMenuResult.data.id as string;
 
     const categoriesResult = await supabase
@@ -232,7 +279,41 @@ export default function MenusLibraryPage() {
               <div className="flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-100 to-red-100 text-4xl">
                 🍽️
               </div>
-              <p className="mt-4 text-xl font-black">{menu.name}</p>
+              {renamingId === menu.id ? (
+                <div className="mt-4 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveRename(menu.id)}
+                    className="w-full min-w-0 rounded-xl border-2 border-[#FF6B00] px-2 py-1 text-lg font-black"
+                  />
+                  <button
+                    onClick={() => saveRename(menu.id)}
+                    disabled={savingRename}
+                    className="rounded-full bg-[#FF6B00] px-3 py-1 text-xs font-black text-white"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setRenamingId(null)}
+                    className="rounded-full bg-stone-100 px-3 py-1 text-xs font-black text-stone-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-4 flex items-center gap-2">
+                  <p className="min-w-0 flex-1 truncate text-xl font-black">{menu.name}</p>
+                  <button
+                    onClick={() => startRename(menu)}
+                    aria-label="Rename menu"
+                    className="shrink-0 rounded-full bg-stone-100 px-2 py-1 text-sm"
+                  >
+                    ✏️
+                  </button>
+                </div>
+              )}
               <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs font-bold text-stone-600">
                 <div>
                   <p className="text-lg font-black text-[#1F1F1F]">{menu.categoryCount}</p>

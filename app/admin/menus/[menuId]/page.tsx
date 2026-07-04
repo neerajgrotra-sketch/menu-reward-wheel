@@ -73,6 +73,9 @@ export default function MenuPage() {
   const [copy, setCopy] = useState(fallbackCopy);
   const [userId, setUserId] = useState('');
   const [menuName, setMenuName] = useState('');
+  const [editingLibraryName, setEditingLibraryName] = useState(false);
+  const [libraryNameDraft, setLibraryNameDraft] = useState('');
+  const [savingLibraryName, setSavingLibraryName] = useState(false);
   const [assignedRestaurantCount, setAssignedRestaurantCount] = useState(0);
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [menus, setMenus] = useState<Menu[]>([]);
@@ -545,6 +548,32 @@ export default function MenuPage() {
     }
   }
 
+  function startRenameLibraryMenu() {
+    setLibraryNameDraft(menuName);
+    setEditingLibraryName(true);
+  }
+
+  async function saveLibraryMenuName() {
+    const trimmed = libraryNameDraft.trim();
+    if (!trimmed || trimmed === menuName) { setEditingLibraryName(false); return; }
+    setSavingLibraryName(true);
+    setError('');
+    const result = await supabase.from('menus').update({ name: trimmed }).eq('id', libraryMenuId);
+    setSavingLibraryName(false);
+    if (result.error) {
+      setError(
+        result.error.code === '23505'
+          ? `You already have a menu named "${trimmed}". Choose a different name.`
+          : result.error.message
+      );
+      return;
+    }
+    setMenuName(trimmed);
+    setEditingLibraryName(false);
+    setNotice('Menu name saved');
+    setTimeout(() => setNotice(''), 1500);
+  }
+
   function startRenameMenu(menu: Menu) {
     setRenamingMenuId(menu.id);
     setEditingMenuName(menu.name);
@@ -846,8 +875,42 @@ export default function MenuPage() {
 
           {/* Header */}
           <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-black text-[#FF6B00]">{menuName || 'Menu builder'}</h1>
+            <div className="min-w-0 flex-1">
+              {editingLibraryName ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={libraryNameDraft}
+                    onChange={(e) => setLibraryNameDraft(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveLibraryMenuName()}
+                    className="w-full max-w-xs rounded-xl border-2 border-[#FF6B00] bg-white px-3 py-2 text-xl font-black text-[#1F1F1F]"
+                  />
+                  <button
+                    onClick={saveLibraryMenuName}
+                    disabled={savingLibraryName}
+                    className="rounded-full bg-[#FF6B00] px-3 py-2 text-xs font-black text-white"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditingLibraryName(false)}
+                    className="rounded-full bg-stone-100 px-3 py-2 text-xs font-black text-stone-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h1 className="truncate text-3xl font-black text-[#FF6B00]">{menuName || 'Menu builder'}</h1>
+                  <button
+                    onClick={startRenameLibraryMenu}
+                    aria-label="Rename menu"
+                    className="rounded-full bg-white px-2 py-1 text-sm shadow"
+                  >
+                    ✏️
+                  </button>
+                </div>
+              )}
             </div>
             <a href="/admin/menus" className="rounded-full bg-white px-4 py-3 text-sm font-black text-[#FF6B00] shadow">
               Menu Library

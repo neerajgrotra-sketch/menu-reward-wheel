@@ -66,9 +66,15 @@ export default function AssignMenuLocationsPage() {
         return next;
       });
     } else {
+      // Upsert, not insert: a prior unassign leaves the row behind with active=false
+      // (soft delete, to preserve history), so a plain insert would collide with the
+      // unique(restaurant_id, menu_id) constraint on reassignment.
       const result = await supabase
         .from('restaurant_menu_assignments')
-        .insert({ restaurant_id: restaurantId, menu_id: menuId, active: true })
+        .upsert(
+          { restaurant_id: restaurantId, menu_id: menuId, active: true },
+          { onConflict: 'restaurant_id,menu_id' }
+        )
         .select('id')
         .single();
       if (result.error) { setError(result.error.message); setSavingId(null); return; }
