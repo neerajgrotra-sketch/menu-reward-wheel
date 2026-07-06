@@ -79,3 +79,24 @@ export function getGameBadge(gameType?: string | null): { icon: string; label: s
   const def = getGameDefinition(gameType);
   return { icon: def.icon, label: meta.label };
 }
+
+// games.slug is the original, NOT NULL, UNIQUE identifier present on every row
+// since the table's first migration. games.game_type is a later convenience
+// column (20260601000000_normalize_game_identifiers.sql) that is only
+// guaranteed to be backfilled for rows that existed at that migration's
+// runtime — resolve it from slug instead of trusting the column, so UI that
+// lists active games doesn't silently drop rows whose game_type is null.
+// Mirrors the game_slug case statement in validate_active_game_assignment()
+// (20260616020000_validate_active_game_assignments.sql) — keep both in sync.
+const SLUG_TO_GAME_TYPE: Record<string, string> = {
+  'spin-wheel': 'spin_wheel',
+  'mystery-box': 'mystery_box',
+  'scratch-win': 'scratch_card',
+  'lucky-slot': 'reward_reels',
+  'open-the-door': 'open_the_door',
+  'pick-a-card': 'pick_a_card',
+};
+
+export function resolveGameTypeFromSlug(slug: string): string | null {
+  return SLUG_TO_GAME_TYPE[slug] ?? null;
+}

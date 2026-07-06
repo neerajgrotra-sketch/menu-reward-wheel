@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import { createClient } from '@/lib/supabase/client';
 import SpinWheelPreview from '@/components/admin/SpinWheelPreview';
-import { getGameMeta } from '@/lib/games/game-registry';
+import { getGameMeta, resolveGameTypeFromSlug } from '@/lib/games/game-registry';
 import { getGameVisual } from '@/components/game-visuals/GameVisual';
 import { fetchAssignedMenus } from '@/lib/menu/queries';
 
@@ -55,7 +55,7 @@ type ActiveGame = {
   id: string;
   name: string;
   status: string;
-  game_type: string | null;
+  slug: string;
 };
 
 const MIN = 6;
@@ -300,7 +300,7 @@ export default function PromotionBuilderPage() {
       // Load active games from games table — canonical availability authority.
       const { data: gamesData } = await supabase
         .from('games')
-        .select('id,name,status,game_type')
+        .select('id,name,status,slug')
         .eq('status', 'active')
         .order('name');
       setAvailableGames(gamesData ?? []);
@@ -591,28 +591,33 @@ export default function PromotionBuilderPage() {
             );
           })()}
 
-          {/* Additional experiences — sourced from games table (status='active' only), primary excluded. */}
+          {/* Additional experiences — sourced from games table (status='active' only), primary excluded.
+              Resolved via slug (NOT NULL/UNIQUE since the games table's first migration), not the
+              games.game_type column, which isn't guaranteed to be backfilled for every row. */}
           {(() => {
             const primaryNorm = normalizePrimary(primaryGameType);
-            const additionalAvailableGames = availableGames.filter(
-              (g): g is ActiveGame & { game_type: string } => !!g.game_type && normalizePrimary(g.game_type) !== primaryNorm
-            );
+            const additionalAvailableGames = availableGames
+              .map((g) => ({ ...g, resolvedType: resolveGameTypeFromSlug(g.slug) }))
+              .filter(
+                (g): g is ActiveGame & { resolvedType: string } =>
+                  !!g.resolvedType && normalizePrimary(g.resolvedType) !== primaryNorm
+              );
             return (
               <>
                 <div className="mt-4 flex items-center justify-between">
                   <p className="text-xs font-black uppercase tracking-wide text-stone-400">Additional Experiences</p>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalAvailableGames.map((g) => g.game_type)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
+                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalAvailableGames.map((g) => g.resolvedType)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
                     <button type="button" onClick={() => { markDirty(); setGamePool([]); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Clear All</button>
                   </div>
                 </div>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   {additionalAvailableGames.map((game) => {
-                    const selected = gamePool.includes(game.game_type);
+                    const selected = gamePool.includes(game.resolvedType);
                     return (
                       <label key={game.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 p-4 transition-colors ${selected ? 'border-[#FF6B00] bg-orange-50' : 'border-stone-100 bg-stone-50'}`}>
-                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.game_type] : current.filter((t) => t !== game.game_type)); }} className="h-5 w-5 accent-[#FF6B00]" />
-                        {getGameVisual(game.game_type, 32).visual}
+                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.resolvedType] : current.filter((t) => t !== game.resolvedType)); }} className="h-5 w-5 accent-[#FF6B00]" />
+                        {getGameVisual(game.resolvedType, 32).visual}
                         <span className="text-sm font-black">{game.name}</span>
                       </label>
                     );

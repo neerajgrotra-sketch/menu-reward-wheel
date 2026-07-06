@@ -300,6 +300,7 @@ function NonWheelPreview({ rewards, rotation, gameType: gameTypeProp }: Pick<Spi
   const [playing, setPlaying] = useState(false);
   const [selectedBox, setSelectedBox] = useState<number | null>(null);
   const [scratchResetKey, setScratchResetKey] = useState(0);
+  const [doorWinningReward, setDoorWinningReward] = useState<Reward | undefined>(undefined);
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
   const gameType = gameTypeProp || builder?.state.gameType || 'wheel';
   const game = getGameDefinition(gameType);
@@ -324,6 +325,27 @@ function NonWheelPreview({ rewards, rotation, gameType: gameTypeProp }: Pick<Spi
     const nextResult = runtimeRewards[selectedIndex]?.label || 'Reward';
     updatePreview(false, nextResult);
     confetti(game.confetti);
+  }
+
+  // Open The Door's real Runtime drives its own door-swing-open animation from
+  // an internal phase state machine (idle -> selected -> revealing -> coupon),
+  // triggered by clicking a door rather than the header Test button. onPlay
+  // fires the moment a door is picked, in time for winningReward to be set
+  // before the Runtime's own 2000ms reveal timer elapses.
+  function handleDoorPlay() {
+    if (!canPlay) return;
+    const selectedIndex = pickWeighted(runtimeRewards);
+    const reward = runtimeRewards[selectedIndex];
+    setPlaying(true);
+    setDoorWinningReward(reward);
+    updatePreview(true, '');
+    window.setTimeout(() => {
+      updatePreview(false, reward?.label || 'Reward');
+      confetti(game.confetti);
+    }, game.resultDelayMs);
+    // Matches OpenTheDoorRuntime's own resetTimerRef (8000ms) so the header
+    // re-enables at the same moment the doors return to idle.
+    window.setTimeout(() => setPlaying(false), 8000);
   }
 
   function testPlay() {
@@ -378,21 +400,29 @@ function NonWheelPreview({ rewards, rotation, gameType: gameTypeProp }: Pick<Spi
           <p className="mt-1 text-sm font-bold text-stone-500">{game.labels.instruction}</p>
           {result && <p className="mt-2 text-sm font-black text-green-700">🎉 {result}</p>}
         </div>
-        <button
-          type="button"
-          onClick={testPlay}
-          disabled={!canPlay}
-          className="rounded-full bg-[#1F1F1F] px-5 py-3 text-sm font-black text-white shadow disabled:bg-stone-300"
-        >
-          {gameType === 'scratch_card' ? 'Reset' : playing ? 'Testing...' : 'Test'}
-        </button>
+        {gameType === 'open_the_door' ? (
+          <p className="shrink-0 rounded-full bg-stone-100 px-4 py-3 text-xs font-black uppercase tracking-wide text-stone-500">
+            Click a door to test
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={testPlay}
+            disabled={!canPlay}
+            className="rounded-full bg-[#1F1F1F] px-5 py-3 text-sm font-black text-white shadow disabled:bg-stone-300"
+          >
+            {gameType === 'scratch_card' ? 'Reset' : playing ? 'Testing...' : 'Test'}
+          </button>
+        )}
       </div>
 
       {gameType === 'scratch_card'
         ? <ScratchCardBuilderPreview result={result} resetKey={scratchResetKey} onReveal={revealScratchPrize} />
-        : BuilderPreview
-          ? <BuilderPreview rewards={runtimeRewards} rotation={rotation} />
-          : <MysteryBoxBuilderPreview selectedBox={selectedBox} result={result} />}
+        : gameType === 'open_the_door'
+          ? <game.PlayComponent rewards={runtimeRewards} canPlay={canPlay} playing={playing} playsRemaining={canPlay ? 1 : 0} onPlay={handleDoorPlay} winningReward={doorWinningReward} />
+          : BuilderPreview
+            ? <BuilderPreview rewards={runtimeRewards} rotation={rotation} />
+            : <MysteryBoxBuilderPreview selectedBox={selectedBox} result={result} />}
       <RewardLegend rewards={rewards} />
     </div>
   );
