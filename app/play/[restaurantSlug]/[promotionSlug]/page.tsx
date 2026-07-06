@@ -533,6 +533,41 @@ export default function PromotionPlayPage() {
                 ? <p className="mt-2 text-lg font-black text-red-600">Coupon expired</p>
                 : <CouponExpiryBlock expiresAtMs={activeExpiresAt || 0} now={now} />
               }
+
+              {/* Redeem CTA pinned right under the countdown — the whole point of the
+                  timer is urgency, so the action it drives toward can't be buried below
+                  the fold behind QR/wallet content. */}
+              {!activeExpired && restaurant.experience_mode === 'menu_and_promotion' && (
+                isAutoRedeemable(activeCoupon, activeExpired, orderingEnabled, paymentSimulationEnabled) ? (
+                  <a
+                    href={(() => {
+                      const dest = `/r/${restaurant.slug}${touchpointCode ? `/${touchpointCode}` : ''}`;
+                      const qs = new URLSearchParams({
+                        redeem_id: activeCoupon!.redemptionId!,
+                        redeem_item: activeCoupon!.reward.couponMenuItemId!,
+                        redeem_type: activeCoupon!.reward.couponRewardType!,
+                        redeem_value: String(activeCoupon!.reward.couponRewardValue ?? ''),
+                        redeem_code: activeCoupon!.code,
+                        redeem_exp: String(activeExpiresAt),
+                      });
+                      return `${dest}?${qs}`;
+                    })()}
+                    className="mt-4 flex animate-hurry-pulse items-center justify-center gap-2 rounded-2xl bg-green-600 py-4 text-base font-black text-white shadow-lg shadow-green-600/30 active:scale-95"
+                    style={{ transition: 'transform 150ms' }}
+                  >
+                    <span aria-hidden="true" className="animate-bounce">⚡</span>
+                    Hurry, Redeem Now
+                  </a>
+                ) : (
+                  <a
+                    href={`/r/${restaurant.slug}${touchpointCode ? `/${touchpointCode}` : ''}`}
+                    className="mt-4 block animate-hurry-pulse rounded-2xl bg-green-600 py-4 text-center text-base font-black text-white shadow-lg shadow-green-600/30 active:scale-95"
+                    style={{ transition: 'transform 150ms' }}
+                  >
+                    ⚡ Hurry, Browse Menu
+                  </a>
+                )
+              )}
             </div>
 
             {/* ── Scrollable body ── */}
@@ -567,36 +602,6 @@ export default function PromotionPlayPage() {
                     <button onClick={() => setShowReveal(false)} className="rounded-2xl bg-stone-100 px-5 py-4 text-sm font-black text-stone-800">Close</button>
                     <button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button>
                   </div>
-                  {restaurant?.experience_mode === 'menu_and_promotion' && (
-                    isAutoRedeemable(activeCoupon, activeExpired, orderingEnabled, paymentSimulationEnabled) ? (
-                      <a
-                        href={(() => {
-                          const dest = `/r/${restaurant.slug}${touchpointCode ? `/${touchpointCode}` : ''}`;
-                          const qs = new URLSearchParams({
-                            redeem_id: activeCoupon!.redemptionId!,
-                            redeem_item: activeCoupon!.reward.couponMenuItemId!,
-                            redeem_type: activeCoupon!.reward.couponRewardType!,
-                            redeem_value: String(activeCoupon!.reward.couponRewardValue ?? ''),
-                            redeem_code: activeCoupon!.code,
-                            redeem_exp: String(activeExpiresAt),
-                          });
-                          return `${dest}?${qs}`;
-                        })()}
-                        className="mt-3 block rounded-2xl bg-green-600 py-4 text-center text-sm font-black text-white active:scale-95"
-                        style={{ transition: 'transform 150ms' }}
-                      >
-                        Redeem Now
-                      </a>
-                    ) : (
-                      <a
-                        href={`/r/${restaurant.slug}${touchpointCode ? `/${touchpointCode}` : ''}`}
-                        className="mt-3 block rounded-2xl bg-white py-4 text-center text-sm font-black text-stone-700 ring-1 ring-stone-200 active:scale-95"
-                        style={{ transition: 'transform 150ms' }}
-                      >
-                        Browse Menu
-                      </a>
-                    )
-                  )}
                   <p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p>
                 </>
               )}
