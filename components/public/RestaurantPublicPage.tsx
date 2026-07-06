@@ -591,6 +591,7 @@ function RewardWidget({
   bottomOffset = 0,
   restaurantSlug,
   touchpointCode,
+  confirmedSessionId,
   onViewed,
   onPlayed,
 }: {
@@ -602,6 +603,11 @@ function RewardWidget({
   bottomOffset?: number;
   restaurantSlug: string;
   touchpointCode?: string | null;
+  // Current table/touchpoint dining session (vsid), when one exists — scopes
+  // the play-status peek below so a session the restaurant ends, followed by
+  // a rescan (a genuinely new session id), reads as "not yet played" instead
+  // of resuming the previous session's stale reward.
+  confirmedSessionId?: string | null;
   onViewed?: () => void;
   onPlayed?: (gameType: string) => void;
 }) {
@@ -630,7 +636,7 @@ function RewardWidget({
 
   useEffect(() => {
     let cancelled = false;
-    const token = peekPlaySessionToken(restaurantSlug, promotion.slug);
+    const token = peekPlaySessionToken(restaurantSlug, promotion.slug, confirmedSessionId);
     if (!token) return;
 
     const url = new URL('/api/public/promotion-play', window.location.origin);
@@ -658,7 +664,7 @@ function RewardWidget({
       });
 
     return () => { cancelled = true; };
-  }, [restaurantSlug, promotion.slug]);
+  }, [restaurantSlug, promotion.slug, confirmedSessionId]);
 
   const isRedeemed = statusCoupon?.status === 'redeemed';
   const isExpired = statusCoupon ? now >= new Date(statusCoupon.expiresAt).getTime() : false;
@@ -1896,6 +1902,7 @@ export function RestaurantPublicPage({
           bottomOffset={cartBarVisible ? cartBarHeight : 0}
           restaurantSlug={restaurant.slug}
           touchpointCode={touchpointCode}
+          confirmedSessionId={confirmedSessionId}
           onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'widget_sheet')}
           onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'widget_sheet', gameType)}
         />
