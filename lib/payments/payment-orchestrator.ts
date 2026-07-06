@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolveOrderItems, type OrderItemInput } from '@/lib/orders/resolve-order-items';
 import { createOrderWithItems } from '@/lib/orders/create-order';
 import { resolveActiveSessionId } from '@/lib/orders/session-guard';
+import { resolveCouponDiscount } from '@/lib/orders/apply-coupon-discount';
 import { MockPaymentProvider } from './providers/mock-provider';
 import type { PaymentProvider } from './providers/payment-provider.interface';
 import {
@@ -31,6 +32,7 @@ export type ProcessPaymentParams = {
   tipAmount?: number;
   tipPercent?: number;
   currency?: string;
+  couponRedemptionId?: string | null;
 };
 
 export type ChargeBreakdown = {
@@ -38,6 +40,7 @@ export type ChargeBreakdown = {
   tax_amount: number;
   service_fee_amount: number;
   tip_amount: number;
+  discount_amount: number;
   total: number;
 };
 
@@ -103,6 +106,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
     tipAmount,
     tipPercent,
     currency = 'usd',
+    couponRedemptionId,
   } = params;
 
   // 1. Idempotency check — a previously succeeded checkout attempt with an
@@ -141,6 +145,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
           tax_amount: numeric('tax_amount', 0),
           service_fee_amount: numeric('service_fee_amount', 0),
           tip_amount: numeric('tip_amount', 0),
+          discount_amount: numeric('coupon_discount_amount', 0),
           total: existingPayment.amount,
         },
         sessionOrdersCount: 0,
@@ -169,20 +174,32 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
   }
   const { resolvedItems, subtotal } = resolution;
 
+  // 3b. "Redeem Now" coupon discount — re-derived and re-validated entirely
+  // server-side (redemption status, expiry, item match). A coupon that can't
+  // be applied is silently skipped, never blocks checkout (product decision).
+  const { discountAmount, appliedRedemptionId } = await resolveCouponDiscount(
+    supabase,
+    restaurantId,
+    couponRedemptionId,
+    resolvedItems,
+  );
+  const chargeSubtotal = roundCurrency(subtotal - discountAmount);
+
   // 4. Tax / service fee — sourced from restaurant_settings, fallback constants if unset.
+  // Computed on the post-discount subtotal, matching standard retail tax treatment.
   const [taxRatePercent, serviceFeePercent] = await Promise.all([
     fetchRestaurantSettingValue(supabase, restaurantId, 'tax_rate_percent'),
     fetchRestaurantSettingValue(supabase, restaurantId, 'service_fee_percent'),
   ]);
-  const taxAmount = roundCurrency(subtotal * ((taxRatePercent ?? DEFAULT_TAX_RATE_PERCENT) / 100));
+  const taxAmount = roundCurrency(chargeSubtotal * ((taxRatePercent ?? DEFAULT_TAX_RATE_PERCENT) / 100));
   const serviceFeeAmount = roundCurrency(
-    subtotal * ((serviceFeePercent ?? DEFAULT_SERVICE_FEE_PERCENT) / 100),
+    chargeSubtotal * ((serviceFeePercent ?? DEFAULT_SERVICE_FEE_PERCENT) / 100),
   );
 
   // 5. Tip — percentage tips are recomputed server-side; a flat custom tip is bounds-checked.
-  const tip = computeTipAmount(subtotal, tipPercent, tipAmount);
+  const tip = computeTipAmount(chargeSubtotal, tipPercent, tipAmount);
 
-  const total = roundCurrency(subtotal + taxAmount + serviceFeeAmount + tip);
+  const total = roundCurrency(chargeSubtotal + taxAmount + serviceFeeAmount + tip);
 
   // 6. Reject up front if the session already ended — never charge into a dead session.
   if (visitSessionId) {
@@ -217,6 +234,8 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
         tax_amount: taxAmount,
         service_fee_amount: serviceFeeAmount,
         tip_amount: tip,
+        coupon_redemption_id: appliedRedemptionId,
+        coupon_discount_amount: discountAmount,
       },
     })
     .select('id')
@@ -234,7 +253,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
     restaurantId,
     amount: { amount: total, currency },
     idempotencyKey,
-    metadata: { subtotal, tax_amount: taxAmount, service_fee_amount: serviceFeeAmount, tip_amount: tip },
+    metadata: { subtotal, tax_amount: taxAmount, service_fee_amount: serviceFeeAmount, tip_amount: tip, coupon_discount_amount: discountAmount },
   });
 
   const authorization = await provider.authorizePayment({ transactionId: checkout.transactionId });
@@ -280,6 +299,7 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
     visitSessionId,
     rawGuestId,
     idempotencyKey: `${idempotencyKey}:order`,
+    couponRedemptionId: appliedRedemptionId,
   });
 
   if (!created.ok) {
@@ -293,6 +313,20 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
 
   await supabase.from('payments').update({ order_id: created.order.id }).eq('id', paymentRow.id);
 
+  // Best-effort — a failure here doesn't unwind the payment/order, it just
+  // leaves the redemption row eligible for a future silent-skip re-check
+  // (resolveCouponDiscount always re-validates status/expiry from scratch).
+  if (appliedRedemptionId) {
+    const { error: redeemError } = await supabase
+      .from('coupon_redemptions')
+      .update({ status: 'redeemed', redeemed_at: new Date().toISOString() })
+      .eq('id', appliedRedemptionId)
+      .eq('status', 'issued');
+    if (redeemError) {
+      console.error('[payment-orchestrator] failed to mark coupon redeemed', redeemError.message, { appliedRedemptionId });
+    }
+  }
+
   return {
     ok: true,
     idempotent: false,
@@ -305,10 +339,13 @@ export async function processPayment(params: ProcessPaymentParams): Promise<Proc
     },
     order: created.order,
     charge_breakdown: {
+      // Full pre-discount subtotal — matches payments.metadata.subtotal and the
+      // idempotent-replay branch above, which both read/store the undiscounted value.
       subtotal,
       tax_amount: taxAmount,
       service_fee_amount: serviceFeeAmount,
       tip_amount: tip,
+      discount_amount: discountAmount,
       total,
     },
     sessionOrdersCount: created.sessionOrdersCount,

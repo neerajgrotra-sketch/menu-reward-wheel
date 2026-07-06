@@ -12,8 +12,40 @@ import type { Reward } from '@/types/reward';
 
 type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; logo_url?: string | null; experience_mode?: string | null };
 type Promotion = { id: string; name: string; slug: string; game_type?: string | null; status: string; coupon_expiry_minutes?: number | null; starts_at?: string | null; ends_at?: string | null; max_spins?: number | null };
-type WonCoupon = { id: string; redemptionId?: string | null; reward: Reward; code: string; issuedAt: number };
-type SessionCoupon = { id: string; code: string; status: string; issuedAt: string; expiresAt: string; rewardLabel: string };
+
+// promotion_rewards fields needed to offer automatic redemption at checkout.
+// Kept separate from Reward's own `rewardType`/`menuItemId` (game-runtime enum
+// values like 'PERCENT_OFF_ITEM') to avoid colliding with that shared type.
+type RedeemableReward = Reward & {
+  couponMenuItemId?: string | null;
+  couponRewardType?: 'free' | 'discount' | 'custom' | null;
+  couponRewardValue?: number | null;
+};
+
+type WonCoupon = { id: string; redemptionId?: string | null; reward: RedeemableReward; code: string; issuedAt: number };
+type SessionCoupon = {
+  id: string;
+  code: string;
+  status: string;
+  issuedAt: string;
+  expiresAt: string;
+  rewardLabel: string;
+  menuItemId: string | null;
+  rewardType: string | null;
+  rewardValue: number | null;
+};
+
+function isAutoRedeemable(
+  coupon: WonCoupon | null,
+  expired: boolean,
+  orderingEnabled: boolean,
+  paymentSimulationEnabled: boolean,
+) {
+  if (!coupon || expired || !coupon.redemptionId) return false;
+  if (!orderingEnabled || !paymentSimulationEnabled) return false;
+  if (!coupon.reward.couponMenuItemId) return false;
+  return coupon.reward.couponRewardType === 'discount' || coupon.reward.couponRewardType === 'free';
+}
 
 function WalletButtons({ code }: { code: string }) {
   const [msg, setMsg] = useState<string | null>(null);
@@ -251,10 +283,13 @@ export default function PromotionPlayPage() {
   const { restaurantSlug, promotionSlug } = useParams() as { restaurantSlug: string; promotionSlug: string };
   const searchParams = useSearchParams();
   const visitSessionId = searchParams.get('vsid');
+  const touchpointCode = searchParams.get('tc');
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [promotion, setPromotion] = useState<Promotion | null>(null);
-  const [rewards, setRewards] = useState<Reward[]>([]);
-  const [winningReward, setWinningReward] = useState<Reward | null>(null);
+  const [rewards, setRewards] = useState<RedeemableReward[]>([]);
+  const [winningReward, setWinningReward] = useState<RedeemableReward | null>(null);
+  const [orderingEnabled, setOrderingEnabled] = useState(false);
+  const [paymentSimulationEnabled, setPaymentSimulationEnabled] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [wonCoupons, setWonCoupons] = useState<WonCoupon[]>([]);
@@ -324,6 +359,8 @@ export default function PromotionPlayPage() {
       setRestaurant(payload.restaurant || null);
       setPromotion(payload.promotion || null);
       setPlaySessionId(payload.playSessionId || '');
+      setOrderingEnabled(Boolean(payload.orderingEnabled));
+      setPaymentSimulationEnabled(Boolean(payload.paymentSimulationEnabled));
 
       if (payload.alreadyPlayed) {
         setAlreadyPlayed(true);
@@ -350,6 +387,9 @@ export default function PromotionPlayPage() {
               description: c.rewardLabel,
               weight: 1,
               terms: 'Show this code to staff before ordering.',
+              couponMenuItemId: c.menuItemId,
+              couponRewardType: c.rewardType as RedeemableReward['couponRewardType'],
+              couponRewardValue: c.rewardValue,
             },
             code: c.code,
             issuedAt: new Date(c.issuedAt).getTime(),
@@ -358,7 +398,14 @@ export default function PromotionPlayPage() {
         }
       }
 
-      setRewards(payload.rewards || []);
+      setRewards(
+        (payload.rewards || []).map((r: any) => ({
+          ...r,
+          couponMenuItemId: r.menu_item_id ?? null,
+          couponRewardType: r.reward_type ?? null,
+          couponRewardValue: r.reward_value ?? null,
+        })),
+      );
 
       // Determine whether the Save Reward panel should appear after the first win.
       // Skipped promotions are tracked by UUID — re-prompts on new promotions.
@@ -521,13 +568,34 @@ export default function PromotionPlayPage() {
                     <button onClick={playGame} disabled={!canPlay} className="rounded-2xl bg-green-600 px-5 py-4 text-sm font-black text-white disabled:bg-stone-300">{playsRemaining > 0 ? game.labels.playAgainText : 'No Plays Left'}</button>
                   </div>
                   {restaurant?.experience_mode === 'menu_and_promotion' && (
-                    <a
-                      href={`/r/${restaurant.slug}`}
-                      className="mt-3 block rounded-2xl bg-white py-4 text-center text-sm font-black text-stone-700 ring-1 ring-stone-200 active:scale-95"
-                      style={{ transition: 'transform 150ms' }}
-                    >
-                      Browse Menu
-                    </a>
+                    isAutoRedeemable(activeCoupon, activeExpired, orderingEnabled, paymentSimulationEnabled) ? (
+                      <a
+                        href={(() => {
+                          const dest = `/r/${restaurant.slug}${touchpointCode ? `/${touchpointCode}` : ''}`;
+                          const qs = new URLSearchParams({
+                            redeem_id: activeCoupon!.redemptionId!,
+                            redeem_item: activeCoupon!.reward.couponMenuItemId!,
+                            redeem_type: activeCoupon!.reward.couponRewardType!,
+                            redeem_value: String(activeCoupon!.reward.couponRewardValue ?? ''),
+                            redeem_code: activeCoupon!.code,
+                            redeem_exp: String(activeExpiresAt),
+                          });
+                          return `${dest}?${qs}`;
+                        })()}
+                        className="mt-3 block rounded-2xl bg-green-600 py-4 text-center text-sm font-black text-white active:scale-95"
+                        style={{ transition: 'transform 150ms' }}
+                      >
+                        Redeem Now
+                      </a>
+                    ) : (
+                      <a
+                        href={`/r/${restaurant.slug}${touchpointCode ? `/${touchpointCode}` : ''}`}
+                        className="mt-3 block rounded-2xl bg-white py-4 text-center text-sm font-black text-stone-700 ring-1 ring-stone-200 active:scale-95"
+                        style={{ transition: 'transform 150ms' }}
+                      >
+                        Browse Menu
+                      </a>
+                    )
                   )}
                   <p className="mt-3 text-xs text-stone-500">{activeCoupon.reward.terms}</p>
                 </>

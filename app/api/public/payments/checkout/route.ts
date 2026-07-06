@@ -37,6 +37,7 @@ type CheckoutRequest = {
   tip_amount?: number;
   tip_percent?: number;
   idempotency_key: string;
+  coupon_redemption_id?: string | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -72,6 +73,7 @@ export async function POST(req: NextRequest) {
       tip_amount,
       tip_percent,
       idempotency_key,
+      coupon_redemption_id,
     } = body;
 
     if (!restaurant_id || !idempotency_key || !Array.isArray(items) || items.length === 0) {
@@ -139,6 +141,7 @@ export async function POST(req: NextRequest) {
       idempotencyKey: idempotency_key,
       tipAmount: tip_amount,
       tipPercent: tip_percent,
+      couponRedemptionId: coupon_redemption_id ?? null,
     });
 
     if (!result.ok) {
