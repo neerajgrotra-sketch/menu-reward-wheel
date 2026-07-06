@@ -697,6 +697,7 @@ export function TouchpointMenuPage({
         guestId={guestId}
         guestName={guestName}
         touchpointName={touchpointLabel}
+        touchpointCode={touchpoint.touchpoint_code}
         onItemViewed={onItemOpen}
         onItemClosed={onItemClose}
         onOrderPlaced={handleOrderPlaced}

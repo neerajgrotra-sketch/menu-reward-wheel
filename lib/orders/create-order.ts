@@ -16,6 +16,7 @@ export type CreateOrderParams = {
   visitSessionId: string | null;
   rawGuestId: string | null | undefined;
   idempotencyKey: string;
+  couponRedemptionId?: string | null;
 };
 
 export type CreateOrderResult =
@@ -44,6 +45,7 @@ export async function createOrderWithItems(params: CreateOrderParams): Promise<C
     visitSessionId,
     rawGuestId,
     idempotencyKey,
+    couponRedemptionId,
   } = params;
 
   // Atomic restaurant-scoped order number — single UPSERT+increment, no race condition
@@ -101,6 +103,7 @@ export async function createOrderWithItems(params: CreateOrderParams): Promise<C
       guest_id: resolvedGuestId,
       idempotency_key: idempotencyKey,
       subtotal,
+      coupon_id: couponRedemptionId ?? null,
     })
     .select('id, order_number, status, subtotal')
     .single();

@@ -56,6 +56,26 @@ export async function GET(request: NextRequest) {
 
     const restaurant = restaurantResult.data;
 
+    // Capability flags for the "Redeem Now" flow — surfaced on every response
+    // branch below since either the alreadyPlayed or the fresh-play branch may
+    // be what the win screen ends up rendering from.
+    const [orderingCapability, paymentSimCapability] = await Promise.all([
+      supabase
+        .from('restaurant_capabilities')
+        .select('enabled')
+        .eq('restaurant_id', restaurant.id)
+        .eq('capability_name', 'ordering')
+        .maybeSingle(),
+      supabase
+        .from('restaurant_capabilities')
+        .select('enabled')
+        .eq('restaurant_id', restaurant.id)
+        .eq('capability_name', 'payment_simulation')
+        .maybeSingle(),
+    ]);
+    const orderingEnabled = Boolean(orderingCapability.data?.enabled);
+    const paymentSimulationEnabled = Boolean(paymentSimCapability.data?.enabled);
+
     const promotionResult = await supabase
       .from('promotions')
       .select('id,name,slug,game_type,status,coupon_expiry_minutes,starts_at,ends_at,max_spins')
@@ -131,6 +151,8 @@ export async function GET(request: NextRequest) {
           playsUsed: playState.playsUsed,
           playsRemaining: 0,
           existingCoupons,
+          orderingEnabled,
+          paymentSimulationEnabled,
         });
       }
 
@@ -201,6 +223,9 @@ export async function GET(request: NextRequest) {
           'Show this code to staff before ordering. One reward per customer/session. Standard restaurant terms apply.',
         weight: item.weight || 30,
         active: true,
+        menu_item_id: item.menu_item_id ?? null,
+        reward_type: item.reward_type ?? null,
+        reward_value: item.reward_value ?? null,
       };
     });
 
@@ -248,6 +273,8 @@ export async function GET(request: NextRequest) {
       playsUsed: resumedPlaysUsed,
       playsRemaining: maxSpins - resumedPlaysUsed,
       existingCoupons: resumedExistingCoupons,
+      orderingEnabled,
+      paymentSimulationEnabled,
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -270,6 +297,9 @@ type SessionCoupon = {
   issuedAt: string;
   expiresAt: string;
   rewardLabel: string;
+  menuItemId: string | null;
+  rewardType: string | null;
+  rewardValue: number | null;
 };
 
 async function findSessionCoupons(
@@ -351,6 +381,9 @@ async function findSessionCoupons(
       issuedAt,
       expiresAt,
       rewardLabel: label,
+      menuItemId: reward?.menu_item_id ?? null,
+      rewardType: reward?.reward_type ?? null,
+      rewardValue: reward?.reward_value ?? null,
     };
   });
 }

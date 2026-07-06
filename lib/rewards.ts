@@ -49,7 +49,7 @@ export function createDefaultWorkspace(): RestaurantWorkspace {
   };
 }
 
-export function pickWeightedReward(rewards: Reward[]): Reward {
+export function pickWeightedReward<T extends Reward>(rewards: T[]): T {
   const activeRewards = rewards.filter((reward) => reward.active !== false);
   const pool = activeRewards.length > 0 ? activeRewards : rewards;
   const total = pool.reduce((sum, reward) => sum + reward.weight, 0);

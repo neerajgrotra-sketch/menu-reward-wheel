@@ -47,6 +47,10 @@ type CartSheetProps = {
   restaurantName?: string;
   taxRatePercent?: number;
   serviceFeePercent?: number;
+  // "Redeem Now" — id of a coupon_redemptions row to apply at checkout, if any.
+  // Only meaningful on the payment-simulation path; the server re-validates and
+  // re-derives the actual discount from this id, never trusting a precomputed amount.
+  couponRedemptionId?: string | null;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
@@ -56,7 +60,7 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart, paymentSimulationEnabled = false, restaurantName = '', taxRatePercent = 0, serviceFeePercent = 0 }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart, paymentSimulationEnabled = false, restaurantName = '', taxRatePercent = 0, serviceFeePercent = 0, couponRedemptionId = null }: CartSheetProps) {
   const [customerName, setCustomerName] = useState(guestName ?? '');
   const [screen, setScreen] = useState<Screen>('cart');
 
@@ -293,6 +297,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
             guestId={guestId}
             taxRatePercent={taxRatePercent}
             serviceFeePercent={serviceFeePercent}
+            couponRedemptionId={couponRedemptionId}
             onBack={() => setScreen('cart')}
             onSuccess={handlePaymentSuccess}
             onSessionEnded={onSessionEnded}

@@ -24,6 +24,7 @@ type PaymentCheckoutScreenProps = {
   guestId?: string | null;
   taxRatePercent: number;
   serviceFeePercent: number;
+  couponRedemptionId?: string | null;
   onBack: () => void;
   onSuccess: (placedOrder: PlacedOrder) => void;
   onSessionEnded?: () => void;
@@ -68,6 +69,7 @@ export function PaymentCheckoutScreen({
   guestId,
   taxRatePercent,
   serviceFeePercent,
+  couponRedemptionId,
   onBack,
   onSuccess,
   onSessionEnded,
@@ -121,6 +123,7 @@ export function PaymentCheckoutScreen({
         tip_percent: tipSelection && tipSelection !== 'custom' ? tipSelection : undefined,
         tip_amount: tipSelection === 'custom' ? previewTip : undefined,
         idempotency_key: idempotencyKeyRef.current,
+        coupon_redemption_id: couponRedemptionId ?? undefined,
       };
 
       const [res] = await Promise.all([

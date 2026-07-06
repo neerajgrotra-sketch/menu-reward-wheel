@@ -14,6 +14,8 @@ import type { PlacedOrder } from '@/components/public/CartSheet';
 import type { ItemViewSnapshot } from '@/hooks/useSessionTracking';
 import { useDirectOrders } from '@/hooks/useDirectOrders';
 import { OrdersDrawer } from '@/components/public/OrdersDrawer';
+import { usePendingRedemption } from '@/hooks/usePendingRedemption';
+import { formatCouponTimeRemaining } from '@/lib/coupon-expiry';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -1017,6 +1019,7 @@ export function RestaurantPublicPage({
   guestId = null,
   guestName = null,
   touchpointName = null,
+  touchpointCode = null,
   onItemViewed,
   onItemClosed,
   onOrderPlaced,
@@ -1044,6 +1047,7 @@ export function RestaurantPublicPage({
   guestId?: string | null;
   guestName?: string | null;
   touchpointName?: string | null;
+  touchpointCode?: string | null;
   onItemViewed?: (itemId: string, itemName: string, snapshot?: ItemViewSnapshot) => void;
   onItemClosed?: () => void;
   onOrderPlaced?: (placedOrder: PlacedOrder) => void;
@@ -1068,8 +1072,12 @@ export function RestaurantPublicPage({
   // Transactional actions require a confirmed session (or no session context on direct-URL pages)
   const transactionAllowed = sessionConfirmed !== false;
 
-  const playUrl = playUrlBase && confirmedSessionId
-    ? `${playUrlBase}?vsid=${confirmedSessionId}`
+  const playParams = new URLSearchParams();
+  if (confirmedSessionId) playParams.set('vsid', confirmedSessionId);
+  if (touchpointCode) playParams.set('tc', touchpointCode);
+  const playParamsString = playParams.toString();
+  const playUrl = playUrlBase && playParamsString
+    ? `${playUrlBase}?${playParamsString}`
     : playUrlBase;
 
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
@@ -1108,6 +1116,38 @@ export function RestaurantPublicPage({
   const cart = useCart(confirmedSessionId);
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
 
+  // "Redeem Now" — a won coupon carried over from the play page. Auto-adds its
+  // menu item to the cart once, then shows a countdown banner until the order
+  // is placed or the customer dismisses it (dismiss hides the banner only —
+  // the cart item stays). Server re-validates everything at checkout; this is
+  // purely a UX convenience, never the source of truth for the discount.
+  const pendingRedemption = usePendingRedemption(restaurant.id);
+  useEffect(() => {
+    const pending = pendingRedemption.pending;
+    if (!pending || pendingRedemption.expired) return;
+    if (!orderingEnabled || !transactionAllowed) return;
+
+    const item = sections.flatMap((section) => section.items).find((i) => i.id === pending.menuItemId);
+    if (!item || !item.available) return;
+
+    // Synchronous, storage-backed claim — stays correct even if this effect
+    // runs twice before either invocation sees a re-render (StrictMode's dev
+    // double-invoke, or a real hydration-mismatch recovery remount elsewhere
+    // on this page); only the invocation that wins the claim adds the item.
+    if (!pendingRedemption.claimAutoAdd(pending.redemptionId)) return;
+
+    cart.addItem(
+      {
+        menu_item_id: item.id,
+        name: item.name,
+        price: item.price ?? 0,
+        effective_price: item.effective_price ?? item.price ?? 0,
+        special_active: item.special_active,
+      },
+      restaurant.id,
+    );
+  }, [pendingRedemption, orderingEnabled, transactionAllowed, sections, cart, restaurant.id]);
+
   // Direct-link orders (no touchpoint/table session — see sessionConfirmed's
   // undefined case above). Tracked locally per browser tab since there's no
   // shared session to attach them to; see hooks/useDirectOrders.ts.
@@ -1117,7 +1157,8 @@ export function RestaurantPublicPage({
   const handleOrderPlaced = useCallback((placed: PlacedOrder) => {
     onOrderPlaced?.(placed);
     if (noSessionContext) directOrders.addOrder(placed);
-  }, [onOrderPlaced, noSessionContext, directOrders]);
+    pendingRedemption.clear();
+  }, [onOrderPlaced, noSessionContext, directOrders, pendingRedemption]);
 
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const stickyRef = useRef<HTMLDivElement>(null);
@@ -1251,6 +1292,17 @@ export function RestaurantPublicPage({
     restaurant.instagram_url ||
     restaurant.facebook_url;
 
+  const pendingRedemptionItem = pendingRedemption.pending
+    ? sections.flatMap((section) => section.items).find((i) => i.id === pendingRedemption.pending!.menuItemId)
+    : null;
+  const pendingRedemptionLabel = pendingRedemption.pending
+    ? pendingRedemption.pending.rewardType === 'free'
+      ? `Free ${pendingRedemptionItem?.name ?? 'item'}`
+      : pendingRedemption.pending.rewardType === 'discount'
+        ? `${pendingRedemption.pending.rewardValue ?? 0}% off ${pendingRedemptionItem?.name ?? 'item'}`
+        : pendingRedemptionItem?.name ?? 'Your reward'
+    : '';
+
   return (
     // D1: secondary_color provides a per-restaurant page background tint at ~4% opacity
     <div
@@ -1261,6 +1313,32 @@ export function RestaurantPublicPage({
           : '#fafaf9',
       }}
     >
+      {/* ── Pending redemption banner ── */}
+      {pendingRedemption.pending && (
+        <div className="sticky top-0 z-40 flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-white shadow-md" style={{ backgroundColor: brandColor }}>
+          <span className="text-lg">🎁</span>
+          <div className="min-w-0 flex-1">
+            {pendingRedemption.expired ? (
+              <p>Redemption window expired — {pendingRedemptionLabel} stays in your cart at full price.</p>
+            ) : pendingRedemptionItem ? (
+              <p className="truncate">
+                {pendingRedemptionLabel} added to your order — redeem within{' '}
+                {formatCouponTimeRemaining(pendingRedemption.pending.expiresAtMs - pendingRedemption.now)}
+              </p>
+            ) : (
+              <p>This reward&apos;s item is no longer available — it won&apos;t apply automatically, but you can still order.</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={pendingRedemption.dismiss}
+            aria-label="Dismiss"
+            className="shrink-0 rounded-full bg-white/20 px-2 py-1 text-xs font-black"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ── Hero ── */}
       <div className="relative">
@@ -1720,6 +1798,7 @@ export function RestaurantPublicPage({
           restaurantName={restaurant.name}
           taxRatePercent={taxRatePercent}
           serviceFeePercent={serviceFeePercent}
+          couponRedemptionId={pendingRedemption.expired ? null : pendingRedemption.pending?.redemptionId ?? null}
         />
       )}
       {directOrdersDrawerOpen && (
