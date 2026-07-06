@@ -16,6 +16,8 @@ import { useDirectOrders } from '@/hooks/useDirectOrders';
 import { OrdersDrawer } from '@/components/public/OrdersDrawer';
 import { usePendingRedemption } from '@/hooks/usePendingRedemption';
 import { formatCouponTimeRemaining } from '@/lib/coupon-expiry';
+import { peekPlaySessionToken } from '@/lib/play-session-token';
+import type { SessionCoupon } from '@/app/play/[restaurantSlug]/[promotionSlug]/page';
 
 // ─── Hours utilities ──────────────────────────────────────────────────────────
 
@@ -587,6 +589,8 @@ function RewardWidget({
   playUrl,
   accentColor,
   bottomOffset = 0,
+  restaurantSlug,
+  touchpointCode,
   onViewed,
   onPlayed,
 }: {
@@ -596,6 +600,8 @@ function RewardWidget({
   // Pixel height of the CartBar when it's showing, so this button sits above
   // it instead of being covered by it (both anchor to the same bottom-right).
   bottomOffset?: number;
+  restaurantSlug: string;
+  touchpointCode?: string | null;
   onViewed?: () => void;
   onPlayed?: (gameType: string) => void;
 }) {
@@ -611,6 +617,80 @@ function RewardWidget({
   const [launching, setLaunching] = useState(false);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const launchBtnRef = useRef<HTMLButtonElement>(null);
+
+  // This browser's existing reward for this promotion, if any — checked once
+  // up front so the widget never invites a replay that just dead-ends on
+  // "you already played this promotion" after the customer taps Play Now.
+  // Only peeks (never mints) a session token: a fresh visitor with no token
+  // gets the normal come-play teaser and no extra network/session-row cost.
+  const [statusCoupon, setStatusCoupon] = useState<SessionCoupon | null>(null);
+  const [orderingEnabled, setOrderingEnabled] = useState(false);
+  const [paymentSimulationEnabled, setPaymentSimulationEnabled] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = peekPlaySessionToken(restaurantSlug, promotion.slug);
+    if (!token) return;
+
+    const url = new URL('/api/public/promotion-play', window.location.origin);
+    url.searchParams.set('restaurantSlug', restaurantSlug);
+    url.searchParams.set('promotionSlug', promotion.slug);
+    url.searchParams.set('sessionToken', token);
+
+    fetch(url.toString(), { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((payload) => {
+        if (cancelled) return;
+        const coupons = (payload?.existingCoupons || []) as SessionCoupon[];
+        if (coupons.length > 0) {
+          const active = coupons.find(
+            (c) => c.status !== 'redeemed' && Date.now() < new Date(c.expiresAt).getTime(),
+          );
+          setStatusCoupon(active || coupons[coupons.length - 1]);
+          setOrderingEnabled(Boolean(payload.orderingEnabled));
+          setPaymentSimulationEnabled(Boolean(payload.paymentSimulationEnabled));
+        }
+      })
+      .catch(() => {
+        // Status check is best-effort UX polish — on failure, fall back to
+        // the default come-play teaser rather than blocking the widget.
+      });
+
+    return () => { cancelled = true; };
+  }, [restaurantSlug, promotion.slug]);
+
+  const isRedeemed = statusCoupon?.status === 'redeemed';
+  const isExpired = statusCoupon ? now >= new Date(statusCoupon.expiresAt).getTime() : false;
+  const autoRedeemable = Boolean(
+    statusCoupon &&
+    !isExpired &&
+    !isRedeemed &&
+    orderingEnabled &&
+    paymentSimulationEnabled &&
+    statusCoupon.menuItemId &&
+    (statusCoupon.rewardType === 'discount' || statusCoupon.rewardType === 'free'),
+  );
+  const redeemHref = (() => {
+    if (!statusCoupon) return '';
+    const dest = `/r/${restaurantSlug}${touchpointCode ? `/${touchpointCode}` : ''}`;
+    if (!autoRedeemable) return dest;
+    const qs = new URLSearchParams({
+      redeem_id: statusCoupon.id,
+      redeem_item: statusCoupon.menuItemId || '',
+      redeem_type: statusCoupon.rewardType || '',
+      redeem_value: String(statusCoupon.rewardValue ?? ''),
+      redeem_code: statusCoupon.code,
+      redeem_exp: String(new Date(statusCoupon.expiresAt).getTime()),
+    });
+    return `${dest}?${qs}`;
+  })();
+
+  useEffect(() => {
+    if (!statusCoupon || isExpired || isRedeemed) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [statusCoupon, isExpired, isRedeemed]);
 
   if (!promotion.game_type) {
     console.error('[RewardWidget] promotion.game_type is null — is_primary assignment may be missing for this promotion.');
@@ -759,23 +839,67 @@ function RewardWidget({
 
             {/* Headline + CTA */}
             <div className="px-6 pb-8 pt-6 text-center">
-              <h2 id="widget-sheet-title" className="text-2xl font-black text-stone-900">
-                {panelData.headline}
-              </h2>
-              <p className="mt-2 text-sm text-stone-500">{panelData.subline}</p>
-              <button
-                ref={launchBtnRef}
-                type="button"
-                onClick={handlePlay}
-                disabled={launching}
-                className="mt-6 block w-full rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95 disabled:opacity-70"
-                style={{ backgroundColor: accentColor, transition: 'transform 150ms, opacity 150ms' }}
-              >
-                {launching ? 'Launching…' : 'Play Now'}
-              </button>
-              <p className="mt-4 text-xs text-stone-400">
-                No purchase necessary • takes less than 10 seconds
-              </p>
+              {statusCoupon ? (
+                <>
+                  <h2 id="widget-sheet-title" className="text-2xl font-black text-stone-900">
+                    You already played this promotion
+                  </h2>
+                  <p className="mt-2 text-sm font-black uppercase tracking-wide" style={{ color: accentColor }}>
+                    Your Reward
+                  </p>
+                  <p className="mt-1 text-xl font-black text-stone-900">{statusCoupon.rewardLabel}</p>
+
+                  {isRedeemed ? (
+                    <div className="mt-4 rounded-2xl border-2 border-blue-200 bg-blue-50 p-4">
+                      <p className="text-base font-black text-blue-700">✅ Coupon already redeemed</p>
+                      <p className="mt-1 text-sm font-bold text-stone-600">This coupon has already been used. Thank you for visiting!</p>
+                    </div>
+                  ) : isExpired ? (
+                    <div className="mt-4 rounded-2xl border-2 border-red-200 bg-red-50 p-4">
+                      <p className="text-base font-black text-red-600">⏰ Coupon has expired</p>
+                      <p className="mt-1 text-sm font-bold text-stone-600">This coupon expired. Please ask a staff member if you need assistance.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="mt-4 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-3">
+                        <p className="text-xs font-bold uppercase text-stone-500">Coupon Code</p>
+                        <p className="mt-1 break-all text-2xl font-black tracking-wider">{statusCoupon.code}</p>
+                      </div>
+                      <p className="mt-3 text-sm font-bold text-green-700">
+                        ⏰ Expires in {formatCouponTimeRemaining(new Date(statusCoupon.expiresAt).getTime() - now)}
+                      </p>
+                      <a
+                        href={redeemHref}
+                        className="mt-6 block w-full rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95"
+                        style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
+                      >
+                        {autoRedeemable ? '⚡ Redeem Now' : 'Browse Menu'}
+                      </a>
+                      <p className="mt-3 text-xs text-stone-500">Show this code to staff before ordering.</p>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2 id="widget-sheet-title" className="text-2xl font-black text-stone-900">
+                    {panelData.headline}
+                  </h2>
+                  <p className="mt-2 text-sm text-stone-500">{panelData.subline}</p>
+                  <button
+                    ref={launchBtnRef}
+                    type="button"
+                    onClick={handlePlay}
+                    disabled={launching}
+                    className="mt-6 block w-full rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95 disabled:opacity-70"
+                    style={{ backgroundColor: accentColor, transition: 'transform 150ms, opacity 150ms' }}
+                  >
+                    {launching ? 'Launching…' : 'Play Now'}
+                  </button>
+                  <p className="mt-4 text-xs text-stone-400">
+                    No purchase necessary • takes less than 10 seconds
+                  </p>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1770,6 +1894,8 @@ export function RestaurantPublicPage({
           playUrl={playUrl}
           accentColor={accentColor}
           bottomOffset={cartBarVisible ? cartBarHeight : 0}
+          restaurantSlug={restaurant.slug}
+          touchpointCode={touchpointCode}
           onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'widget_sheet')}
           onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'widget_sheet', gameType)}
         />
