@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { selectWeightedGame } from './selectWeightedGame';
+import { resolveGameTypeFromSlug } from '@/lib/games/game-registry';
 import type { GamePoolEntry, GameType } from './types';
 
 // Must opt out of Next.js 14's Data Cache on every fetch. `cache: 'no-store'` prevents
@@ -71,7 +72,7 @@ export async function resolvePromotionGame({
       .eq('enabled', true),
     supabase
       .from('games')
-      .select('id')
+      .select('slug')
       .eq('status', 'active'),
   ]);
 
@@ -83,7 +84,15 @@ export async function resolvePromotionGame({
   }
 
   // Only games that are both assignment-enabled AND currently active in Super Admin enter the pool.
-  const activeGameIds = new Set((activeGamesResult.data ?? []).map((g) => normType(g.id)));
+  // Resolved via games.slug (NOT NULL/UNIQUE since the table's first migration), not games.id —
+  // a UUID primary key that can never match a promotion_game_assignments.game_type slug like
+  // 'open_the_door'. Comparing against id here made the pool empty for every promotion.
+  const activeGameTypes = new Set(
+    (activeGamesResult.data ?? [])
+      .map((g) => resolveGameTypeFromSlug(g.slug))
+      .filter((gameType): gameType is string => !!gameType)
+      .map(normType)
+  );
 
   // De-duplicate by normalised game_type ('wheel' and 'spin_wheel' are the same game).
   const seen = new Set<string>();
@@ -91,7 +100,7 @@ export async function resolvePromotionGame({
 
   for (const a of (assignmentsResult.data ?? [])) {
     const norm = normType(a.game_type);
-    if (!seen.has(norm) && activeGameIds.has(norm)) {
+    if (!seen.has(norm) && activeGameTypes.has(norm)) {
       seen.add(norm);
       effectivePool.push({ gameType: a.game_type as GameType, weight: a.weight, enabled: a.enabled });
     }

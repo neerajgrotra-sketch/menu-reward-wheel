@@ -454,12 +454,23 @@ export default function PromotionBuilderPage() {
     // Write all game assignments. Primary gets is_primary=true; additional get is_primary=false.
     // promotion_game_assignments is the single source of truth for all assigned games.
     const additionalGames = gamePool.filter((gt) => normalizePrimary(gt) !== normalizePrimary(primaryGameType));
-    await supabase.from('promotion_game_assignments').delete().eq('promotion_id', promotion.id);
+    const deleteAssignments = await supabase.from('promotion_game_assignments').delete().eq('promotion_id', promotion.id);
+    if (deleteAssignments.error) {
+      setError(deleteAssignments.error.message);
+      setSaving(false);
+      return false;
+    }
+
     const assignmentsToInsert = [
       { promotion_id: promotion.id, game_type: primaryGameType, weight: 1, enabled: true, is_primary: true },
       ...additionalGames.map((gt) => ({ promotion_id: promotion.id, game_type: gt, weight: 1, enabled: true, is_primary: false })),
     ];
-    await supabase.from('promotion_game_assignments').insert(assignmentsToInsert);
+    const insertAssignments = await supabase.from('promotion_game_assignments').insert(assignmentsToInsert);
+    if (insertAssignments.error) {
+      setError(insertAssignments.error.message);
+      setSaving(false);
+      return false;
+    }
 
     setPromotion({
       ...promotion,
