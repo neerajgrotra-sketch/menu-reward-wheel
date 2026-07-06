@@ -128,6 +128,21 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   }
 }
 
+// Explicit wipe for callers navigating away from a closed dining session —
+// e.g. the touchpoint page's session-ended redirect. The SYNC_SESSION path
+// above only clears once a *new* confirmed session id shows up (by design,
+// so an ordinary refresh mid-session doesn't wipe the cart); a hard redirect
+// to a destination with no session id of its own would otherwise never hit
+// that path and could show the stale cart.
+export function clearStoredCart() {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // sessionStorage unavailable (private browsing restriction)
+  }
+}
+
 export function useCart(confirmedSessionId?: string | null) {
   // Lazy initializer reads sessionStorage on first render (client-only — never runs on server)
   const [state, dispatch] = useReducer(cartReducer, undefined, readStoredCart);
