@@ -44,11 +44,14 @@ export async function resolvePromotionGame({
   userAgent,
 }: ResolvePromotionGameParams): Promise<ResolveResult> {
   const supabase = makeSupabaseClient();
-  // Fast path: session already exists (reload / rescan scenario).
+  // Fast path: session already exists (reload / rescan scenario). Scoped to promotionId
+  // too, not just session_token, matching the fallback lookup in the calling route —
+  // defense in depth against a token ever being reused across two different promotions.
   const { data: existingSession } = await supabase
     .from('play_sessions')
     .select('id, selected_game_type')
     .eq('session_token', sessionToken)
+    .eq('promotion_id', promotionId)
     .maybeSingle();
 
   if (existingSession) {
