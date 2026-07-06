@@ -1,5 +1,7 @@
 'use client';
 
+import { forwardRef } from 'react';
+
 type CartBarProps = {
   itemCount: number;
   subtotal: number;
@@ -7,9 +9,12 @@ type CartBarProps = {
   onOpen: () => void;
 };
 
-export function CartBar({ itemCount, subtotal, brandColor, onOpen }: CartBarProps) {
+export const CartBar = forwardRef<HTMLDivElement, CartBarProps>(function CartBar(
+  { itemCount, subtotal, brandColor, onOpen },
+  ref,
+) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-safe-bottom pb-4">
+    <div ref={ref} className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-safe-bottom pb-4">
       <button
         type="button"
         onClick={onOpen}
@@ -26,4 +31,4 @@ export function CartBar({ itemCount, subtotal, brandColor, onOpen }: CartBarProp
       </button>
     </div>
   );
-}
+});

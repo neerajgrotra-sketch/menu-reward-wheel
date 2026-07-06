@@ -586,12 +586,16 @@ function RewardWidget({
   promotion,
   playUrl,
   accentColor,
+  bottomOffset = 0,
   onViewed,
   onPlayed,
 }: {
   promotion: PublicPromotion;
   playUrl: string;
   accentColor: string;
+  // Pixel height of the CartBar when it's showing, so this button sits above
+  // it instead of being covered by it (both anchor to the same bottom-right).
+  bottomOffset?: number;
   onViewed?: () => void;
   onPlayed?: (gameType: string) => void;
 }) {
@@ -682,10 +686,10 @@ function RewardWidget({
         type="button"
         onClick={openSheet}
         aria-label="View today's promotion"
-        className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full shadow-xl"
+        className="fixed right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition-[bottom] duration-200"
         style={{
           backgroundColor: accentColor,
-          bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
+          bottom: `calc(1.5rem + env(safe-area-inset-bottom, 0px) + ${bottomOffset}px)`,
         }}
       >
         {buttonVisual.visual}
@@ -1115,6 +1119,28 @@ export function RestaurantPublicPage({
 
   const cart = useCart(confirmedSessionId);
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
+
+  // Measured (not hardcoded) so the floating Reward Widget button always
+  // clears the CartBar's actual rendered height — including the safe-area
+  // inset on notched devices — instead of drifting out of sync with a
+  // guessed pixel offset if CartBar's markup changes later.
+  const cartBarRef = useRef<HTMLDivElement>(null);
+  const [cartBarHeight, setCartBarHeight] = useState(0);
+  const cartBarVisible = orderingEnabled && cart.itemCount > 0;
+  useEffect(() => {
+    if (!cartBarVisible) {
+      setCartBarHeight(0);
+      return;
+    }
+    const node = cartBarRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect.height;
+      if (height !== undefined) setCartBarHeight(height);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [cartBarVisible]);
 
   // "Redeem Now" — a won coupon carried over from the play page. Auto-adds its
   // menu item to the cart once, then shows a countdown banner until the order
@@ -1743,6 +1769,7 @@ export function RestaurantPublicPage({
           promotion={promotion!}
           playUrl={playUrl}
           accentColor={accentColor}
+          bottomOffset={cartBarVisible ? cartBarHeight : 0}
           onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'widget_sheet')}
           onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'widget_sheet', gameType)}
         />
@@ -1774,6 +1801,7 @@ export function RestaurantPublicPage({
       {/* ── Cart Bar + Sheet (ordering only) ── */}
       {orderingEnabled && cart.itemCount > 0 && (
         <CartBar
+          ref={cartBarRef}
           itemCount={cart.itemCount}
           subtotal={cart.subtotal}
           brandColor={brandColor}
