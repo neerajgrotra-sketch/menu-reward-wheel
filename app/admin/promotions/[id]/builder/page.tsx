@@ -55,6 +55,7 @@ type ActiveGame = {
   id: string;
   name: string;
   status: string;
+  game_type: string | null;
 };
 
 const MIN = 6;
@@ -299,7 +300,7 @@ export default function PromotionBuilderPage() {
       // Load active games from games table — canonical availability authority.
       const { data: gamesData } = await supabase
         .from('games')
-        .select('id,name,status')
+        .select('id,name,status,game_type')
         .eq('status', 'active')
         .order('name');
       setAvailableGames(gamesData ?? []);
@@ -555,7 +556,7 @@ export default function PromotionBuilderPage() {
             </div>
             <div className="min-w-0 rounded-[2rem] bg-white/90 p-3 text-[#1F1F1F] shadow-2xl ring-1 ring-white/50 sm:p-4">
               <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.14em] text-stone-400">Wheel preview</p>{result && <p className="text-sm font-black text-green-700">🎉 {result}</p>}</div><button onClick={testSpin} disabled={!rewards.length || spinning} className="rounded-full bg-[#1F1F1F] px-5 py-2 text-sm font-black text-white shadow-lg disabled:bg-stone-300">{spinning ? 'Spinning...' : 'Test'}</button></div>
-              <SpinWheelPreview rewards={rewards} rotation={rotation} spinning={spinning} />
+              <SpinWheelPreview rewards={rewards} rotation={rotation} spinning={spinning} gameType={primaryGameType} />
             </div>
           </div>
         </section>
@@ -593,23 +594,25 @@ export default function PromotionBuilderPage() {
           {/* Additional experiences — sourced from games table (status='active' only), primary excluded. */}
           {(() => {
             const primaryNorm = normalizePrimary(primaryGameType);
-            const additionalAvailableGames = availableGames.filter((g) => normalizePrimary(g.id) !== primaryNorm);
+            const additionalAvailableGames = availableGames.filter(
+              (g): g is ActiveGame & { game_type: string } => !!g.game_type && normalizePrimary(g.game_type) !== primaryNorm
+            );
             return (
               <>
                 <div className="mt-4 flex items-center justify-between">
                   <p className="text-xs font-black uppercase tracking-wide text-stone-400">Additional Experiences</p>
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalAvailableGames.map((g) => g.id)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
+                    <button type="button" onClick={() => { markDirty(); setGamePool(additionalAvailableGames.map((g) => g.game_type)); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Select All</button>
                     <button type="button" onClick={() => { markDirty(); setGamePool([]); }} className="rounded-lg bg-stone-100 px-3 py-1.5 text-xs font-black text-stone-700 hover:bg-stone-200">Clear All</button>
                   </div>
                 </div>
                 <div className="mt-2 grid gap-3 sm:grid-cols-2">
                   {additionalAvailableGames.map((game) => {
-                    const selected = gamePool.includes(game.id);
+                    const selected = gamePool.includes(game.game_type);
                     return (
                       <label key={game.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border-2 p-4 transition-colors ${selected ? 'border-[#FF6B00] bg-orange-50' : 'border-stone-100 bg-stone-50'}`}>
-                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.id] : current.filter((t) => t !== game.id)); }} className="h-5 w-5 accent-[#FF6B00]" />
-                        {getGameVisual(game.id, 32).visual}
+                        <input type="checkbox" checked={selected} onChange={(event) => { markDirty(); setGamePool((current) => event.target.checked ? [...current, game.game_type] : current.filter((t) => t !== game.game_type)); }} className="h-5 w-5 accent-[#FF6B00]" />
+                        {getGameVisual(game.game_type, 32).visual}
                         <span className="text-sm font-black">{game.name}</span>
                       </label>
                     );

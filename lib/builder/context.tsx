@@ -43,7 +43,7 @@ export const initialPromotionBuilderState: PromotionBuilderState = {
   error: '',
 };
 
-function normalizeGameType(value?: string | null): BuilderGameType {
+export function normalizeGameType(value?: string | null): BuilderGameType {
   if (value === 'mystery_box') return 'mystery_box';
   if (value === 'scratch_card') return 'scratch_card';
   if (value === 'open_the_door') return 'open_the_door';
