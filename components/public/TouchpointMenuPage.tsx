@@ -7,6 +7,7 @@ import { SessionGuestListPopover } from '@/components/public/SessionGuestListPop
 import { OrdersDrawer, type SessionOrder } from '@/components/public/OrdersDrawer';
 import type { PlacedOrder } from '@/components/public/CartSheet';
 import { useSessionTracking, useItemViewTracking } from '@/hooks/useSessionTracking';
+import { clearStoredCart } from '@/hooks/useCart';
 import type {
   PublicRestaurant,
   PublicSection,
@@ -178,6 +179,33 @@ export function TouchpointMenuPage({
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('resolving');
   const [confirmedSessionId, setConfirmedSessionId] = useState<string | null>(null);
   const [resolveAttempt, setResolveAttempt] = useState(0);
+
+  // Session-ended redirect countdown — once staff closes the dining session,
+  // there's nothing left for the guest to do at this table's URL, so after a
+  // short grace period to read the message we send them somewhere useful:
+  // the restaurant's own site if they've set one, otherwise this restaurant's
+  // SpinBite page (no table/touchpoint context, so it doesn't just re-trigger
+  // the same "closed" state).
+  const SESSION_ENDED_REDIRECT_SECONDS = 10;
+  const [sessionEndedCountdown, setSessionEndedCountdown] = useState(SESSION_ENDED_REDIRECT_SECONDS);
+  useEffect(() => {
+    if (sessionPhase !== 'session_ended') {
+      setSessionEndedCountdown(SESSION_ENDED_REDIRECT_SECONDS);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setSessionEndedCountdown((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          clearStoredCart();
+          window.location.href = restaurant.website_url || `/r/${restaurant.slug}`;
+          return 0;
+        }
+        return current - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionPhase, restaurant.website_url, restaurant.slug]);
 
   // ── Guest identity state (V1) ────────────────────────────────────────────────
   // guestId:    session_guests.id returned by the resolve API. Used for event + order attribution.
@@ -798,6 +826,9 @@ export function TouchpointMenuPage({
               This dining session has been ended by restaurant staff.
               <br />
               Please scan again to start a new session.
+            </p>
+            <p className="mt-5 text-xs font-bold uppercase tracking-wide text-stone-400">
+              Redirecting in {sessionEndedCountdown}s…
             </p>
           </div>
         </div>
