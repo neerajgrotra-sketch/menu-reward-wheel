@@ -129,3 +129,8 @@ export function usePendingRedemption(restaurantId: string) {
 
   return { pending, expired, now, dismiss, clear, claimAutoAdd };
 }
+
+// The slice of usePendingRedemption()'s return value that render-only consumers
+// (CartSheet, PaymentCheckoutScreen) need — the same pending/expired/now driving
+// the top-of-page banner, threaded down so cart/checkout UI never drifts from it.
+export type PendingRedemptionState = Pick<ReturnType<typeof usePendingRedemption>, 'pending' | 'expired' | 'now'>;

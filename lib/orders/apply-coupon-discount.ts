@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { roundCurrency } from '@/lib/payments/pricing-defaults';
+import { computeRewardDiscount } from './reward-discount-math';
 import type { ResolvedItem } from './resolve-order-items';
 
 export type CouponDiscountResult = {
@@ -53,17 +53,11 @@ export async function resolveCouponDiscount(
   const matchedLine = resolvedItems.find((item) => item.menu_item_id === reward.menu_item_id);
   if (!matchedLine) return ZERO_RESULT;
 
-  // Scoped to one unit of the matched line — one coupon is one reward,
-  // matching how coupons are issued one-per-play.
-  const rawDiscount =
-    reward.reward_type === 'free'
-      ? matchedLine.effective_price_snapshot
-      : matchedLine.effective_price_snapshot * ((reward.reward_value || 0) / 100);
-
-  // Clamped to one unit's price, not the line's full total — a misconfigured
-  // reward_value (or any value > 100%) must never discount more than the one
-  // unit this coupon represents, regardless of how many units are in the cart.
-  const discountAmount = roundCurrency(Math.min(Math.max(rawDiscount, 0), matchedLine.effective_price_snapshot));
+  const discountAmount = computeRewardDiscount(
+    reward.reward_type,
+    reward.reward_value,
+    matchedLine.effective_price_snapshot,
+  );
 
   return { discountAmount, appliedRedemptionId: redemption.id };
 }

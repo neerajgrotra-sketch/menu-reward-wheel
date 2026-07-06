@@ -3,7 +3,10 @@
 import { useRef, useState } from 'react';
 import type { useCart } from '@/hooks/useCart';
 import type { PlacedOrder } from './CartSheet';
-import { TIP_PERCENT_OPTIONS, type TipPercentOption } from '@/lib/payments/pricing-defaults';
+import type { PendingRedemptionState } from '@/hooks/usePendingRedemption';
+import { computeRewardDiscount } from '@/lib/orders/reward-discount-math';
+import { formatCouponTimeRemaining } from '@/lib/coupon-expiry';
+import { TIP_PERCENT_OPTIONS, roundCurrency, type TipPercentOption } from '@/lib/payments/pricing-defaults';
 
 type ChargeBreakdown = {
   subtotal: number;
@@ -24,7 +27,7 @@ type PaymentCheckoutScreenProps = {
   guestId?: string | null;
   taxRatePercent: number;
   serviceFeePercent: number;
-  couponRedemptionId?: string | null;
+  pendingRedemption?: PendingRedemptionState | null;
   onBack: () => void;
   onSuccess: (placedOrder: PlacedOrder) => void;
   onSessionEnded?: () => void;
@@ -69,7 +72,7 @@ export function PaymentCheckoutScreen({
   guestId,
   taxRatePercent,
   serviceFeePercent,
-  couponRedemptionId,
+  pendingRedemption,
   onBack,
   onSuccess,
   onSessionEnded,
@@ -86,7 +89,22 @@ export function PaymentCheckoutScreen({
   const [errorMessage, setErrorMessage] = useState('');
   const idempotencyKeyRef = useRef<string>(generateIdempotencyKey());
 
-  const subtotal = Number(cart.subtotal) || 0;
+  // A coupon stops being usable the moment it expires — never preview or send
+  // its id past that point (mirrors CartSheet's identical guard).
+  const couponPending = pendingRedemption?.pending && !pendingRedemption.expired ? pendingRedemption.pending : null;
+  const couponRedemptionId = couponPending?.redemptionId ?? null;
+  const couponJustExpired = !couponPending && !!pendingRedemption?.pending && pendingRedemption.expired;
+  const couponCartItem = couponPending ? cart.items.find((i) => i.menu_item_id === couponPending.menuItemId) : undefined;
+  const discountAmount = couponCartItem
+    ? computeRewardDiscount(couponPending!.rewardType, couponPending!.rewardValue, couponCartItem.effective_price)
+    : 0;
+  const couponMsRemaining = couponPending ? couponPending.expiresAtMs - (pendingRedemption?.now ?? Date.now()) : 0;
+
+  const rawSubtotal = Number(cart.subtotal) || 0;
+  // Tax/fee/tip are computed on the post-discount subtotal — matches the server's
+  // chargeSubtotal treatment in lib/payments/payment-orchestrator.ts exactly, so this
+  // preview total is what actually gets charged, not a stale pre-discount estimate.
+  const subtotal = Math.max(roundCurrency(rawSubtotal - discountAmount), 0);
   const previewTax = Math.round(subtotal * (taxRatePercent / 100) * 100) / 100;
   const previewServiceFee = Math.round(subtotal * (serviceFeePercent / 100) * 100) / 100;
   const previewTip =
@@ -258,22 +276,55 @@ export function PaymentCheckoutScreen({
             {/* Order summary */}
             <div className="rounded-2xl bg-stone-50 p-3">
               <ul className="divide-y divide-stone-200">
-                {cart.items.map((item) => (
-                  <li key={item.menu_item_id} className="flex items-center justify-between py-1.5 text-xs">
-                    <span className="text-stone-600">
-                      {item.quantity}× {item.name}
-                    </span>
-                    <span className="font-bold text-stone-800">
-                      ${(Number(item.effective_price) * item.quantity).toFixed(2)}
-                    </span>
-                  </li>
-                ))}
+                {cart.items.map((item) => {
+                  const isRewardItem = couponPending?.menuItemId === item.menu_item_id;
+                  const lineTotal = Number(item.effective_price) * item.quantity;
+                  return (
+                    <li key={item.menu_item_id} className="py-1.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-stone-600">
+                          {item.quantity}× {item.name}
+                        </span>
+                        {isRewardItem && discountAmount > 0 ? (
+                          <span>
+                            <span className="mr-1.5 line-through text-stone-400">${lineTotal.toFixed(2)}</span>
+                            <span className="font-bold" style={{ color: brandColor }}>
+                              ${(lineTotal - discountAmount).toFixed(2)}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="font-bold text-stone-800">${lineTotal.toFixed(2)}</span>
+                        )}
+                      </div>
+                      {isRewardItem && couponPending && discountAmount > 0 && (
+                        <p className="mt-0.5 text-[10px] font-bold" style={{ color: brandColor }}>
+                          🎟 {couponPending.code} · expires in {formatCouponTimeRemaining(couponMsRemaining)}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
+              {couponJustExpired && (
+                <p className="mt-2 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] font-semibold text-amber-700">
+                  ⏰ Your coupon expired — the discount has been removed from this order.
+                </p>
+              )}
               <div className="mt-2 space-y-1 border-t border-stone-200 pt-2 text-xs">
                 <div className="flex justify-between text-stone-500">
                   <span>Subtotal</span>
-                  <span>${subtotal.toFixed(2)}</span>
+                  {discountAmount > 0 ? (
+                    <span className="line-through text-stone-400">${rawSubtotal.toFixed(2)}</span>
+                  ) : (
+                    <span>${subtotal.toFixed(2)}</span>
+                  )}
                 </div>
+                {discountAmount > 0 && couponPending && (
+                  <div className="flex justify-between font-bold" style={{ color: brandColor }}>
+                    <span>🎟 {couponPending.code}</span>
+                    <span>−${discountAmount.toFixed(2)}</span>
+                  </div>
+                )}
                 {taxRatePercent > 0 && (
                   <div className="flex justify-between text-stone-500">
                     <span>Tax</span>
