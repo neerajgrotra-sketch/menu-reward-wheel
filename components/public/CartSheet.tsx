@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { useCart } from '@/hooks/useCart';
+import type { PendingRedemptionState } from '@/hooks/usePendingRedemption';
+import { computeRewardDiscount } from '@/lib/orders/reward-discount-math';
+import { roundCurrency } from '@/lib/payments/pricing-defaults';
+import { formatCouponTimeRemaining } from '@/lib/coupon-expiry';
 import { PaymentCheckoutScreen } from './PaymentCheckoutScreen';
 
 export type PlacedOrder = {
@@ -47,10 +51,12 @@ type CartSheetProps = {
   restaurantName?: string;
   taxRatePercent?: number;
   serviceFeePercent?: number;
-  // "Redeem Now" — id of a coupon_redemptions row to apply at checkout, if any.
-  // Only meaningful on the payment-simulation path; the server re-validates and
-  // re-derives the actual discount from this id, never trusting a precomputed amount.
-  couponRedemptionId?: string | null;
+  // "Redeem Now" — pending coupon redemption state from usePendingRedemption(), threaded
+  // down so the cart/checkout screens render the same code/discount/countdown the
+  // win-screen banner shows, off the same ticking clock (no second timer, no drift).
+  // The discount shown here is a preview only — the server always re-validates and
+  // re-derives the authoritative amount from the redemption id at checkout time.
+  pendingRedemption?: PendingRedemptionState | null;
 };
 
 type OrderState = 'idle' | 'submitting' | 'success' | 'error';
@@ -60,7 +66,17 @@ function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart, paymentSimulationEnabled = false, restaurantName = '', taxRatePercent = 0, serviceFeePercent = 0, couponRedemptionId = null }: CartSheetProps) {
+export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confirmedSessionId, guestId = null, guestName = null, tableLabel, onOrderPlaced, onSessionEnded, sessionConnecting = false, onItemRemovedFromCart, paymentSimulationEnabled = false, restaurantName = '', taxRatePercent = 0, serviceFeePercent = 0, pendingRedemption = null }: CartSheetProps) {
+  // A coupon stops being usable the moment it expires — never surface it (badge,
+  // strikethrough, or the id sent to checkout) past that point.
+  const couponPending = pendingRedemption?.pending && !pendingRedemption.expired ? pendingRedemption.pending : null;
+  const couponRedemptionId = couponPending?.redemptionId ?? null;
+  const couponCartItem = couponPending ? cart.items.find((i) => i.menu_item_id === couponPending.menuItemId) : undefined;
+  const couponDiscountAmount = couponCartItem
+    ? computeRewardDiscount(couponPending!.rewardType, couponPending!.rewardValue, couponCartItem.effective_price)
+    : 0;
+  const couponMsRemaining = couponPending ? couponPending.expiresAtMs - (pendingRedemption?.now ?? Date.now()) : 0;
+  const discountedSubtotal = couponDiscountAmount > 0 ? roundCurrency(cart.subtotal - couponDiscountAmount) : cart.subtotal;
   const [customerName, setCustomerName] = useState(guestName ?? '');
   const [screen, setScreen] = useState<Screen>('cart');
 
@@ -297,7 +313,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
             guestId={guestId}
             taxRatePercent={taxRatePercent}
             serviceFeePercent={serviceFeePercent}
-            couponRedemptionId={couponRedemptionId}
+            pendingRedemption={pendingRedemption}
             onBack={() => setScreen('cart')}
             onSuccess={handlePaymentSuccess}
             onSessionEnded={onSessionEnded}
@@ -310,7 +326,10 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                 <p className="py-8 text-center text-sm text-stone-400">Your cart is empty.</p>
               ) : (
                 <ul className="divide-y divide-stone-100">
-                  {cart.items.map((item) => (
+                  {cart.items.map((item) => {
+                    const isRewardItem = couponPending?.menuItemId === item.menu_item_id;
+                    const unitDiscount = isRewardItem ? couponDiscountAmount : 0;
+                    return (
                     <li key={item.menu_item_id} className="py-3">
                       <div className="flex items-start gap-3">
                         {/* Quantity controls */}
@@ -352,9 +371,26 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                         {/* Item details */}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-stone-800 truncate">{item.name}</p>
-                          <p className="text-xs text-stone-500">
-                            ${Number(item.effective_price).toFixed(2)} each
-                          </p>
+                          {unitDiscount > 0 ? (
+                            <p className="text-xs text-stone-500">
+                              <span className="mr-1.5 line-through text-stone-400">
+                                ${Number(item.effective_price).toFixed(2)}
+                              </span>
+                              <span className="font-bold" style={{ color: brandColor }}>
+                                ${(item.effective_price - unitDiscount).toFixed(2)}
+                              </span>{' '}
+                              each
+                            </p>
+                          ) : (
+                            <p className="text-xs text-stone-500">
+                              ${Number(item.effective_price).toFixed(2)} each
+                            </p>
+                          )}
+                          {isRewardItem && couponPending && (
+                            <p className="mt-0.5 text-[10px] font-bold" style={{ color: brandColor }}>
+                              🎟 {couponPending.code} · expires in {formatCouponTimeRemaining(couponMsRemaining)}
+                            </p>
+                          )}
                           {/* Special instructions */}
                           <input
                             type="text"
@@ -371,9 +407,20 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
 
                         {/* Line total */}
                         <div className="shrink-0 text-right">
-                          <p className="text-sm font-black text-stone-800">
-                            ${Number(item.effective_price * item.quantity).toFixed(2)}
-                          </p>
+                          {unitDiscount > 0 ? (
+                            <>
+                              <p className="text-xs line-through text-stone-400">
+                                ${Number(item.effective_price * item.quantity).toFixed(2)}
+                              </p>
+                              <p className="text-sm font-black text-stone-800">
+                                ${(item.effective_price * item.quantity - unitDiscount).toFixed(2)}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-sm font-black text-stone-800">
+                              ${Number(item.effective_price * item.quantity).toFixed(2)}
+                            </p>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
@@ -389,7 +436,8 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                         </div>
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
 
@@ -434,15 +482,45 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
             {/* Footer */}
             {cart.items.length > 0 && (
               <div className="border-t border-stone-100 px-5 py-4 safe-area-bottom">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm font-semibold text-stone-600">Subtotal</span>
-                  <span className="text-lg font-black text-stone-800">
-                    ${Number(cart.subtotal).toFixed(2)}
-                  </span>
-                </div>
-                <p className="mb-3 text-[10px] text-stone-400">
-                  Prices are confirmed at the time you place your order.
-                </p>
+                {couponDiscountAmount > 0 && couponPending ? (
+                  <>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-stone-600">Subtotal</span>
+                      <span className="text-sm line-through text-stone-400">
+                        ${Number(cart.subtotal).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-sm font-semibold" style={{ color: brandColor }}>
+                        🎟 {couponPending.code}
+                      </span>
+                      <span className="text-sm font-black" style={{ color: brandColor }}>
+                        −${couponDiscountAmount.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-stone-600">Total</span>
+                      <span className="text-lg font-black text-stone-800">
+                        ${discountedSubtotal.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="mb-3 text-[10px] font-bold" style={{ color: brandColor }}>
+                      ⏰ Place your order within {formatCouponTimeRemaining(couponMsRemaining)} to keep this discount.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-sm font-semibold text-stone-600">Subtotal</span>
+                      <span className="text-lg font-black text-stone-800">
+                        ${Number(cart.subtotal).toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="mb-3 text-[10px] text-stone-400">
+                      Prices are confirmed at the time you place your order.
+                    </p>
+                  </>
+                )}
 
                 {orderState === 'error' && (
                   <p className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">

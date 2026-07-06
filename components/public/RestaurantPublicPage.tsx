@@ -1798,7 +1798,7 @@ export function RestaurantPublicPage({
           restaurantName={restaurant.name}
           taxRatePercent={taxRatePercent}
           serviceFeePercent={serviceFeePercent}
-          couponRedemptionId={pendingRedemption.expired ? null : pendingRedemption.pending?.redemptionId ?? null}
+          pendingRedemption={pendingRedemption}
         />
       )}
       {directOrdersDrawerOpen && (
