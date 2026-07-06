@@ -8,6 +8,7 @@ import SaveRewardPanel, { shouldShowIdentityPanel } from '@/components/CustomerI
 import { getGameDefinition } from '@/lib/games/registry';
 import { createCouponCode, pickWeightedReward } from '@/lib/rewards';
 import { formatCouponTimeRemaining, formatCouponValidUntil } from '@/lib/coupon-expiry';
+import { getOrCreatePlaySessionToken } from '@/lib/play-session-token';
 import type { Reward } from '@/types/reward';
 
 type Restaurant = { id: string; name: string; slug: string; address_line1?: string | null; city?: string | null; logo_url?: string | null; experience_mode?: string | null };
@@ -23,7 +24,7 @@ type RedeemableReward = Reward & {
 };
 
 type WonCoupon = { id: string; redemptionId?: string | null; reward: RedeemableReward; code: string; issuedAt: number };
-type SessionCoupon = {
+export type SessionCoupon = {
   id: string;
   code: string;
   status: string;
@@ -113,36 +114,6 @@ function getCustomerSessionId() {
   if (existing) return existing;
   const next = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
   window.localStorage.setItem(key, next);
-  return next;
-}
-
-// Previously this token never expired, so once a browser played a promotion once,
-// every later visit resumed straight to the old result — indefinitely, even after
-// the won coupon itself had long expired. Reissue a fresh token after this TTL so
-// a returning visit is treated as a new play instead of resuming forever.
-const PLAY_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-
-function getPlaySessionToken(restaurantSlug: string, promotionSlug: string) {
-  const key = `spinbite_play_session_${restaurantSlug}_${promotionSlug}`;
-  const raw = window.localStorage.getItem(key);
-
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as { token: string; createdAt: number };
-      if (parsed.token && Date.now() - parsed.createdAt < PLAY_SESSION_TTL_MS) {
-        return parsed.token;
-      }
-    } catch {
-      // Pre-TTL clients stored a bare string token; fall through and reissue in the new format.
-    }
-  }
-
-  const next = crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random()}`;
-
-  window.localStorage.setItem(key, JSON.stringify({ token: next, createdAt: Date.now() }));
-
   return next;
 }
 
@@ -329,7 +300,7 @@ export default function PromotionPlayPage() {
       setLoading(true);
       setError('');
 
-      const sessionToken = getPlaySessionToken(
+      const sessionToken = getOrCreatePlaySessionToken(
         restaurantSlug,
         promotionSlug,
       );
