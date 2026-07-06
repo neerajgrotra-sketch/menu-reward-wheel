@@ -269,6 +269,7 @@ export type Database = {
           default_spins: number
           description: string | null
           game_config: Json
+          game_type: string | null
           icon: string | null
           id: string
           max_products: number
@@ -291,6 +292,7 @@ export type Database = {
           default_spins?: number
           description?: string | null
           game_config?: Json
+          game_type?: string | null
           icon?: string | null
           id?: string
           max_products?: number
@@ -313,6 +315,7 @@ export type Database = {
           default_spins?: number
           description?: string | null
           game_config?: Json
+          game_type?: string | null
           icon?: string | null
           id?: string
           max_products?: number

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
 import { getGameDefinition } from '@/lib/games/registry';
 import OpenTheDoorBuilderPreview from '@/lib/games/open-the-door/builderPreview';
-import { useOptionalPromotionBuilder } from '@/lib/builder/context';
+import { normalizeGameType, useOptionalPromotionBuilder } from '@/lib/builder/context';
 import type { Reward, RewardType } from '@/types/reward';
 
 type WheelReward = {
@@ -23,6 +23,7 @@ type SpinWheelPreviewProps = {
   rotation?: number;
   spinning?: boolean;
   selectedIndex?: number | null;
+  gameType?: string | null;
 };
 
 const COLORS = ['#fb923c', '#f97316', '#fed7aa', '#ffedd5', '#fdba74', '#ea580c', '#fef3c7', '#facc15'];
@@ -131,7 +132,6 @@ function RewardLegend({ rewards }: { rewards: WheelReward[] }) {
 }
 
 function MysteryBoxBuilderPreview({ selectedBox, result }: { selectedBox: number | null; result: string }) {
-  console.log('MysteryBoxPreview Rendered');
   const revealMode = selectedBox !== null;
   return (
     <div className="mx-auto mt-5 w-full max-w-sm">
@@ -294,28 +294,19 @@ function ScratchCardBuilderPreview({ result, resetKey, onReveal }: { result: str
   );
 }
 
-function NonWheelPreview({ rewards, rotation }: Pick<SpinWheelPreviewProps, 'rewards' | 'rotation'>) {
+function NonWheelPreview({ rewards, rotation, gameType: gameTypeProp }: Pick<SpinWheelPreviewProps, 'rewards' | 'rotation' | 'gameType'>) {
   const builder = useOptionalPromotionBuilder();
   const [localResult, setLocalResult] = useState('');
   const [playing, setPlaying] = useState(false);
   const [selectedBox, setSelectedBox] = useState<number | null>(null);
   const [scratchResetKey, setScratchResetKey] = useState(0);
   const runtimeRewards = useMemo(() => rewards.map((reward, index) => toRuntimeReward(reward, index)), [rewards]);
-  const gameType = builder?.state.gameType || 'wheel';
+  const gameType = gameTypeProp || builder?.state.gameType || 'wheel';
   const game = getGameDefinition(gameType);
   const BuilderPreview = game.components?.BuilderPreview ||
     (game.type === 'open_the_door' ? OpenTheDoorBuilderPreview : undefined);
   const canPlay = runtimeRewards.length > 0 && !playing;
   const result = builder?.state.preview.result || localResult;
-
-  useEffect(() => {
-    console.log('SpinWheelPreview NonWheelPreview', {
-      builderPresent: !!builder,
-      builderGameType: builder?.state.gameType,
-      resolvedGameType: game.type,
-      hasBuilderPreview: !!BuilderPreview,
-    });
-  }, [builder, game.type, BuilderPreview]);
 
   useHideLegacyWheelHeader(true);
 
@@ -457,10 +448,10 @@ function WheelOnlyPreview({ rewards, rotation = 0, spinning = false }: SpinWheel
 
 export default function SpinWheelPreview(props: SpinWheelPreviewProps) {
   const builder = useOptionalPromotionBuilder();
+  const resolvedGameType = props.gameType != null ? normalizeGameType(props.gameType) : builder?.state.gameType;
 
-  if (builder && builder.state.gameType !== 'wheel') {
-    console.log('SpinWheelPreview rendered for non-wheel game', { gameType: builder.state.gameType });
-    return <NonWheelPreview rewards={props.rewards} rotation={props.rotation} />;
+  if (resolvedGameType && resolvedGameType !== 'wheel') {
+    return <NonWheelPreview rewards={props.rewards} rotation={props.rotation} gameType={resolvedGameType} />;
   }
 
   return <WheelOnlyPreview {...props} />;
