@@ -303,6 +303,7 @@ export default function PromotionPlayPage() {
       const sessionToken = getOrCreatePlaySessionToken(
         restaurantSlug,
         promotionSlug,
+        visitSessionId,
       );
 
       const playUrl = new URL('/api/public/promotion-play', window.location.origin);
