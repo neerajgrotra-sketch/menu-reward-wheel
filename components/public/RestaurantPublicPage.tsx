@@ -1118,9 +1118,10 @@ export function RestaurantPublicPage({
 
   // "Redeem Now" — a won coupon carried over from the play page. Auto-adds its
   // menu item to the cart once, then shows a countdown banner until the order
-  // is placed or the customer dismisses it (dismiss hides the banner only —
-  // the cart item stays). Server re-validates everything at checkout; this is
-  // purely a UX convenience, never the source of truth for the discount.
+  // is placed or the customer dismisses it (dismiss hides the banner only, for
+  // good — the cart item and the discount itself stay unaffected). Server
+  // re-validates everything at checkout; this is purely a UX convenience,
+  // never the source of truth for the discount.
   const pendingRedemption = usePendingRedemption(restaurant.id);
   useEffect(() => {
     const pending = pendingRedemption.pending;
@@ -1314,7 +1315,7 @@ export function RestaurantPublicPage({
       }}
     >
       {/* ── Pending redemption banner ── */}
-      {pendingRedemption.pending && (
+      {pendingRedemption.pending && !pendingRedemption.pending.bannerDismissed && (
         <div className="sticky top-0 z-40 flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-white shadow-md" style={{ backgroundColor: brandColor }}>
           <span className="text-lg">🎁</span>
           <div className="min-w-0 flex-1">

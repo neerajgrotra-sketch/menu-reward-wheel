@@ -14,6 +14,10 @@ export type PendingRedemption = {
   // idempotent across a genuine remount — e.g. a hydration-mismatch recovery
   // remount elsewhere on this page — not only within a single component instance.
   autoAdded?: boolean;
+  // Persisted so an acknowledged banner stays hidden across a refresh or a
+  // remount (e.g. navigating to checkout and back) instead of reappearing —
+  // the discount itself still applies at checkout regardless of this flag.
+  bannerDismissed?: boolean;
 };
 
 const STORAGE_KEY = 'spinbite_pending_redemption_v1';
@@ -93,7 +97,21 @@ export function usePendingRedemption(restaurantId: string) {
   }, [pending]);
 
   // Hides the banner only — the cart item this redemption added stays put.
-  const dismiss = useCallback(() => setPending(null), []);
+  // Persists the dismissal so it stays hidden across a refresh or remount,
+  // rather than nulling `pending` outright (which would also drop the
+  // checkout discount this same state drives).
+  const dismiss = useCallback(() => {
+    setPending((current) => {
+      if (!current) return current;
+      const next = { ...current, bannerDismissed: true };
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   // Synchronous, storage-direct — not routed through React state — so it stays
   // correct even if the auto-add effect runs twice before either invocation
