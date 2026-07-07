@@ -650,7 +650,12 @@ function RewardWidget({
         if (cancelled) return;
         const coupons = (payload?.existingCoupons || []) as SessionCoupon[];
         if (coupons.length > 0) {
-          const active = coupons.find(
+          // A promotion with max_spins > 1 can issue several coupons under the
+          // same play session (issued_at ascending). Prefer the most recently
+          // issued one that's still valid — the guest's last spin is the one
+          // that matters, not an earlier spin's reward that may have already
+          // expired while a later one is still active.
+          const active = [...coupons].reverse().find(
             (c) => c.status !== 'redeemed' && Date.now() < new Date(c.expiresAt).getTime(),
           );
           setStatusCoupon(active || coupons[coupons.length - 1]);
