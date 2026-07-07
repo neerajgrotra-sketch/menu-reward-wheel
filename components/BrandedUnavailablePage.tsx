@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 
 type Restaurant = {
   name?: string | null;
+  slug?: string | null;
   address_line1?: string | null;
   city?: string | null;
 };
@@ -25,13 +26,17 @@ export default function BrandedUnavailablePage({
       ? 'This reward campaign is scheduled, but it is not open yet.'
       : message;
   const address = [restaurant?.address_line1, restaurant?.city].filter(Boolean).join(', ');
+  // Send the guest back to the restaurant's menu when we know which one they
+  // were at; only fall back to the SpinBite marketing home if we don't.
+  const backHref = restaurant?.slug ? `/r/${restaurant.slug}` : '/';
+  const backLabel = restaurant?.slug ? 'Go Back To Menu' : 'Go to Home';
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      window.location.href = '/';
+      window.location.href = backHref;
     }, 9000);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [backHref]);
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-orange-50 via-[#FFF8F0] to-amber-100 px-4 py-8 text-[#1F1F1F]">
@@ -55,8 +60,10 @@ export default function BrandedUnavailablePage({
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-orange-50 text-4xl">⏳</div>
           <h1 className="mt-5 text-4xl font-black leading-tight">{title}</h1>
           <p className="mt-3 text-base font-bold leading-7 text-stone-600">{copy}</p>
-          <p className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">Redirecting to the SpinBite home page shortly.</p>
-          <a href="/" className="mt-5 block w-full rounded-3xl bg-[#1F1F1F] px-6 py-5 text-lg font-black text-white shadow-xl">Go to Home</a>
+          <p className="mt-3 rounded-2xl bg-orange-50 p-3 text-sm font-black text-[#FF6B00]">
+            {restaurant?.slug ? 'Redirecting back to the menu shortly.' : 'Redirecting to the SpinBite home page shortly.'}
+          </p>
+          <a href={backHref} className="mt-5 block w-full rounded-3xl bg-[#1F1F1F] px-6 py-5 text-lg font-black text-white shadow-xl">{backLabel}</a>
         </div>
 
         <p className="mt-6 text-center text-sm font-black uppercase tracking-[0.18em] text-stone-400">Powered by 🎯 SpinBite</p>
