@@ -359,9 +359,14 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                           </span>
                           <button
                             type="button"
-                            onClick={() => cart.updateQuantity(item.menu_item_id, item.quantity + 1)}
+                            onClick={() => {
+                              if (isRewardItem) return;
+                              cart.updateQuantity(item.menu_item_id, item.quantity + 1);
+                            }}
+                            disabled={isRewardItem}
                             aria-label="Increase quantity"
-                            className="flex h-7 w-7 items-center justify-center rounded-full text-white text-sm font-black active:opacity-80"
+                            title={isRewardItem ? 'This reward applies to one item only' : undefined}
+                            className={`flex h-7 w-7 items-center justify-center rounded-full text-white text-sm font-black active:opacity-80 ${isRewardItem ? 'opacity-30' : ''}`}
                             style={{ backgroundColor: brandColor }}
                           >
                             +
@@ -388,7 +393,7 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                           )}
                           {isRewardItem && couponPending && (
                             <p className="mt-0.5 text-[10px] font-bold" style={{ color: brandColor }}>
-                              🎟 {couponPending.code} · expires in {formatCouponTimeRemaining(couponMsRemaining)}
+                              🎟 {couponPending.code} · expires in {formatCouponTimeRemaining(couponMsRemaining)} · limit 1
                             </p>
                           )}
                           {/* Special instructions */}
