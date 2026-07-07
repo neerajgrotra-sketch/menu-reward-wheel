@@ -592,6 +592,7 @@ function RewardWidget({
   restaurantSlug,
   touchpointCode,
   confirmedSessionId,
+  sessionConnecting = false,
   onViewed,
   onPlayed,
 }: {
@@ -608,6 +609,12 @@ function RewardWidget({
   // a rescan (a genuinely new session id), reads as "not yet played" instead
   // of resuming the previous session's stale reward.
   confirmedSessionId?: string | null;
+  // True while confirmedSessionId is still resolving (see sessionConfirmed on
+  // the parent). Playing before the vsid resolves mints the play-session
+  // token under a different localStorage key than the one this widget later
+  // reads it back from, so a guest who plays too early ends up looking at an
+  // unrelated (possibly expired) coupon instead of the one they just won.
+  sessionConnecting?: boolean;
   onViewed?: () => void;
   onPlayed?: (gameType: string) => void;
 }) {
@@ -650,7 +657,12 @@ function RewardWidget({
         if (cancelled) return;
         const coupons = (payload?.existingCoupons || []) as SessionCoupon[];
         if (coupons.length > 0) {
-          const active = coupons.find(
+          // A promotion with max_spins > 1 can issue several coupons under the
+          // same play session (issued_at ascending). Prefer the most recently
+          // issued one that's still valid — the guest's last spin is the one
+          // that matters, not an earlier spin's reward that may have already
+          // expired while a later one is still active.
+          const active = [...coupons].reverse().find(
             (c) => c.status !== 'redeemed' && Date.now() < new Date(c.expiresAt).getTime(),
           );
           setStatusCoupon(active || coupons[coupons.length - 1]);
@@ -706,7 +718,7 @@ function RewardWidget({
   const gameMeta = getGameMeta(displayType);
 
   function handlePlay() {
-    if (launching) return;
+    if (launching || sessionConnecting) return;
     onPlayed?.(displayType);
     setLaunching(true);
     if (launchBtnRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -895,11 +907,11 @@ function RewardWidget({
                     ref={launchBtnRef}
                     type="button"
                     onClick={handlePlay}
-                    disabled={launching}
+                    disabled={launching || sessionConnecting}
                     className="mt-6 block w-full rounded-2xl py-4 text-center text-sm font-black text-white shadow-md active:scale-95 disabled:opacity-70"
                     style={{ backgroundColor: accentColor, transition: 'transform 150ms, opacity 150ms' }}
                   >
-                    {launching ? 'Launching…' : 'Play Now'}
+                    {launching ? 'Launching…' : sessionConnecting ? 'Connecting…' : 'Play Now'}
                   </button>
                   <p className="mt-4 text-xs text-stone-400">
                     No purchase necessary • takes less than 10 seconds
@@ -985,6 +997,7 @@ function GameEntryModal({
   promotion,
   playUrl,
   accentColor,
+  sessionConnecting = false,
   onClose,
   onViewed,
   onPlayed,
@@ -992,6 +1005,9 @@ function GameEntryModal({
   promotion: PublicPromotion;
   playUrl: string;
   accentColor: string;
+  // See the identical prop on RewardWidget — playing before the vsid resolves
+  // scopes the play-session token to the wrong localStorage key.
+  sessionConnecting?: boolean;
   onClose: () => void;
   onViewed?: () => void;
   onPlayed?: (gameType: string) => void;
@@ -1037,6 +1053,7 @@ function GameEntryModal({
   }
 
   function handlePlay(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (sessionConnecting) { e.preventDefault(); return; }
     onPlayed?.(promotion.game_type ?? 'spin_wheel');
     if (reducedMotionRef.current) return;
     e.preventDefault();
@@ -1117,10 +1134,11 @@ function GameEntryModal({
           <a
             href={playUrl}
             onClick={handlePlay}
-            className="mt-5 flex min-h-[44px] items-center justify-center rounded-2xl text-sm font-black text-white shadow-md active:scale-95"
+            aria-disabled={sessionConnecting}
+            className={`mt-5 flex min-h-[44px] items-center justify-center rounded-2xl text-sm font-black text-white shadow-md active:scale-95 ${sessionConnecting ? 'pointer-events-none opacity-70' : ''}`}
             style={{ backgroundColor: accentColor, transition: 'transform 150ms' }}
           >
-            Play Now
+            {sessionConnecting ? 'Connecting…' : 'Play Now'}
           </a>
 
           <button
@@ -1908,6 +1926,7 @@ export function RestaurantPublicPage({
           restaurantSlug={restaurant.slug}
           touchpointCode={touchpointCode}
           confirmedSessionId={confirmedSessionId}
+          sessionConnecting={sessionConfirmed === false}
           onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'widget_sheet')}
           onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'widget_sheet', gameType)}
         />
@@ -1920,6 +1939,7 @@ export function RestaurantPublicPage({
           promotion={promotion!}
           playUrl={playUrl}
           accentColor={accentColor}
+          sessionConnecting={sessionConfirmed === false}
           onClose={handleModalClose}
           onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'entry_modal')}
           onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'entry_modal', gameType)}
