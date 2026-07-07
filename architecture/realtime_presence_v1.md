@@ -1,7 +1,7 @@
 # Realtime Presence Architecture V1
 
-**Document version:** 1.0
-**Date:** 2026-06-29
+**Document version:** 1.1
+**Date:** 2026-07-07 (postgres_changes publication gap added; see §1.1)
 **Status:** Current — reflects live production system
 
 ---
@@ -13,9 +13,18 @@ SpinBite uses three distinct realtime mechanisms. Each serves a different audien
 | Mechanism | Technology | Direction | Audience |
 |---|---|---|---|
 | `session-presence:{sessionId}` | Supabase postgres_changes | DB → Admin | Admin dashboard (guest count) |
-| `restaurant-sessions:{restaurantId}` | Supabase postgres_changes | DB → Admin | Admin dashboard (session list) |
+| `admin-sessions-{restaurantId}` (§3; historically documented here as `restaurant-sessions:{restaurantId}` — that was never the real topic string, see §3) | Supabase postgres_changes | DB → Admin | Admin dashboard (session list) |
+| `dining-intelligence-summary` (§10, undocumented until 2026-07-07) | Supabase postgres_changes | DB → Admin | Admin Dining Intelligence landing page stat tiles |
 | `session-lifecycle:{sessionId}` | Supabase Broadcast REST | Server → Customer | Public guest page (session end) |
 | `/api/public/sessions/{id}/presence` | HTTP poll (30s) | Client → Server | Public guest page (safety net) |
+
+### 1.1 Critical gap, live 2026-06-29 → fixed 2026-07-07: RLS SELECT is necessary but not sufficient for `postgres_changes`
+
+Every `postgres_changes` channel below was labeled "LIVE" and correctly satisfied its RLS requirement (§7) from the day it shipped. But a `postgres_changes` subscription **also** requires the watched table to be added to the `supabase_realtime` publication — a separate, easy-to-forget step that has nothing to do with RLS and that this document never mentioned. A live query against `pg_publication_tables` on 2026-07-07 found **zero tables** registered in `supabase_realtime` — meaning `session-presence:{sessionId}`, `admin-sessions-{restaurantId}`, and every other admin `postgres_changes` subscription described as "LIVE" in this document had, in fact, been subscribing successfully (the WebSocket connection and RLS check both passed) and then **silently receiving zero events**, for as long as those channels existed. The UI never errored — it just quietly never updated in realtime, falling back to whatever manual refresh or poll happened to exist alongside it.
+
+Fixed by `supabase/migrations/20260707000000_enable_realtime_visit_sessions.sql`, which adds `visit_sessions` and `session_guests` to the publication. **`orders` is still not in the publication as of this writing** — the `dining-intelligence-summary` channel (§10) subscribes to `orders` changes and has the same silent-no-op gap today.
+
+**Rule going forward:** any new `postgres_changes` subscription must be verified live (query `select * from pg_publication_tables where pubname = 'supabase_realtime'`, or trigger a real change and confirm the event arrives) — passing RLS and "the code looks right" are not evidence a channel is actually delivering events. See Rule 57 in `docs/engineering/claude-engineering-rules.md`.
 
 ---
 
@@ -25,12 +34,12 @@ SpinBite uses three distinct realtime mechanisms. Each serves a different audien
 **Table watched:** `session_guests`
 **Filter:** `session_id=eq.{sessionId}`
 **Events:** `INSERT` (guest joined), `UPDATE` (status change — active/inactive/disconnected)
-**Consumer:** Admin sessions page (`app/admin/sessions/page.tsx` → `TableStatusHeader`)
+**Consumer:** Dining Intelligence detail page (`app/admin/sessions/[restaurantId]/page.tsx` → `components/admin/sessions/SessionsDashboard.tsx` → `TableStatusHeader`) — see §11 for the Dining Intelligence rename/restructure.
 
 **What it does:**
 When any `session_guests` row for this session changes (guest joins, heartbeats cause status update, stale sweep transitions), the admin UI refetches the active guest count.
 
-**Current wiring (LIVE):**
+**Current wiring (LIVE since 2026-07-07 — see §1.1):** correctly satisfied RLS since it was written, but delivered zero events until `session_guests` was added to the `supabase_realtime` publication.
 ```typescript
 // Inside TableStatusHeader component
 const channel = supabase
@@ -52,18 +61,20 @@ const channel = supabase
 
 ---
 
-## 3. Channel B — `restaurant-sessions:{restaurantId}`
+## 3. Channel B — `admin-sessions-{restaurantId}`
+
+**Naming correction (this revision):** this channel was documented under the header `restaurant-sessions:{restaurantId}` since v1.0, but that string was never the actual topic used in code — the real topic, visible in this same section's own code sample below, has always been `admin-sessions-${selectedRestaurantId}`. §1 and §7 are corrected to match; if you find `restaurant-sessions:{restaurantId}` referenced anywhere else (e.g. `spinbite-platform-architecture-v4.md` §8.2), it means the same doc-vs-code drift and should be corrected to this name too.
 
 **Technology:** Supabase Realtime postgres_changes
 **Table watched:** `visit_sessions`
 **Filter:** `restaurant_id=eq.{restaurantId}`
 **Events:** `INSERT` (new session opened), `UPDATE` (status change — active→completed)
-**Consumer:** Admin sessions page (`app/admin/sessions/page.tsx` → top-level `useEffect`)
+**Consumer:** Dining Intelligence detail page (`components/admin/sessions/SessionsDashboard.tsx`) — see §11
 
 **What it does:**
 When any session for this restaurant changes status, the admin page reloads the full sessions list. This is how the admin sees new sessions appear and completed sessions disappear from the Active tab in real time.
 
-**Current wiring (LIVE):**
+**Current wiring (LIVE since 2026-07-07 — see §1.1):**
 ```typescript
 const channel = supabase
   .channel(`admin-sessions-${selectedRestaurantId}`)
@@ -187,23 +198,47 @@ This fallback chain ensures no customer device is permanently stuck in an active
 
 ## 7. RLS Boundary for Realtime Subscriptions
 
-| Channel | Technology | Key used | RLS requirement |
-|---|---|---|---|
-| `session-presence:{id}` (admin) | postgres_changes | anon key | `session_guests` owner SELECT (auth.uid() = owner) |
-| `restaurant-sessions:{id}` (admin) | postgres_changes | anon key | `visit_sessions` owner SELECT (auth.uid() = owner) |
-| `session-lifecycle:{id}` (customer) | Broadcast | anon key | None — Broadcast has no table dependency |
+| Channel | Technology | Key used | RLS requirement | `supabase_realtime` publication? |
+|---|---|---|---|---|
+| `session-presence:{id}` (admin) | postgres_changes | anon key | `session_guests` owner SELECT (auth.uid() = owner) | Yes, since 2026-07-07 (§1.1) |
+| `admin-sessions-{id}` (admin) | postgres_changes | anon key | `visit_sessions` owner SELECT (auth.uid() = owner) | Yes, since 2026-07-07 (§1.1) |
+| `dining-intelligence-summary` (admin, §10) | postgres_changes | anon key | `visit_sessions`/`orders` owner SELECT | `visit_sessions` yes; **`orders` no — same silent-no-op gap as §1.1, unresolved** |
+| `session-lifecycle:{id}` (customer) | Broadcast | anon key | None — Broadcast has no table dependency | N/A — Broadcast doesn't use the publication |
 
-**Critical rule:** Never open a public SELECT policy on `visit_sessions` or `session_guests` to support customer-side realtime. Use Broadcast instead.
+**Critical rule:** Never open a public SELECT policy on `visit_sessions` or `session_guests` to support customer-side realtime. Use Broadcast instead. **Second critical rule (added 2026-07-07, §1.1):** satisfying RLS is not the same as the channel actually delivering events — also verify `supabase_realtime` publication membership.
 
 ---
 
 ## 8. Known Open Work
 
-| Item | Priority | Note |
-|---|---|---|
-| Wire `session-lifecycle:{id}` Broadcast subscription into `RestaurantPublicPage.tsx` | High | Broadcast dispatched by server; client not yet subscribed |
-| Add presence poll status ribbon to customer page | Medium | `/api/public/sessions/{id}/presence` exists; UI not wired |
-| Session-ended redirect page | Medium | Route target for broadcast + heartbeat fallback |
+All three items below, open as of v1.0 (2026-06-29), are now resolved — confirmed against current code during the 2026-07-07 audit that produced this revision:
+
+| Item | Status |
+|---|---|
+| Wire `session-lifecycle:{id}` Broadcast subscription into the customer page | **Done.** Landed in `components/public/TouchpointMenuPage.tsx` (not `RestaurantPublicPage.tsx` as originally planned — the touchpoint-scoped page became the actual home for session lifecycle, since only touchpoint sessions have one to track) — subscribes to `session-lifecycle:{sessionId}`, `on('broadcast', { event: 'session_ended' }, ...)`. |
+| Add presence poll status ribbon to customer page | **Done.** Same file — the guest ribbon reflects `sessionPhase` and polls `/api/public/sessions/{id}/presence` as the fallback described in §6. |
+| Session-ended redirect page | **Done, but not as a route.** No dedicated `/session-ended` page exists — `sessionPhase === 'session_ended'` renders an inline full-screen state directly in `TouchpointMenuPage.tsx`, with a countdown (`SESSION_ENDED_REDIRECT_SECONDS`) rather than an immediate `router.push()`. |
+
+New open item found during this audit: `orders` is not in the `supabase_realtime` publication (§1.1, §10) — the `dining-intelligence-summary` channel's order-change events are currently a silent no-op, same failure mode `visit_sessions`/`session_guests` had until 2026-07-07.
+
+---
+
+## 10. Channel D — `dining-intelligence-summary` (undocumented until this audit, live since 2026-07-02)
+
+**Technology:** Supabase Realtime postgres_changes (two subscriptions on one channel)
+**Tables watched:** `visit_sessions`, `orders`
+**Filter:** per-restaurant-id
+**Consumer:** `app/admin/sessions/page.tsx` (the Dining Intelligence landing page, §11) — refreshes the per-restaurant stat tiles (Active Tables/Sessions/Guests/Orders) when either table changes for the currently-relevant restaurant(s).
+
+**Gap:** `orders` has never been added to the `supabase_realtime` publication (confirmed live 2026-07-07, same query used to discover the §1.1 gap), so the `orders` half of this channel has been silently inert since it shipped 2026-07-02. The `visit_sessions` half started working only once §1.1's migration landed 2026-07-07. Fixing the `orders` half is a one-line addition to `20260707000000_enable_realtime_visit_sessions.sql`'s successor migration — not done as part of this audit since it wasn't the reported symptom, but it is now tracked here so it isn't rediscovered independently.
+
+---
+
+## 11. Naming note: "Dining Intelligence" (2026-07-02)
+
+`app/admin/sessions/` was restructured 2026-07-02 (`feature/dining-intelligence-redesign`) into a Directory→Detail pair, the same shape as Menu Library (§4) and Restaurant Directory/Workspace: `app/admin/sessions/page.tsx` (landing — restaurant tiles + live summary stats) → `app/admin/sessions/[restaurantId]/page.tsx` (detail — `SessionsDashboard.tsx`, Active/Completed/Abandoned tabs backed by real `visit_sessions.status` values per tab, not client-side filtering). The product name for this whole surface is "Dining Intelligence" — this document and `docs/architecture/README.md` still call it "Sessions" or "live session + intelligence panel" in places; treat "Dining Intelligence" as the current name going forward.
+
+`engine/session-presence/realtime-channels.ts` is stale/dead: its own banner comment claims "Architecture-only. No live subscriptions are wired," but every channel actually described in this document (§2, §3, §10) is wired ad hoc inline in its consuming component, not through this module's exported builders. Either wire the real channels through it (matching its original intent) or remove it — leaving it in place as unused, self-contradicting code invites someone to trust its comment over the running system.
 
 ---
 

@@ -21,9 +21,9 @@ Near-term the platform is built around one stable primitive chain: **menu → it
 
 ## What it does today
 
-- **Restaurant admins** manage one or more locations (multi-tenant, `owner_id`-scoped), build a real menu (sections, items, images, AI-generated descriptions, time-boxed special pricing), toggle commission-free ordering per restaurant, and build promotions with a registry-driven builder: pick a game, configure weighted rewards backed by real menu items, schedule, and publish.
-- **Diners** scan a QR code tied to a restaurant or a specific touchpoint (table, patio, counter, pickup), browse the live menu, add items to a cart and order directly, and/or play the promotion's game for a coupon — redeemed instantly, no app download.
-- **Staff** get a live orders inbox, a session view showing who's active at each touchpoint with named-guest behavioral summaries, and — via the Decision Runtime — real-time nudges (e.g. "table showing high interest but hasn't ordered") without any client-side popups or blocking AI calls.
+- **Restaurant admins** manage one or more locations via a Directory → Workspace pattern (`/admin/restaurants`: a read-only grid of locations → `/admin/restaurants/[id]`: an 8-tab workspace where all configuration happens), multi-tenant and `owner_id`-scoped throughout. Menus are owner-scoped, reusable objects assignable to one or many restaurants (Menu Library: `/admin/menus`) — build sections, items, images, AI-generated descriptions, and time-boxed special pricing once, assign to any location. Admins toggle commission-free ordering per restaurant, and build promotions with a registry-driven builder: pick a game, configure weighted rewards backed by real menu items, schedule, and publish.
+- **Diners** scan a QR code tied to a restaurant or a specific touchpoint (table, patio, counter, pickup), browse the live menu, add items to a cart and order directly, and/or play the promotion's game for a coupon — shown to staff to redeem, or applied automatically to the cart and settled at checkout when ordering + payment simulation are both enabled. No app download.
+- **Staff** get a live orders inbox, a Dining Intelligence view (`/admin/sessions`: a Directory of locations → per-restaurant detail) showing who's active at each touchpoint with named-guest behavioral summaries, and — via the Decision Runtime — real-time nudges (e.g. "table showing high interest but hasn't ordered") without any client-side popups or blocking AI calls.
 - **Super admins** manage the game catalog, editable homepage/marketing content, and the Intelligence Lab (prompt templates, A/B experiments, generation cost/usage logs) through `/super-admin`.
 
 ### Games
@@ -109,6 +109,8 @@ supabase/promotion_builder_schema.sql
 # 3. All incremental migrations, in order
 supabase/migrations/*.sql
 ```
+
+> **Known gap (flagged 2026-07-07):** `play_sessions` and `customer_profiles` — required for the play/redeem flow (`lib/game-pool/resolvePromotionGame.ts`, `CustomerIdentityScreen`) — are not created by any of the three sources above. Their `CREATE TABLE` predates this repo's migration-tracking discipline and was never captured; only later `ALTER`s (e.g. `supabase/migrations/20260707160000_fix_play_sessions_game_type_valid.sql`) are tracked. A from-scratch environment following the steps above will be missing both tables. See `docs/architecture/spinbite-platform-architecture-v4.md` §6.4 for the closest thing to a current schema reference for `play_sessions` until this is backfilled into a migration.
 
 ### 4. Start the dev server
 

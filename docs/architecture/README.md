@@ -1,6 +1,6 @@
 # SpinBite Architecture — Documentation Index
 
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-07
 
 SpinBite has two living architecture documentation trees. This page is the index that ties them together — read this first.
 
@@ -17,8 +17,8 @@ SpinBite has two living architecture documentation trees. This page is the index
 | Guest Identity v1 | [`/architecture/guest_identity_v1.md`](/architecture/guest_identity_v1.md) | Server-assigned `guest_id`, per-guest event/order attribution |
 | Database Schema Map v1 | [`/architecture/database_schema_map_v1.md`](/architecture/database_schema_map_v1.md) | Full current schema reference — session/presence/intelligence tables |
 | Production Release Checklist v1 | [`/architecture/production_release_checklist_v1.md`](/architecture/production_release_checklist_v1.md) | Release gates |
-| Menu Library Hardening Audit | [`menu-library-hardening-audit-2026-07-03.md`](./menu-library-hardening-audit-2026-07-03.md) | Pre-merge audit for the Menu Library redesign — RLS sweep findings, deterministic resolution verification, owner-scoping decision, builder refactor boundaries |
-| Engineering Rules | [`/docs/engineering/claude-engineering-rules.md`](../engineering/claude-engineering-rules.md) | 46 mandatory engineering rules, including Rule 42 (docs must update with infra changes) |
+| Menu Library Hardening Audit | [`menu-library-hardening-audit-2026-07-03.md`](./menu-library-hardening-audit-2026-07-03.md) | Pre-merge audit for the Menu Library redesign — RLS sweep findings, deterministic resolution verification, owner-scoping decision, builder refactor boundaries. Post-merge follow-ups (RLS recursion fix, category reordering, name uniqueness, Clone Menu/soft-delete) are covered in `spinbite-platform-architecture-v4.md` §4.3, not in this doc. |
+| Engineering Rules | [`/docs/engineering/claude-engineering-rules.md`](../engineering/claude-engineering-rules.md) | Mandatory engineering rules, numbered up to 65 (non-sequential — Rules 17, 22, 25, 30, 47–51 are referenced elsewhere in this docs tree but do not currently exist in the file, a gap flagged 2026-07-07), including Rule 42 (docs must update with infra changes), Rule 56/57 (verify schema/realtime-publication state live, not just from tracked migrations/RLS), Rule 64/65 (session-consistency invariants for randomized/claimed state) |
 
 **Rule (Rule 42):** any migration, new API route, new engine function, new realtime channel, or RLS policy change touching sessions/presence/intelligence must update the relevant `/architecture/` (root) doc in the same PR. Any change to product decisions, invariants, or the multi-tenant/security model must update `spinbite-platform-architecture-v4.md`.
 
@@ -40,9 +40,9 @@ app/
 ├── admin/
 │   ├── menus/                 ← Menu Library (grid + [menuId] builder + [menuId]/assign)
 │   ├── promotions/           ← promotion list, create, builder
-│   ├── restaurants/          ← restaurant profile tabs + touchpoints
+│   ├── restaurants/          ← Restaurant Directory (grid) + [restaurantId] Workspace (8 tabs, since 2026-07-03)
 │   ├── orders/                ← orders inbox
-│   ├── sessions/              ← live session + intelligence panel
+│   ├── sessions/              ← Dining Intelligence: landing (restaurant tiles) + [restaurantId] detail (since 2026-07-02)
 │   └── intelligence/          ← AI generation UI
 ├── super-admin/
 │   ├── content/               ← site_content CMS editor
@@ -60,7 +60,7 @@ components/
 └── games/
 
 engine/
-├── session-presence/          ← join-session, presence-heartbeat, guest-counter, realtime-channels
+├── session-presence/          ← join-session, presence-heartbeat, guest-counter, realtime-channels (this last module is dead/stale code — see Known technical debt below)
 └── decision-runtime/          ← runtime.ts (evaluateSession)
 
 lib/
@@ -92,5 +92,9 @@ docs/engineering/                ← engineering rules
 - `app/admin/menus/[menuId]/page.tsx` and `app/admin/promotions/[id]/builder/page.tsx` remain large client-side monoliths with direct Supabase calls rather than server actions — see the hardening audit doc §8 for a mapped-out refactor plan for the former.
 - `intelligence_generation_logs` has an open (unused but exploitable) authenticated INSERT policy — see the hardening audit doc §3.
 - `api.qrserver.com` external dependency for QR generation — no SLA, privacy consideration; candidate for internalization.
+- **(Added 2026-07-07)** `play_sessions`' full DDL — including its `selected_game_type` check constraint — is not fully reconstructable from `supabase/migrations/`; it predates this repo's migration-tracking discipline. Already caused one real incident (see `spinbite-platform-architecture-v4.md` §6.4, Rule 56). Verify this table's constraints live before relying on them.
+- **(Added 2026-07-07)** `games.slug = 'pick-a-card'` (`pick_a_card` game type) has a live DB row and a slug mapping but no entry in `lib/games/registry.ts` — flipping it to `active` in Super Admin today would silently mis-render (falls back to Spin Wheel) and fail every play with the same check-constraint class of bug as above. See `spinbite-platform-architecture-v4.md` §6.2.
+- **(Added 2026-07-07)** `orders` is still not registered in the `supabase_realtime` publication — the Dining Intelligence landing page's `dining-intelligence-summary` channel has a silent no-op gap on its order-change half, the same failure mode `visit_sessions`/`session_guests` had until this date. See `/architecture/realtime_presence_v1.md` §1.1/§10, Rule 57.
+- **(Added 2026-07-07)** `engine/session-presence/realtime-channels.ts` is dead/stale — its own comment claims no channels are wired through it, but this is no longer true anywhere in the app; the real channels are wired ad hoc inline in their consuming components. Either wire the real channels through it or delete it.
 
 For anything not covered here, start at `spinbite-platform-architecture-v4.md`.
