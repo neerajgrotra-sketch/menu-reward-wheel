@@ -969,25 +969,46 @@ function SessionCard({
     ? tp.section_name ? `${tp.section_name} — ${tp.name}` : tp.name
     : 'Unknown table';
 
-  async function toggleExpand() {
-    const next = !expanded;
-    setExpanded(next);
-    // Lazy-load intelligence on first expand
-    if (next && !intelligence && !loadingIntelligence) {
+  // background=true (poll ticks) updates the data silently — no loading
+  // text, no clearing of what's already on screen — so a live-updating
+  // panel doesn't flicker every 15s. Only the very first fetch (on expand)
+  // shows the loading state.
+  const fetchIntelligence = useCallback(async (background = false) => {
+    if (!background) {
       setLoadingIntelligence(true);
       setIntelligenceError('');
-      try {
-        const res = await fetch(`/api/admin/sessions/${session.id}/intelligence`);
-        const payload = await res.json();
-        if (!res.ok) throw new Error(payload?.error || 'Failed to load intelligence.');
-        setIntelligence(payload as FullIntelligence);
-      } catch (err: unknown) {
-        setIntelligenceError(err instanceof Error ? err.message : 'Failed to load.');
-      } finally {
-        setLoadingIntelligence(false);
-      }
+    }
+    try {
+      const res = await fetch(`/api/admin/sessions/${session.id}/intelligence`);
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Failed to load intelligence.');
+      setIntelligence(payload as FullIntelligence);
+    } catch (err: unknown) {
+      if (!background) setIntelligenceError(err instanceof Error ? err.message : 'Failed to load.');
+    } finally {
+      if (!background) setLoadingIntelligence(false);
+    }
+  }, [session.id]);
+
+  function toggleExpand() {
+    const next = !expanded;
+    setExpanded(next);
+    // Lazy-load intelligence on first expand only — the poll below (Rule 53:
+    // realtime/interval is a cue to re-check truth, not truth itself) takes
+    // over from here for as long as the card stays expanded.
+    if (next && !intelligence && !loadingIntelligence) {
+      fetchIntelligence(false);
     }
   }
+
+  // Keep the intelligence panel live while expanded — this is the whole
+  // point of an admin watching a table in real time; a one-shot fetch on
+  // first expand goes stale the moment the guest does anything else.
+  useEffect(() => {
+    if (!expanded) return;
+    const timer = window.setInterval(() => fetchIntelligence(true), 15000);
+    return () => window.clearInterval(timer);
+  }, [expanded, fetchIntelligence]);
 
   return (
     <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
@@ -1127,13 +1148,22 @@ function SummaryBar({ sessions }: { sessions: VisitSession[] }) {
 export function SessionsDashboard({ restaurantId }: { restaurantId: string }) {
   const [activeTab, setActiveTab] = useState<SessionStatus>('active');
   const [sessions, setSessions] = useState<VisitSession[]>([]);
+  // Gates the initial "Loading sessions…" placeholder / empty-state only —
+  // never the already-rendered list. Realtime fires on every visit_sessions
+  // change for this restaurant (routine counter updates, not just new
+  // sessions), so treating every tick as a full reload would unmount and
+  // remount every SessionCard — resetting each card's expanded/intelligence
+  // state on essentially every tick. Background refreshes update `sessions`
+  // in place instead; React reconciles by the stable `session.id` key, so an
+  // expanded card stays expanded and its already-fetched intelligence stays
+  // visible across the refresh.
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [endingId, setEndingId] = useState<string | null>(null);
 
-  const loadSessions = useCallback(async () => {
+  const loadSessions = useCallback(async (background = false) => {
     if (!restaurantId) return;
-    setLoading(true);
+    if (!background) setLoading(true);
     setError('');
 
     try {
@@ -1144,9 +1174,11 @@ export function SessionsDashboard({ restaurantId }: { restaurantId: string }) {
       if (!res.ok) throw new Error(payload?.error || 'Failed to load sessions.');
       setSessions(payload.sessions ?? []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load sessions.');
+      // A background refresh failing shouldn't blank out an already-visible
+      // list with an error state — only surface it for an explicit load.
+      if (!background) setError(err instanceof Error ? err.message : 'Failed to load sessions.');
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }, [restaurantId, activeTab]);
 
@@ -1167,7 +1199,7 @@ export function SessionsDashboard({ restaurantId }: { restaurantId: string }) {
           table: 'visit_sessions',
           filter: `restaurant_id=eq.${restaurantId}`,
         },
-        () => { loadSessions(); },
+        () => { loadSessions(true); },
       )
       .subscribe();
 
