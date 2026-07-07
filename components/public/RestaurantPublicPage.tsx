@@ -1495,15 +1495,17 @@ export function RestaurantPublicPage({
     >
       {/* ── Pending redemption banner ── */}
       {pendingRedemption.pending && !pendingRedemption.pending.bannerDismissed && (
-        <div className="sticky top-0 z-40 flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-white shadow-md" style={{ backgroundColor: brandColor }}>
+        <div className="sticky top-0 z-40 flex items-start gap-3 px-4 py-2.5 text-sm font-bold text-white shadow-md" style={{ backgroundColor: brandColor }}>
           <span className="text-lg">🎁</span>
           <div className="min-w-0 flex-1">
             {pendingRedemption.expired ? (
               <p>Redemption window expired — {pendingRedemptionLabel} stays in your cart at full price.</p>
             ) : pendingRedemptionItem ? (
-              <p className="truncate">
+              <p>
                 {pendingRedemptionLabel} added to your order — redeem within{' '}
-                {formatCouponTimeRemaining(pendingRedemption.pending.expiresAtMs - pendingRedemption.now)}
+                <span className="font-mono tabular-nums">
+                  {formatCouponTimeRemaining(pendingRedemption.pending.expiresAtMs - pendingRedemption.now)}
+                </span>
               </p>
             ) : (
               <p>This reward&apos;s item is no longer available — it won&apos;t apply automatically, but you can still order.</p>
