@@ -14,7 +14,7 @@ import type { PlacedOrder } from '@/components/public/CartSheet';
 import type { ItemViewSnapshot } from '@/hooks/useSessionTracking';
 import { useDirectOrders } from '@/hooks/useDirectOrders';
 import { OrdersDrawer } from '@/components/public/OrdersDrawer';
-import { usePendingRedemption } from '@/hooks/usePendingRedemption';
+import { usePendingRedemption, type PendingRedemptionState } from '@/hooks/usePendingRedemption';
 import { formatCouponTimeRemaining } from '@/lib/coupon-expiry';
 import { peekPlaySessionToken } from '@/lib/play-session-token';
 import type { SessionCoupon } from '@/app/play/[restaurantSlug]/[promotionSlug]/page';
@@ -593,6 +593,7 @@ function RewardWidget({
   touchpointCode,
   confirmedSessionId,
   sessionConnecting = false,
+  pendingRedemption,
   onViewed,
   onPlayed,
 }: {
@@ -615,6 +616,10 @@ function RewardWidget({
   // reads it back from, so a guest who plays too early ends up looking at an
   // unrelated (possibly expired) coupon instead of the one they just won.
   sessionConnecting?: boolean;
+  // Same pendingRedemption slice threaded into CartSheet/PaymentCheckoutScreen
+  // — lets this widget tell "already added to your order" apart from "not
+  // redeemed yet" without a second, divergent source of truth.
+  pendingRedemption?: PendingRedemptionState | null;
   onViewed?: () => void;
   onPlayed?: (gameType: string) => void;
 }) {
@@ -690,6 +695,17 @@ function RewardWidget({
 
   const isRedeemed = statusCoupon?.status === 'redeemed';
   const isExpired = statusCoupon ? now >= new Date(statusCoupon.expiresAt).getTime() : false;
+  // This exact coupon is already sitting in the guest's cart from an earlier
+  // "Redeem Now" tap — checkout hasn't completed yet (that's what flips
+  // isRedeemed above), but re-showing "Redeem Now" here would just add the
+  // same reward item to the cart a second time.
+  const appliedToCart = Boolean(
+    statusCoupon &&
+    !isRedeemed &&
+    !isExpired &&
+    pendingRedemption?.pending?.redemptionId === statusCoupon.id &&
+    pendingRedemption.pending?.autoAdded,
+  );
   const autoRedeemable = Boolean(
     statusCoupon &&
     !isExpired &&
@@ -891,6 +907,16 @@ function RewardWidget({
                       <p className="text-base font-black text-red-600">⏰ Coupon has expired</p>
                       <p className="mt-1 text-sm font-bold text-stone-600">This coupon expired. Please ask a staff member if you need assistance.</p>
                     </div>
+                  ) : appliedToCart ? (
+                    <>
+                      <div className="mt-4 rounded-2xl border-2 border-green-200 bg-green-50 p-4">
+                        <p className="text-base font-black text-green-700">🛒 Added to your order</p>
+                        <p className="mt-1 text-sm font-bold text-stone-600">This reward is already in your cart at the discounted price — head to checkout to use it.</p>
+                      </div>
+                      <p className="mt-3 text-sm font-bold text-green-700">
+                        ⏰ Expires in {formatCouponTimeRemaining(new Date(statusCoupon.expiresAt).getTime() - now)}
+                      </p>
+                    </>
                   ) : (
                     <>
                       <div className="mt-4 rounded-2xl border-2 border-dashed border-stone-300 bg-stone-50 p-3">
@@ -1943,6 +1969,7 @@ export function RestaurantPublicPage({
           touchpointCode={touchpointCode}
           confirmedSessionId={confirmedSessionId}
           sessionConnecting={sessionConfirmed === false}
+          pendingRedemption={pendingRedemption}
           onViewed={() => onPromotionViewed?.(promotion!.id, promotion!.name, 'widget_sheet')}
           onPlayed={(gameType) => onPromotionPlayed?.(promotion!.id, promotion!.name, 'widget_sheet', gameType)}
         />
