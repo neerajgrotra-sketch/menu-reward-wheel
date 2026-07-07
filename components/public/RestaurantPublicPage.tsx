@@ -622,9 +622,15 @@ function RewardWidget({
     () => (promotion.game_types.length > 0 ? promotion.game_types : [promotion.game_type ?? 'spin_wheel']),
     [promotion.game_types, promotion.game_type],
   );
+  // Randomized only as a placeholder for a guest who has never reached the
+  // play page — the instant a play_sessions row exists for this browser
+  // (peeked below), its persisted selected_game_type wins and is pinned for
+  // the rest of the session so the widget never shows a different game than
+  // the one actually played.
   const [displayType, setDisplayType] = useState<string>(
     () => pool[Math.floor(Math.random() * pool.length)],
   );
+  const [resolvedGameType, setResolvedGameType] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [launching, setLaunching] = useState(false);
@@ -655,6 +661,10 @@ function RewardWidget({
       .then((res) => res.json())
       .then((payload) => {
         if (cancelled) return;
+        // Authoritative: this browser already has a play_sessions row for this
+        // promotion, so the game type is decided — pin the widget to it
+        // instead of the random placeholder pool pick above.
+        if (payload?.promotion?.game_type) setResolvedGameType(payload.promotion.game_type);
         const coupons = (payload?.existingCoupons || []) as SessionCoupon[];
         if (coupons.length > 0) {
           // A promotion with max_spins > 1 can issue several coupons under the
@@ -714,12 +724,13 @@ function RewardWidget({
     console.error('[RewardWidget] promotion.game_type is null — is_primary assignment may be missing for this promotion.');
   }
   const buttonVisual = getGameVisual(promotion.game_type ?? 'spin_wheel', 28);
-  const panelData = getGameVisual(displayType, 88);
-  const gameMeta = getGameMeta(displayType);
+  const effectiveDisplayType = resolvedGameType ?? displayType;
+  const panelData = getGameVisual(effectiveDisplayType, 88);
+  const gameMeta = getGameMeta(effectiveDisplayType);
 
   function handlePlay() {
     if (launching || sessionConnecting) return;
-    onPlayed?.(displayType);
+    onPlayed?.(effectiveDisplayType);
     setLaunching(true);
     if (launchBtnRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       fireButtonConfetti(launchBtnRef.current.getBoundingClientRect());
@@ -749,7 +760,10 @@ function RewardWidget({
 
   function openSheet() {
     onViewed?.();
-    setDisplayType(pool[Math.floor(Math.random() * pool.length)]);
+    // Only reroll the placeholder pick if the real game is still unresolved
+    // (no session yet) — once resolvedGameType is set it always wins, so this
+    // never overrides an actually-played game on a later reopen.
+    if (!resolvedGameType) setDisplayType(pool[Math.floor(Math.random() * pool.length)]);
     setExpanded(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
