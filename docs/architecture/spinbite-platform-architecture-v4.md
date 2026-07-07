@@ -1,9 +1,23 @@
 # SpinBite Platform Architecture v4
 
-**Document version:** 4.3
-**Date:** 2026-07-03
+**Document version:** 4.4
+**Date:** 2026-07-07
 **Status:** Source of truth — supersedes v3
 **Audience:** Engineering, product, CTO
+
+---
+
+## Why v4.4
+
+A full documentation audit (this revision wasn't triggered by one specific feature — it's a sweep of everything shipped since v4.3, 2026-07-03) found and closed five gaps, none involving a change to code behavior beyond what was already fixed in production the same day:
+
+1. **§6.5 (new)** — the "Redeem Now" coupon-to-cart-to-checkout bridge has existed since 2026-07-05 (`feature/redeem-now-order-payment`) and was never documented. Added, including three real bugs fixed 2026-07-07: game-type display drifting from the actually-played game (Rule 64, new), repeat "Redeem Now" taps silently duplicating the cart item (Rule 65, new), and the coupon-status confusion between "added to cart" and "actually redeemed."
+2. **§6.2/§6.4** — `play_sessions`' schema block was missing its `selected_game_type` column and check constraint entirely, and that constraint's undocumented drift from the app's canonical game vocabulary broke every `spin_wheel` play session for ~4 weeks before a user report surfaced it (Rule 56, new).
+3. **§4.3 (new)** — four Menu Library hardening migrations from 2026-07-04 (RLS recursion fix, category display-order backfill + reorder controls, menu name uniqueness, admin grid Clone/soft-delete) were never folded in after the pre-merge hardening audit doc they followed.
+4. **§8.2, §8.7 (new)** — `/admin/sessions` was renamed/restructured to "Dining Intelligence" 2026-07-02 and was never called that here; separately, `/architecture/realtime_presence_v1.md` had documented two admin realtime channels as "LIVE" for over a week while `supabase_realtime` had zero tables registered — RLS was correct, but publication membership (a separate, unrelated requirement) was missing the entire time (Rule 57, new). Fixed 2026-07-07; `orders` still has the same gap, tracked as open debt.
+5. **§3.6, root `README.md`** — the Restaurant Directory/Workspace redesign (§3.6) was already current as of v4.3, but `docs/architecture/README.md`'s repo map and the root `README.md` had never been updated to match it or the Dining Intelligence rename.
+
+See `docs/architecture/README.md`'s "Known technical debt" section for the open items this audit produced but didn't fix (the `orders` realtime-publication gap, the dormant `pick_a_card` game-registry gap, the dead `engine/session-presence/realtime-channels.ts` module, and a rule-numbering gap in `docs/engineering/claude-engineering-rules.md`).
 
 ---
 
@@ -202,6 +216,16 @@ Given `(restaurant_id, menu query param)`, resolution is a pure server-side func
 
 Verified 2026-07-03 against live data via reversible transactions (insert + rollback): a restaurant with an active assignment temporarily deactivated resolves to zero assigned menus with no error; a restaurant temporarily given a second active assignment correctly isolates each menu's categories/items with no cross-contamination, and the tiebreaker produces a stable order across repeated runs.
 
+### 4.3 Post-launch hardening (2026-07-04, undocumented until this audit)
+
+Four follow-up migrations landed the day after the redesign shipped, none reflected here until now:
+
+- **RLS recursion fix** (`20260704000000_fix_menu_assignment_rls_recursion.sql`) — `menus`' own SELECT policy queries `restaurant_menu_assignments`, and that table's INSERT/UPDATE checks queried `menus` directly, re-triggering the first policy — a same-relation RLS cycle Postgres detects and aborts as "infinite recursion detected in policy for relation restaurant_menu_assignments." Surfaced on `/admin/menus/[id]/assign` when toggling a location checkbox. Fixed with a `SECURITY DEFINER` helper (`public.user_owns_menu(p_menu_id)`) that checks menu ownership without re-invoking `menus`' RLS policies.
+- **Category ordering** (`20260704000000_menu_category_display_order_backfill.sql`) — `menu_categories.display_order` was always inserted as `0` and the admin builder's own category query had no `ORDER BY`, so the admin list and the live public menu could disagree on category order. Backfilled real values by creation order; new categories now get the next order on creation; the admin builder (`app/admin/menus/[menuId]/page.tsx`) sorts to match and has up/down reorder controls (category-level only — `restaurant_menu_assignments.display_order`, the menu-to-restaurant order from §4.2.1 step 1, still has no reorder UI).
+- **Menu name uniqueness** (`20260704000001_menu_name_uniqueness.sql`) — enforces `UNIQUE (owner_id, lower(name))` on `menus` (partial index, `WHERE deleted_at IS NULL`), after two backfilled per-location menus both named identically caused confusion in the Menu Library grid and Assign Locations screen. Pre-existing collisions were deduped in the same migration (renamed to include the assigned restaurant's city, or a numbered suffix if unassigned).
+- **Admin grid additions** (`app/admin/menus/page.tsx`, same window) — Clone Menu (duplicates a menu's categories/items under a new name, still unassigned) and soft-delete (`deleted_at` + `active = false`, filtered via `.is('deleted_at', null)` everywhere the grid or resolution algorithm reads `menus`) plus a View/Edit link split, replacing a single ambiguous action.
+- Also from the same hardening pass: `menus.version`, auto-incremented via an `increment_menu_version()` trigger — a change counter, not real versioning/rollback (no history table, nothing reads old versions yet).
+
 ---
 
 ## 5. Touchpoint Architecture
@@ -261,15 +285,18 @@ One active promotion per restaurant at a time — launching auto-ends any other 
 
 Games are registered in the `games` table (super-admin managed) and resolved through `lib/games/registry.ts` — the single canonical registry for both metadata and runtime component lookup.
 
-| Game | Type key | Status |
-|---|---|---|
-| Spin Wheel | `spin_wheel` (alias `wheel`) | Active |
-| Mystery Box | `mystery_box` | Active |
-| Scratch Card | `scratch_card` | Active |
-| Open The Door | `open_the_door` | Active |
-| Reward Reels | `reward_reels` | Beta / "Coming soon" |
+| Game | Type key | Status | Has a registry contract? |
+|---|---|---|---|
+| Spin Wheel | `spin_wheel` (alias `wheel`) | Active | Yes (`lib/games/spin-wheel/`) |
+| Mystery Box | `mystery_box` | Active | Yes (`lib/games/mystery-box/`) |
+| Scratch Card | `scratch_card` | Active | Yes (`lib/games/scratch-card/`) |
+| Open The Door | `open_the_door` | Active | Yes (`lib/games/open-the-door/`) |
+| Reward Reels | `reward_reels` (`games.slug = 'lucky-slot'`) | `coming_soon` | Yes (`lib/games/reward-reels/`), beta |
+| Pick a Card | `pick_a_card` (`games.slug = 'pick-a-card'`) | `coming_soon` | **No** — latent bug, see below |
 
-`promotion_game_assignments (promotion_id, game_type, weight, enabled)` lets a promotion pool multiple game types; `resolvePromotionGame()` selects one via weighted random per session.
+`promotion_game_assignments (promotion_id, game_type, weight, enabled)` lets a promotion pool multiple game types; `resolvePromotionGame()` (`lib/game-pool/resolvePromotionGame.ts`) selects one via weighted random per session and persists it to `play_sessions.selected_game_type` (§6.4) — every subsequent request for that session token reads this stored value back rather than re-rolling (see §6.5, this is what keeps a guest's game/coupon consistent across reloads).
+
+**Known gap — `pick_a_card` has no registry contract.** `games` has a live row (`slug: 'pick-a-card'`, `status: 'coming_soon'`) and `lib/games/game-registry.ts`'s `SLUG_TO_GAME_TYPE` maps it to `pick_a_card`, but `lib/games/registry.ts`'s `gameRegistry`/`getGameDefinition()` has no `pick_a_card` entry — `getGameDefinition('pick_a_card')` silently falls back to rendering the Spin Wheel component while every stored record still says `pick_a_card`. Currently dormant (`status: 'coming_soon'` keeps it out of `resolvePromotionGame`'s active-games pool, and no promotion has a `pick_a_card` assignment row), but **do not flip this game to `active` in Super Admin** until `lib/games/registry.ts` gains a real `pick_a_card` contract — doing so today would both mis-render (spin wheel UI, wrong game underneath) and fail every play with the same `play_sessions_game_type_valid` check-constraint violation described in §6.4, since that constraint's allow-list does not include `pick_a_card` either.
 
 ### 6.3 Rewards — corrected table names
 
@@ -299,14 +326,32 @@ Reward label resolution: `custom_name` → menu item name (via `menu_item_id`) �
 
 ```sql
 play_sessions ( id uuid PK, restaurant_id, promotion_id uuid, session_token text UNIQUE,
-  customer_profile_id uuid → customer_profiles(id) SET NULL, terms_accepted_timestamp timestamptz )
+  selected_game_type text CHECK (... see below), ip_address, user_agent text,
+  customer_profile_id uuid → customer_profiles(id) SET NULL, terms_accepted_timestamp timestamptz,
+  created_at timestamptz )
 
 customer_profiles ( id uuid PK, phone_country_code, phone_number_raw, phone_number_e164 text UNIQUE,
   marketing_consent boolean DEFAULT false, marketing_consent_timestamp timestamptz,
   terms_accepted_timestamp timestamptz NOT NULL )
 ```
 
+One `play_sessions` row per `session_token` (client-generated UUID, `getOrCreatePlaySessionToken()` in `lib/play-session-token.ts`, keyed by `restaurantSlug + promotionSlug + visitSessionId` in `localStorage`, 24h TTL). Created idempotently by `resolvePromotionGame()` — a concurrent duplicate insert (`23505`) is caught and recovered by re-reading the winning row, never surfaced as an error.
+
+**Schema governance gap:** unlike every other table in this document, `play_sessions`' full DDL (including the `selected_game_type` check constraint) is **not fully reconstructable from `supabase/migrations/`** — it predates this repo's migration-tracking discipline and was extended live. `20260707160000_fix_play_sessions_game_type_valid.sql` is the *only* tracked migration that touches this table, and it only `ALTER`s the constraint — it does not `CREATE TABLE`. Concretely, this already caused a real production incident: the constraint's allow-list (`wheel, mystery_box, scratch_card, slot_machine, fortune_cookie, pick_a_door, open_the_door`) used a vocabulary that predated `lib/games/types.ts`'s canonical `GameType` union, so any promotion whose weighted pool selected `spin_wheel` — the single most common primary game type — failed every first-play insert for roughly four weeks (2026-06-10 to 2026-07-07) before a user-reported error surfaced it. Fixed 2026-07-07 by aligning the constraint to `wheel, spin_wheel, mystery_box, scratch_card, reward_reels, open_the_door` (legacy `wheel` kept for 13 pre-existing rows). **Before trusting any constraint/trigger on this table, verify it live** (`pg_get_constraintdef` via the Supabase MCP or SQL editor) rather than assuming `supabase/migrations/` is complete for it — see Rule 56.
+
 Phone capture is optional and separate from marketing consent (privacy: phone ≠ consent). Captured via `CustomerIdentityScreen` before game start, skipped if `localStorage['spinbite_identity_v1']` is set. Writes go through `POST /api/public/customer-identity` using the service role key — customers are never authenticated. This is the foundation for future SMS campaigns, wallet passes, and loyalty (§11.2).
+
+### 6.5 Redeem Now — coupon-to-cart-to-checkout bridge
+
+**New since v4.3 — undocumented until this audit despite being live since 2026-07-05 (`feature/redeem-now-order-payment`).** No new tables; this is a client-side bridge connecting an already-won coupon (§6.3's `coupon_redemptions`, `status: 'issued'`) to the ordering cart (§7) so a guest can use their reward without re-entering anything.
+
+**Flow:** the play page's win screen and the floating `RewardWidget` (`components/public/RestaurantPublicPage.tsx`) both build a `/r/{slug}?redeem_id=...&redeem_item=...&redeem_type=...&redeem_value=...&redeem_code=...&redeem_exp=...` link from the issued coupon. `usePendingRedemption()` (`hooks/usePendingRedemption.ts`) consumes those query params on the menu page, strips them from the URL, and persists a `PendingRedemption` record to `sessionStorage` (`spinbite_pending_redemption_v1`). A `RestaurantPublicPage` effect then auto-adds the reward's menu item to the cart exactly once, guarded by a synchronous storage-based claim (`claimAutoAdd`) — not React state — so it stays correct even under a StrictMode double-invoke or hydration-recovery remount.
+
+**Discount math — one unit only, by design.** `lib/orders/reward-discount-math.ts`'s `computeRewardDiscount()` is explicitly scoped to a single unit's price, "never the full line total regardless of quantity in cart," because a coupon is issued one-per-play. This is shared verbatim between the client preview (`CartSheet.tsx`, `PaymentCheckoutScreen.tsx`) and the authoritative server calculation (`lib/orders/apply-coupon-discount.ts`'s `resolveCouponDiscount()`, called from `payment-orchestrator.ts` at checkout) so the previewed discount can never drift from what's actually charged. `CartSheet` additionally disables the `+` quantity control on the specific cart line carrying the active coupon — the discount was never wrong server-side, but letting a guest increment it visually implied every unit got the discounted "each" price.
+
+**Coupon status lifecycle — "added to cart" ≠ "redeemed."** A coupon's `coupon_redemptions.status` only flips from `issued` to `redeemed` when checkout actually completes (`payment-orchestrator.ts` on payment success) — never merely by clicking "Redeem Now," which only adds the item to the cart. This distinction caused real user-facing confusion (2026-07-07): the floating widget kept offering an actionable "Redeem Now" button after the guest had already added the reward to their cart, implying it could be redeemed again, and — because `usePendingRedemption`'s `consumeUrlParams()` didn't preserve the `autoAdded` claim across repeat visits to the same redeem link — repeat taps actually did re-add the item, incrementing its cart quantity each time. Both are now fixed: `consumeUrlParams()` carries over `autoAdded`/`bannerDismissed` when the same `redemptionId` is re-consumed, and `claimAutoAdd()` syncs its claim into the hook's `pending` React state (not just storage) so the UI reflects "added to your order" immediately, without needing a reload. The widget now has three distinct states for an already-played promotion: not yet added (`Redeem Now` / `Browse Menu`), added but not checked out (`🛒 Added to your order`), and checked out (`✅ Coupon already redeemed`). This pattern — an idempotent claim must sync into whatever state actually drives the UI, not just the storage/DB record it's claimed against — is now Rule 65.
+
+**Game-type display consistency.** `RewardWidget` previously re-picked a random game visual/icon on every mount and every sheet-open from the promotion's enabled game pool — independent of which game the server (`resolvePromotionGame`) had actually resolved and persisted for that session. A guest could play and win on Scratch Card, then reopen the widget and see Mystery Box's icon/copy above their real, correct reward. Fixed 2026-07-07: once a `play_sessions` row exists for the browser (peeked via `peekPlaySessionToken`), the widget reads the authoritative `promotion.game_type` from the same status-check API call it already makes for `existingCoupons`, and pins to it — the random pick is now only ever shown before a guest has reached the play page at all. This is now Rule 64: once a randomized runtime choice is resolved and persisted, every surface displaying it must read the persisted value, never re-derive or re-randomize it.
 
 ---
 
@@ -355,7 +400,9 @@ Client state machine: `SessionPhase: 'resolving' | 'confirmed' | 'session_ended'
 
 Per-device presence via `session_guests` (server-issued 64-char hex `guest_token`, `device_fingerprint`, `status: active | inactive | disconnected | blocked`). Lifecycle: no heartbeat 3 min → `inactive`; 10 min → `disconnected` (via `update_stale_guest_presence` RPC); `disconnect_session_guests()` on session end.
 
-Three independent realtime channels: `session-presence:{sessionId}` (admin guest count), `restaurant-sessions:{restaurantId}` (admin session list), `session-lifecycle:{sessionId}` (Supabase Broadcast REST — used instead of `postgres_changes` for customer-facing session-end because `visit_sessions` has no public SELECT policy, per Rule 40: no direct client access to session/presence tables). Session-end fallback chain: Broadcast (~200ms) → heartbeat `{active:false}` (≤30s) → order `409 SESSION_INVALID` as a last-resort safety net (Rule 41: realtime fallback design).
+Three independent realtime channels: `session-presence:{sessionId}` (admin guest count), `admin-sessions-{restaurantId}` (admin session list — documented under the name `restaurant-sessions:{restaurantId}` prior to this revision; that was never the actual topic string, see `/architecture/realtime_presence_v1.md` §3), `session-lifecycle:{sessionId}` (Supabase Broadcast REST — used instead of `postgres_changes` for customer-facing session-end because `visit_sessions` has no public SELECT policy, per Rule 40: no direct client access to session/presence tables). Session-end fallback chain: Broadcast (~200ms) → heartbeat `{active:false}` (≤30s) → order `409 SESSION_INVALID` as a last-resort safety net (Rule 41: realtime fallback design).
+
+**Publication gap, live 2026-06-29 → fixed 2026-07-07:** both admin `postgres_changes` channels above satisfied their RLS requirement from day one but silently delivered zero events until `20260707000000_enable_realtime_visit_sessions.sql` added `visit_sessions`/`session_guests` to the `supabase_realtime` publication — a separate, RLS-independent requirement this document didn't previously call out. `orders` is still not in that publication as of this writing, so the Dining Intelligence landing page's order-change realtime refresh (§8.7) has the same gap, unresolved. Full detail and the new verification rule this produced: `/architecture/realtime_presence_v1.md` §1.1, Rule 57.
 
 → Full detail: `/architecture/realtime_presence_v1.md`
 
@@ -385,9 +432,15 @@ Three independent realtime channels: `session-presence:{sessionId}` (admin guest
 
 → Full detail: `/architecture/decision_engine_v1.md` and `/architecture/decision_runtime_v1.md`
 
-### 8.7 Documentation authority for this layer
+### 8.7 Dining Intelligence admin surface (renamed/restructured 2026-07-02, undocumented until this audit)
 
-Per Rule 42, the seven docs in `/architecture/` (root) are the canonical technical reference for this entire section and must be updated in the same PR as any migration, API route, engine function, realtime channel, or RLS policy change touching sessions, presence, or intelligence. This document (`docs/architecture/spinbite-platform-architecture-v4.md`) is the canonical reference for product decisions and invariants. See `docs/architecture/README.md` for the full cross-linked index of both trees.
+`/admin/sessions` — the admin surface consuming everything in §8.1–8.6 — was restructured into the same Directory→Detail shape used by Menu Library (§4.1) and the Restaurant Directory/Workspace (§3.6): `app/admin/sessions/page.tsx` (landing — a grid of per-restaurant tiles with live summary stats: active tables/sessions/guests/orders) → `app/admin/sessions/[restaurantId]/page.tsx` (detail — `components/admin/sessions/SessionsDashboard.tsx`, Active/Completed/Abandoned tabs, each backed by a real server-side query on `visit_sessions.status`, not client-side filtering). The product name for this surface is **Dining Intelligence** — this document's §1 route table and `docs/architecture/README.md` still describe it only as "Sessions" / "live session + intelligence panel" and should be read as the same thing.
+
+The landing page opens its own realtime channel (`dining-intelligence-summary`, watching `visit_sessions` and `orders`) to keep its stat tiles live — see `/architecture/realtime_presence_v1.md` §10 for its wiring and the `orders`-publication gap that currently makes half of it a no-op.
+
+### 8.8 Documentation authority for this layer
+
+Per Rule 42, the docs in `/architecture/` (root) are the canonical technical reference for this entire section and must be updated in the same PR as any migration, API route, engine function, realtime channel, or RLS policy change touching sessions, presence, or intelligence. This document (`docs/architecture/spinbite-platform-architecture-v4.md`) is the canonical reference for product decisions and invariants. See `docs/architecture/README.md` for the full cross-linked index of both trees.
 
 ---
 

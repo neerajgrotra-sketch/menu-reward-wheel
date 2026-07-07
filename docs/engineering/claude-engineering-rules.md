@@ -935,4 +935,52 @@ Simulators and desktop browser device-emulation modes do not satisfy this rule �
 
 This extends Rule 9 (mobile-first) specifically for session/presence-affecting changes, where a simulator pass has previously produced false confidence.
 
+---
+
+## A note on rule numbering (added 2026-07-07)
+
+A full audit of this document found that Rule numbers **17, 22, 25, 30, and 47–51 do not exist** — they are referenced elsewhere in the docs tree (`spinbite-platform-architecture-v4.md` §9.1 cites Rules 18/19/20/21/23/24; `menu-library-hardening-audit-2026-07-03.md` cites Rule 22) as if their content is known, but no rule with those numbers has ever been written into this file. This is a real gap, not a formatting artifact — the numbering elsewhere in this file is already non-sequential (Rule 26 sits after Rule 7; Rules 58–63 sit before Rule 31), so it's not obvious at a glance that these specific numbers are missing rather than just out of order.
+
+Do not fabricate the missing rules' content from the fragments that reference them — reconstruct and add them properly (with the engineer who wrote the originals, if possible) rather than guessing. Until then, treat any citation of Rule 17, 22, 25, 30, or 47–51 elsewhere in the docs tree as "intent described nearby, canonical text missing here."
+
+---
+
+## Rule 56 — Verify Schema Constraints and Triggers Against the Live Database, Not Just Tracked Migrations
+
+Not every table's full DDL is guaranteed to be reconstructable from `supabase/migrations/`. Some tables (e.g. `play_sessions`) predate this repo's migration-tracking discipline and were extended directly against the live database — a tracked migration may only ever `ALTER` such a table, never `CREATE` it, leaving no single source of truth in the repo for its actual constraints.
+
+**Incident:** `play_sessions.selected_game_type`'s check constraint used a legacy value vocabulary (`wheel, slot_machine, fortune_cookie, pick_a_door, ...`) that predated the app's canonical `GameType` union. Every promotion whose weighted game pool selected `spin_wheel` — the single most common primary game type — failed its first-play insert for roughly four weeks before a user-reported error surfaced it. Nothing in `supabase/migrations/` could have revealed this; the constraint had to be read directly from `pg_constraint` (`pg_get_constraintdef`) against the live database.
+
+Before trusting or reasoning about a constraint, trigger, or default on any table — especially one central to a runtime decision (game selection, pricing, status transitions) — verify it live via the Supabase MCP or SQL editor rather than assuming the tracked migrations are complete. If a load-bearing constraint is found to be untracked, add a migration that at minimum documents/re-asserts it (as `20260707160000_fix_play_sessions_game_type_valid.sql` now does), even if it can't retroactively reconstruct the table's original `CREATE TABLE`.
+
+---
+
+## Rule 57 — Realtime `postgres_changes` Requires Publication Membership, Not Just RLS
+
+A Supabase Realtime `postgres_changes` subscription has two independent requirements: the subscribing client must satisfy the table's RLS SELECT policy, **and** the table must be registered in the `supabase_realtime` publication. These are unrelated mechanisms — satisfying one says nothing about the other — and a channel that fails only the second requirement gives no error: the WebSocket connects, the subscription is accepted, and it then silently receives zero events forever.
+
+**Incident:** `session-presence:{sessionId}` and `admin-sessions-{restaurantId}` (documented in `/architecture/realtime_presence_v1.md`) both correctly satisfied RLS from the day they were written, and were labeled "LIVE" in that document throughout. A live query against `pg_publication_tables` on 2026-07-07 found `supabase_realtime` had **zero tables** registered — every admin realtime channel on `visit_sessions`/`session_guests` had been a silent no-op for as long as it existed, with the UI falling back to whatever manual refresh happened to exist alongside it. `orders` remains unregistered as of this writing, so the Dining Intelligence landing page's order half of its `dining-intelligence-summary` channel has the identical gap today.
+
+Any new `postgres_changes` subscription must be verified live before it is trusted: query `select * from pg_publication_tables where pubname = 'supabase_realtime'` for the watched table, or trigger a real change and confirm the event actually arrives client-side. "RLS is correct and the code looks right" is not evidence a channel delivers events.
+
+---
+
+## Rule 64 — Once a Randomized Runtime Choice Is Resolved, Pin and Display It Consistently
+
+When a feature makes a randomized selection that gets persisted (e.g. `resolvePromotionGame()` weighted-picking a game type and writing it to `play_sessions.selected_game_type`), every surface that later displays or acts on that choice must read the **persisted** value — never independently re-derive, re-sample, or re-randomize it, even for what looks like "just a preview."
+
+**Incident:** the floating `RewardWidget` re-picked its own random game visual on every mount and every sheet-open from the promotion's enabled game pool, independent of what the server had actually resolved and stored for that session. A guest could play and win on Scratch Card, then reopen the widget and see Mystery Box's icon and copy above their real, correct reward — a session-consistency bug, not a data bug (the underlying coupon/reward was always correct; only the game identity shown alongside it drifted).
+
+Fix pattern: once a persisted record for the current session/token exists, fetch and pin to its stored value; only fall back to a randomized placeholder before that record exists, and never re-roll it afterward.
+
+---
+
+## Rule 65 — Idempotent Claim State Must Sync Into Whatever State Actually Drives the UI
+
+When a "claim" or "already done" check is implemented storage-first for correctness (e.g. a synchronous `sessionStorage` read-check-write to survive a React StrictMode double-invoke or hydration-recovery remount), the same operation must also update whatever *React state* the UI actually renders from — not leave the UI to independently re-derive that state from storage on its own schedule (e.g. only on the next full reload).
+
+**Incident:** `usePendingRedemption`'s `claimAutoAdd()` correctly wrote `autoAdded: true` to `sessionStorage` the first time a reward's "Redeem Now" link was consumed (preventing a second, storage-verified reward-widget fix from re-adding the item to the cart on a repeat tap — see the coupon-status-lifecycle note in `spinbite-platform-architecture-v4.md` §6.5). But it never called the hook's own `setPending`, so the `pending` React state — what every render in that page instance, including the reward widget's "already applied" check, actually reads — stayed stale until a full reload re-hydrated it from storage. The fix (storage write + `setPending` in the same call) was a one-line addition once identified, but the bug shipped once already believing "the storage check is correct" was the whole fix.
+
+The storage-first check-and-set remains the source of truth for whether the guarded action (e.g. adding to cart) actually happens; the React-state sync is a required second step for the UI to reflect that truth without a reload, not an optional convenience.
+
 Report which two devices were used and what was observed before closing the task.
