@@ -314,6 +314,92 @@ Audit work and fix work are separate branches with separate commits.
 
 ---
 
+## Rule 17 — [content lost, not yet recovered]
+
+This rule number is cited elsewhere in the docs tree (implicitly, as part of the 17/22/25/30/47–51 gap flagged 2026-07-07) but its original text could not be located in any memory record or doc during that audit, unlike Rules 18–25 below (recovered verbatim from a memory record dated 2026-06-29 and restored 2026-07-07). If you find the original text (old branch, PR description, chat log), restore it here rather than inventing new content under this number.
+
+---
+
+## Rule 18 — All Provider Calls Route Through Intelligence Engine
+
+*(Restored 2026-07-07 from a verified memory record dated 2026-06-29 — this rule's text existed in this file as of that date and was lost from it at some point before the 2026-07-07 audit that found the gap. Verbatim, not reconstructed.)*
+
+No direct AI provider calls are allowed anywhere except `lib/intelligence/providers/`. All calls must route through `lib/intelligence/intelligence-engine.ts`.
+
+This prevents rogue prompt implementations, bypassed logging, and untraceable costs. If a feature needs generation, create a `feature_key` and use the generate route — never import an Anthropic/OpenAI SDK outside the providers directory.
+
+---
+
+## Rule 19 — All Intelligence Features Must Use The Intelligence Engine
+
+*(Restored 2026-07-07 — see Rule 18's provenance note.)*
+
+Required flow: API Route → Feature Resolver → Prompt Engine → Provider Router → Validators → Logging → Response. No hardcoded prompt routes, feature-specific AI endpoints, or standalone AI integrations.
+
+This enforces an audit trail, cost tracking, A/B capability, and prompt lifecycle management on every generation. When adding a new AI-powered feature: add a row to `intelligence_features`, create a prompt template via the Intelligence Lab, and call `/api/admin/intelligence/generate`.
+
+---
+
+## Rule 20 — Prompts Are Proprietary Intellectual Property
+
+*(Restored 2026-07-07 — see Rule 18's provenance note.)*
+
+Prompts must never exist in source code — only in `intelligence_prompt_templates`, only editable via `/super-admin/intelligence-lab`.
+
+Prompts are SpinBite IP; source-code prompts are exposed in git history, forks, and builds. Any string that instructs an AI model must live in the database. If you see a prompt in source code, treat it as a critical security violation.
+
+---
+
+## Rule 21 — All Intelligence Requests Must Be Logged
+
+*(Restored 2026-07-07 — see Rule 18's provenance note.)*
+
+Every `generate()` call must produce a row in `intelligence_generation_logs` with success/failure, provider, model, input tokens, output tokens, latency, and cost.
+
+This is required for cost accountability, debugging, and A/B analysis — including failures. `intelligence-engine.ts`'s `generate()` function uses a try/finally to guarantee log writes; never bypass this with a direct provider call.
+
+---
+
+## Rule 22 — Platform IP Tables Must Never Use Open RLS Policies
+
+*(Restored 2026-07-07 — see Rule 18's provenance note. Cited by name in `menu-library-hardening-audit-2026-07-03.md` while missing from this file, which is how the gap was first noticed.)*
+
+`using (true)` is forbidden on platform tables. All SELECT policies must use `is_super_admin()` or an equivalent role guard.
+
+Applies to `intelligence_prompt_templates`, `intelligence_provider_costs`, `intelligence_experiments`, `intelligence_audit_log`, and all future internal config tables. Open RLS on platform tables exposes prompts, pricing, and experiment logic to any authenticated user — including restaurant owners. After writing any migration that creates a platform table, verify its SELECT policy uses a role guard, not `using (true)`.
+
+---
+
+## Rule 23 — All Future AI Systems Must Be Built As Intelligence Engine Features
+
+*(Restored 2026-07-07 — see Rule 18's provenance note.)*
+
+Every new intelligence capability gets a `feature_key`, a prompt template, and a log row — no standalone AI implementations. Future features this applies to include `menu_photo_import`, `promotion_generation`, `campaign_generation`, `pricing_recommendation`, `customer_segmentation`, `sales_optimization`.
+
+SpinBite's intelligence must be auditable, swappable, and measurable as a unified platform, not a collection of ad-hoc scripts. A new AI feature means a new `feature_key` in `intelligence_features` plus a prompt in the Lab plus the standard engine route — never a one-off endpoint.
+
+---
+
+## Rule 24 — Use The Cheapest Viable Model First
+
+*(Restored 2026-07-07 — see Rule 18's provenance note.)*
+
+Simple generation uses a lightweight model (e.g. `claude-haiku-4-5-20251001`); complex reasoning uses a mid-tier model; deep reasoning escalates to a flagship model only when justified.
+
+Unconstrained model selection burns cost budget and sets a bad precedent — flagship models rarely change quality for simple text generation. Default to `claude-haiku-4-5-20251001`; only escalate when output quality is demonstrably insufficient at lighter models, and document the justification.
+
+---
+
+## Rule 25 — Architecture Decisions Must Improve SpinBite Restaurant Intelligence
+
+*(Restored 2026-07-07 — see Rule 18's provenance note.)*
+
+Before adding any new system or integration, answer: "Does this improve SpinBite's proprietary restaurant intelligence?" If no, reconsider before building.
+
+SpinBite is an AI-native restaurant revenue operating system, not a general SaaS — architecture must serve that mission. Apply this as a filter at the design stage, not after implementation; a proposed system that doesn't move the restaurant-intelligence needle is scope creep.
+
+---
+
 ## Rule 27 — Never Expose Developer Artifacts to Restaurant Users
 
 Developer identifiers must never appear in the restaurant admin or customer-facing UI.
@@ -939,9 +1025,11 @@ This extends Rule 9 (mobile-first) specifically for session/presence-affecting c
 
 ## A note on rule numbering (added 2026-07-07)
 
-A full audit of this document found that Rule numbers **17, 22, 25, 30, and 47–51 do not exist** — they are referenced elsewhere in the docs tree (`spinbite-platform-architecture-v4.md` §9.1 cites Rules 18/19/20/21/23/24; `menu-library-hardening-audit-2026-07-03.md` cites Rule 22) as if their content is known, but no rule with those numbers has ever been written into this file. This is a real gap, not a formatting artifact — the numbering elsewhere in this file is already non-sequential (Rule 26 sits after Rule 7; Rules 58–63 sit before Rule 31), so it's not obvious at a glance that these specific numbers are missing rather than just out of order.
+A full audit of this document found that Rule numbers **17, 18–25, 22 (again — see below), 25 (again), 30, and 47–51** were either missing outright or, in the case of 18–25, cited elsewhere (`spinbite-platform-architecture-v4.md` §9.1 cites Rules 18/19/20/21/23/24; `menu-library-hardening-audit-2026-07-03.md` cites Rule 22) as if their content were known while absent from this file. This is a real gap, not a formatting artifact — the numbering elsewhere in this file is already non-sequential (Rule 26 sits after Rule 7; Rules 58–63 sit before Rule 31), so it's not obvious at a glance which numbers are missing versus just out of order.
 
-Do not fabricate the missing rules' content from the fragments that reference them — reconstruct and add them properly (with the engineer who wrote the originals, if possible) rather than guessing. Until then, treat any citation of Rule 17, 22, 25, 30, or 47–51 elsewhere in the docs tree as "intent described nearby, canonical text missing here."
+**Resolved same day:** Rules 18–25 were recovered verbatim from a memory record dated 2026-06-29 (`feedback_engineering_rules.md` in this assistant's persistent memory) that had captured this file's content before those eight rules were lost from it — restored in place above, each marked with a provenance note. This is a genuine regression (content that existed and was later deleted), not just a numbering artifact.
+
+**Still unresolved:** Rule 17 (placeholder left in place, see above) and Rules 30, 47–51 — no memory record or doc fragment contains their original text. Do not fabricate their content by guessing from context; reconstruct and add them properly (with the engineer who wrote the originals, if possible). Until then, treat any citation of Rule 17, 30, or 47–51 elsewhere in the docs tree as "intent described nearby, canonical text missing here."
 
 ---
 
