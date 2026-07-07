@@ -121,12 +121,16 @@ export function usePendingRedemption(restaurantId: string) {
     });
   }, []);
 
-  // Synchronous, storage-direct — not routed through React state — so it stays
-  // correct even if the auto-add effect runs twice before either invocation
-  // sees a re-render (StrictMode's dev double-invoke, or a real hydration
-  // mismatch recovery remount elsewhere on the page). sessionStorage reads/
-  // writes are immediately consistent across both invocations; React state
-  // updates are not.
+  // The claim check-and-set itself is synchronous, storage-direct — not
+  // routed through React state — so it stays correct even if the auto-add
+  // effect runs twice before either invocation sees a re-render (StrictMode's
+  // dev double-invoke, or a real hydration mismatch recovery remount
+  // elsewhere on the page). sessionStorage reads/writes are immediately
+  // consistent across both invocations; React state updates are not.
+  // The setPending call below is a pure UI-sync side effect on top of that —
+  // without it, autoAdded flips in storage but `pending` (what every render
+  // in this page instance reads, e.g. the floating widget's "already
+  // applied" state) stays stale until a full reload re-hydrates from storage.
   const claimAutoAdd = useCallback((redemptionId: string): boolean => {
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
@@ -134,7 +138,9 @@ export function usePendingRedemption(restaurantId: string) {
       const parsed = JSON.parse(raw) as PendingRedemption;
       if (parsed?.redemptionId !== redemptionId) return false;
       if (parsed.autoAdded) return false;
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...parsed, autoAdded: true }));
+      const next = { ...parsed, autoAdded: true };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setPending((current) => (current?.redemptionId === redemptionId ? next : current));
       return true;
     } catch {
       return false;
