@@ -339,6 +339,13 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                             onClick={() => {
                               const newQty = item.quantity - 1;
                               if (newQty < 1) {
+                                // Reward items are capped at quantity 1 (see the + button below),
+                                // so this is always the reward's only unit — losing it forfeits
+                                // the coupon, since re-adding the item later won't re-mint a new
+                                // redemption. Confirm before letting it go.
+                                if (isRewardItem && !window.confirm('Removing this item forfeits your reward — this promotion cannot be redeemed again. Continue?')) {
+                                  return;
+                                }
                                 // Full removal — fire with total quantity removed
                                 const subtotalAfter = Math.round((cart.subtotal - item.effective_price * item.quantity) * 100) / 100;
                                 onItemRemovedFromCart?.(item.menu_item_id, item.name, item.quantity, item.quantity, cart.subtotal, subtotalAfter);
@@ -429,6 +436,9 @@ export function CartSheet({ open, cart, restaurantId, brandColor, onClose, confi
                           <button
                             type="button"
                             onClick={() => {
+                              if (isRewardItem && !window.confirm('Removing this item forfeits your reward — this promotion cannot be redeemed again. Continue?')) {
+                                return;
+                              }
                               const subtotalAfter = Math.round((cart.subtotal - item.effective_price * item.quantity) * 100) / 100;
                               onItemRemovedFromCart?.(item.menu_item_id, item.name, item.quantity, item.quantity, cart.subtotal, subtotalAfter);
                               cart.removeItem(item.menu_item_id);
