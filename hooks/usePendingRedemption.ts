@@ -59,6 +59,12 @@ function consumeUrlParams(restaurantId: string): PendingRedemption | null {
   if (!Number.isFinite(expiresAtMs)) return null;
 
   const rewardValueStr = params.get('redeem_value');
+  // Re-consuming the same redemption's link (e.g. tapping "Redeem Now" again
+  // from the floating widget after it already added the item once) must not
+  // reset autoAdded/bannerDismissed — otherwise the auto-add effect below
+  // fires again and bumps the reward item's cart quantity a second time.
+  const previous = readStored();
+  const carryOver = previous?.redemptionId === redemptionId ? previous : null;
   const pending: PendingRedemption = {
     redemptionId,
     menuItemId,
@@ -67,6 +73,8 @@ function consumeUrlParams(restaurantId: string): PendingRedemption | null {
     code: params.get('redeem_code') || '',
     expiresAtMs,
     restaurantId,
+    autoAdded: carryOver?.autoAdded,
+    bannerDismissed: carryOver?.bannerDismissed,
   };
 
   try {
