@@ -26,6 +26,11 @@ function rewardLabel(reward: any, menuItemName?: string) {
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Hoisted so the catch block can still return restaurant context (for the
+  // "Go Back To Menu" link) if a later step — e.g. resolvePromotionGame —
+  // throws after the restaurant lookup has already succeeded.
+  let restaurant: any = null;
+
   try {
     const { searchParams } = new URL(request.url);
     const restaurantSlug = searchParams.get('restaurantSlug');
@@ -54,7 +59,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Restaurant not found.' }, { status: 404 });
     }
 
-    const restaurant = restaurantResult.data;
+    restaurant = restaurantResult.data;
 
     // Capability flags for the "Redeem Now" flow — surfaced on every response
     // branch below since either the alreadyPlayed or the fresh-play branch may
@@ -280,6 +285,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: error?.message || 'Could not load promotion.',
+        restaurant,
       },
       { status: 500 },
     );
