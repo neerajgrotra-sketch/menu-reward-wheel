@@ -1330,12 +1330,17 @@ export function RestaurantPublicPage({
   const [modalReady, setModalReady] = useState(false);
   const promotionId = promotion?.id;
 
-  // Step 1: check sessionStorage (per-session, not per-browser)
+  // Step 1: check sessionStorage (per-session, not per-browser), and whether
+  // this browser has already played this promotion — e.g. a guest returning
+  // from the play page's "Redeem Now" flow with the reward already in their
+  // cart should never be re-invited to play the same promotion again.
   useEffect(() => {
-    if (!promotionId) { setModalDismissed(true); return; }
+    if (!promotionId || !promotion) { setModalDismissed(true); return; }
     const key = `game-entry-modal-dismissed-${promotionId}`;
-    setModalDismissed(!!sessionStorage.getItem(key));
-  }, [promotionId]);
+    const alreadyPlayed = !!peekPlaySessionToken(restaurant.slug, promotion.slug, confirmedSessionId);
+    if (alreadyPlayed) sessionStorage.setItem(key, '1');
+    setModalDismissed(alreadyPlayed || !!sessionStorage.getItem(key));
+  }, [promotionId, promotion, restaurant.slug, confirmedSessionId]);
 
   // Step 2: once storage resolves to "show", wait 700–900 ms so customer sees page first
   useEffect(() => {
