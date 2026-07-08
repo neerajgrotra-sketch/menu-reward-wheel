@@ -652,10 +652,16 @@ function RewardWidget({
   const [paymentSimulationEnabled, setPaymentSimulationEnabled] = useState(false);
   const [now, setNow] = useState(Date.now());
 
-  useEffect(() => {
+  // Pulls this browser's latest coupon status from the server. Used both on
+  // mount and every time the sheet is reopened — a coupon can flip from
+  // 'issued' to 'redeemed' server-side (e.g. checkout completing, or staff
+  // validating it at the counter) while this widget sits mounted on the menu
+  // page in the background, so a mount-only fetch would keep inviting a
+  // replay of an already-spent reward indefinitely until a hard refresh.
+  const fetchStatus = useCallback((): (() => void) => {
     let cancelled = false;
     const token = peekPlaySessionToken(restaurantSlug, promotion.slug, confirmedSessionId);
-    if (!token) return;
+    if (!token) return () => {};
 
     const url = new URL('/api/public/promotion-play', window.location.origin);
     url.searchParams.set('restaurantSlug', restaurantSlug);
@@ -692,6 +698,8 @@ function RewardWidget({
 
     return () => { cancelled = true; };
   }, [restaurantSlug, promotion.slug, confirmedSessionId]);
+
+  useEffect(() => fetchStatus(), [fetchStatus]);
 
   const isRedeemed = statusCoupon?.status === 'redeemed';
   const isExpired = statusCoupon ? now >= new Date(statusCoupon.expiresAt).getTime() : false;
@@ -780,6 +788,10 @@ function RewardWidget({
     // (no session yet) — once resolvedGameType is set it always wins, so this
     // never overrides an actually-played game on a later reopen.
     if (!resolvedGameType) setDisplayType(pool[Math.floor(Math.random() * pool.length)]);
+    // Re-check redemption status on every reopen, not just on first mount —
+    // a coupon paid off (or validated by staff) while this sheet was closed
+    // must not still read as replayable "Redeem Now".
+    fetchStatus();
     setExpanded(true);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setSheetVisible(true));
