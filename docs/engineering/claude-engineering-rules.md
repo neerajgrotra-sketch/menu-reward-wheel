@@ -1072,3 +1072,13 @@ When a "claim" or "already done" check is implemented storage-first for correctn
 The storage-first check-and-set remains the source of truth for whether the guarded action (e.g. adding to cart) actually happens; the React-state sync is a required second step for the UI to reflect that truth without a reload, not an optional convenience.
 
 Report which two devices were used and what was observed before closing the task.
+
+---
+
+## Rule 66 — A Client-Side Status Peek Must Be Re-Fetched at Every Re-Entry Point, Not Just on Mount
+
+When a component fetches server state once (typically on mount) to decide what to render, and that server state can change while the component stays mounted in the background (a coupon flipping from `issued` to `redeemed` at checkout, a session ending, a limit being hit), a single fetch-on-mount is not enough — the component must re-fetch at every point the user re-engages with it (reopening a sheet, a modal, a tab), not only on a full page reload.
+
+**Incident:** the floating `RewardWidget`'s `statusCoupon` was fetched once on mount and never invalidated. A customer who won a coupon, added it to their cart via "Redeem Now," and then paid for the order (server-side `coupon_redemptions.status` correctly flipped `issued → redeemed`) would reopen the widget and still see the stale `issued` copy — the widget already had a correct "✅ Coupon already redeemed" render branch, it just never got the fresh data to reach it. The customer was shown a coupon code and a live "Redeem Now" button for a reward they'd already spent, and tapping it re-added the item to a new cart. Not a financial exploit — the server independently re-validates and zeroes the discount at checkout regardless of what the client believes — but a real UI/trust bug (a phantom discount that silently vanishes at charge time) that would have kept recurring on every reopen until a hard refresh.
+
+Fix pattern: extract the fetch into a named function and call it both on mount and at every user-initiated re-entry point (here, the sheet's `onOpen` handler) — not just once, and not only in response to an explicit "did something change" signal from elsewhere in the app, since the triggering change (a payment completing) may happen in a code path that has no reference back to this component's state at all. See `docs/architecture/promotions-in-menu.md` §4 and §7 for the full use-case writeup this folds into.
