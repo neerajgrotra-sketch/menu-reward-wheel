@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { NavItem } from '@/lib/navigation';
 import { UI_LAYERS } from '@/lib/ui-layers';
 import { NavigationItem } from './NavigationItem';
+import { LogoutButton } from './LogoutButton';
 
 export function AdminSidebar({
   navigation,
@@ -26,6 +27,9 @@ export function AdminSidebar({
           <NavigationItem key={item.href} item={item} />
         ))}
       </nav>
+      <div className="mt-2 border-t border-white/10 pt-2">
+        <LogoutButton />
+      </div>
     </aside>
   );
 }

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { NavItem } from '@/lib/navigation';
 import { UI_LAYERS } from '@/lib/ui-layers';
 import { NavigationItem } from './NavigationItem';
+import { LogoutButton } from './LogoutButton';
 
 export function MobileBurgerMenu({
   navigation,
@@ -52,6 +53,9 @@ export function MobileBurgerMenu({
             <NavigationItem key={item.href} item={item} onNavigate={onClose} />
           ))}
         </nav>
+        <div className="mt-2 border-t border-white/10 pt-2">
+          <LogoutButton onNavigate={onClose} />
+        </div>
       </div>
     </div>
   );
