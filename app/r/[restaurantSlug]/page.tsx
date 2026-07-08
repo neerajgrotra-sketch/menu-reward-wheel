@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import type { Metadata } from 'next';
 import BrandedUnavailablePage from '@/components/BrandedUnavailablePage';
-import { RestaurantPublicPage } from '@/components/public/RestaurantPublicPage';
+import { DirectMenuPage } from '@/components/public/DirectMenuPage';
 import { isSpecialOfferActive, calculateSpecialPrice, getDiscountLabel } from '@/lib/menu/special-offer';
 import { fetchAssignedMenus, fetchMenuContents } from '@/lib/menu/queries';
 
@@ -354,7 +354,7 @@ export default async function PermanentRestaurantQrPage({
             ))}
           </div>
         )}
-        <RestaurantPublicPage
+        <DirectMenuPage
           restaurant={restaurant}
           sections={sections}
           promotion={activePromotion}
