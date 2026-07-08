@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { loadSiteContentMap } from '@/lib/site-content-client';
+import { MenuImageUploader } from '@/components/admin/menus/MenuImageUploader';
 
 type MenuCard = {
   id: string;
   name: string;
   menu_type: string;
   updated_at: string;
+  image_url: string | null;
   categoryCount: number;
   itemCount: number;
   assignedCount: number;
@@ -39,6 +41,7 @@ export default function MenusLibraryPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [savingRename, setSavingRename] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -46,10 +49,11 @@ export default function MenusLibraryPage() {
     const { data: userData } = await supabase.auth.getUser();
     const user = userData.user;
     if (!user) { window.location.href = '/auth'; return; }
+    setUserId(user.id);
 
     const menusResult = await supabase
       .from('menus')
-      .select('id,name,menu_type,updated_at')
+      .select('id,name,menu_type,updated_at,image_url')
       .eq('owner_id', user.id)
       .is('deleted_at', null)
       .order('updated_at', { ascending: false });
@@ -103,6 +107,7 @@ export default function MenusLibraryPage() {
       name: m.name,
       menu_type: m.menu_type,
       updated_at: m.updated_at,
+      image_url: m.image_url,
       categoryCount: categoryCountByMenu.get(m.id) || 0,
       itemCount: itemCountByMenu.get(m.id) || 0,
       assignedCount: assignedCountByMenu.get(m.id) || 0,
@@ -307,9 +312,17 @@ export default function MenusLibraryPage() {
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {menus.map((menu) => (
             <div key={menu.id} className="flex flex-col rounded-3xl bg-white p-5 shadow-xl">
-              <div className="flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-100 to-red-100 text-4xl">
-                🍽️
-              </div>
+              {userId && (
+                <MenuImageUploader
+                  currentUrl={menu.image_url}
+                  menuId={menu.id}
+                  ownerId={userId}
+                  supabase={supabase}
+                  onSaved={(imageUrl) =>
+                    setMenus((prev) => prev.map((m) => (m.id === menu.id ? { ...m, image_url: imageUrl } : m)))
+                  }
+                />
+              )}
               {renamingId === menu.id ? (
                 <div className="mt-4 flex items-center gap-2">
                   <input
