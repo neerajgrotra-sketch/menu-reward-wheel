@@ -7,6 +7,7 @@ const REQUIRED_INPUT_KEYS: Record<string, string[]> = {
   restaurant_profile_generation:      ['restaurant_name'],
   restaurant_food_image_generation:   ['item_name', 'item_description', 'restaurant_name'],
   food_image_prompt_enhancement:      ['item_name', 'restaurant_name'],
+  dashboard_assistant:                ['question'],
 };
 
 export class MissingContextError extends Error {
