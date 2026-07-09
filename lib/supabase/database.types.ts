@@ -958,6 +958,54 @@ export type Database = {
           },
         ]
       }
+      menu_discount_change_log: {
+        Row: {
+          actor_user_id: string
+          created_at: string
+          id: string
+          menu_item_id: string
+          new_value: Json
+          old_value: Json
+          restaurant_id: string
+          source: string
+        }
+        Insert: {
+          actor_user_id: string
+          created_at?: string
+          id?: string
+          menu_item_id: string
+          new_value: Json
+          old_value: Json
+          restaurant_id: string
+          source?: string
+        }
+        Update: {
+          actor_user_id?: string
+          created_at?: string
+          id?: string
+          menu_item_id?: string
+          new_value?: Json
+          old_value?: Json
+          restaurant_id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_discount_change_log_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_discount_change_log_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       menu_items: {
         Row: {
           active: boolean | null
