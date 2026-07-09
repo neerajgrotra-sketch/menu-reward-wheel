@@ -122,6 +122,8 @@ export default function AdminPage() {
   if (loading) return <main className="min-h-screen bg-[#FFF8F0] p-6 text-[#1F1F1F]">Loading dashboard...</main>;
   if (!restaurant) return <main className="min-h-screen bg-[#FFF8F0] p-6 text-[#1F1F1F]">No restaurant selected.</main>;
 
+  const redemptionRate = counts.issuedCoupons > 0 ? Math.round((counts.redeemedCoupons / counts.issuedCoupons) * 100) : 0;
+
   const kpis = [
     { label: 'Revenue Today', value: formatCurrency(counts.revenueToday) },
     { label: 'Orders', value: counts.ordersToday },
@@ -129,6 +131,17 @@ export default function AdminPage() {
     { label: 'Avg. Order Value', value: formatCurrency(counts.avgOrderValue) },
     { label: 'Coupon Redemptions', value: counts.redeemedCoupons, href: '/admin/coupons' },
   ];
+
+  const dashboardContext = {
+    revenue_today: formatCurrency(counts.revenueToday),
+    orders_today: String(counts.ordersToday),
+    avg_order_value: formatCurrency(counts.avgOrderValue),
+    active_guests: String(counts.activeGuests),
+    active_promotions: String(counts.activePromotions),
+    issued_coupons: String(counts.issuedCoupons),
+    redeemed_coupons: String(counts.redeemedCoupons),
+    redemption_rate: `${redemptionRate}%`,
+  };
 
   const quickActions = [
     { label: copy.create_promotion_title, href: `/admin/promotions?slug=${restaurant.slug}&mode=create`, icon: 'tag' as const },
@@ -147,7 +160,7 @@ export default function AdminPage() {
         <DashboardGreeting ownerName={restaurant.owner_name} restaurantName={restaurant.name} />
 
         <div className="flex flex-col gap-3.5">
-          <CommandCenter />
+          <CommandCenter restaurantId={restaurant.id} dashboardContext={dashboardContext} />
           <AiStatusCard restaurantName={restaurant.name} />
         </div>
 

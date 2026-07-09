@@ -19,14 +19,17 @@ const SUGGESTED_PROMPTS = [
 ];
 
 type Props = {
-  /** Whether the "Ask SpinBite" feature is live yet (ships disabled until PR-E). */
-  enabled?: boolean;
+  restaurantId: string;
+  /** Live dashboard numbers, already formatted as strings — merged into the AI's context. */
+  dashboardContext: Record<string, string>;
 };
 
-export function CommandCenter({ enabled = false }: Props) {
+export function CommandCenter({ restaurantId, dashboardContext }: Props) {
   const [value, setValue] = useState('');
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [notice, setNotice] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [asking, setAsking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -41,15 +44,42 @@ export function CommandCenter({ enabled = false }: Props) {
     inputRef.current?.focus();
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!value.trim()) return;
-    if (!enabled) {
-      setNotice('SpinBite is still learning this restaurant — this is coming soon.');
-      setTimeout(() => setNotice(''), 4000);
-      return;
+    const question = value.trim();
+    if (!question || asking) return;
+
+    setAsking(true);
+    setNotice('');
+    setAnswer('');
+
+    try {
+      const response = await fetch('/api/admin/intelligence/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          featureKey: 'dashboard_assistant',
+          restaurantId,
+          context: { question, ...dashboardContext },
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setNotice(
+          response.status === 503
+            ? 'SpinBite is still learning this restaurant — this is coming soon.'
+            : payload?.error || "Couldn't answer that right now.",
+        );
+        return;
+      }
+
+      setAnswer(payload.output || '');
+    } catch {
+      setNotice("Couldn't reach SpinBite. Try again in a moment.");
+    } finally {
+      setAsking(false);
     }
-    // Wired up in a later phase once the dashboard_qa intelligence feature ships.
   }
 
   return (
@@ -88,13 +118,23 @@ export function CommandCenter({ enabled = false }: Props) {
           <button
             type="submit"
             aria-label="Send to SpinBite"
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FF6B00] text-white transition hover:-translate-y-0.5"
+            disabled={asking}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-[#FF6B00] text-white transition hover:-translate-y-0.5 disabled:opacity-50"
           >
-            <DashboardIcon name="send" className="h-4 w-4" />
+            {asking ? (
+              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            ) : (
+              <DashboardIcon name="send" className="h-4 w-4" />
+            )}
           </button>
         </div>
       </form>
       {notice && <p className="mt-3 text-sm font-bold text-[#6C4FD1]">{notice}</p>}
+      {answer && (
+        <div className="mt-3 rounded-2xl bg-[#EFE9FB] p-4">
+          <p className="text-sm font-semibold leading-6 text-[#1F1F1F]">{answer}</p>
+        </div>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
         {SUGGESTED_PROMPTS.map((prompt) => (
           <button
