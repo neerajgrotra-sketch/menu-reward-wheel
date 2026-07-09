@@ -269,7 +269,6 @@ export type Database = {
           default_spins: number
           description: string | null
           game_config: Json
-          game_type: string | null
           icon: string | null
           id: string
           max_products: number
@@ -292,7 +291,6 @@ export type Database = {
           default_spins?: number
           description?: string | null
           game_config?: Json
-          game_type?: string | null
           icon?: string | null
           id?: string
           max_products?: number
@@ -315,7 +313,6 @@ export type Database = {
           default_spins?: number
           description?: string | null
           game_config?: Json
-          game_type?: string | null
           icon?: string | null
           id?: string
           max_products?: number
@@ -2308,14 +2305,6 @@ export type Database = {
         Args: { p_event: Json; p_session_id: string }
         Returns: undefined
       }
-      delete_promotion_cascade: {
-        Args: { target_promotion_id: string }
-        Returns: undefined
-      }
-      delete_restaurant_cascade: {
-        Args: { target_restaurant_id: string }
-        Returns: undefined
-      }
       disconnect_session_guests: {
         Args: { p_session_id: string }
         Returns: undefined
@@ -2349,10 +2338,15 @@ export type Database = {
         Args: { p_restaurant_id: string }
         Returns: boolean
       }
+      soft_delete_restaurant: {
+        Args: { target_restaurant_id: string }
+        Returns: undefined
+      }
       update_stale_guest_presence: {
         Args: { p_session_id: string }
         Returns: undefined
       }
+      user_owns_menu: { Args: { p_menu_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

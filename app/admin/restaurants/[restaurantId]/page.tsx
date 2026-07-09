@@ -112,13 +112,19 @@ export default function RestaurantWorkspacePage({ params }: { params: { restaura
 
   function handleDeleteRequest() {
     if (!restaurant) return;
+    // Release 1, PR-008: restaurant deletion is now a real, safe soft-delete
+    // (archival) — see PR-007 (database-level hard-delete trigger) and PR-009
+    // (deleted_at filter audit across every read path). This calls
+    // soft_delete_restaurant, never a hard DELETE.
     requestConfirm({
-      title: `Delete ${restaurant.name}?`,
-      message: 'This permanently removes the restaurant and all related data. This cannot be undone.',
-      confirmLabel: 'Delete',
+      title: `Archive ${restaurant.name}?`,
+      message:
+        'This archives the restaurant — it will no longer appear in your dashboard or any restaurant list, ' +
+        'but all historical data (orders, payments, menus, promotions) is preserved. Contact support if you need it restored.',
+      confirmLabel: 'Archive',
       danger: true,
       onConfirm: async () => {
-        const { error } = await supabase.rpc('delete_restaurant_cascade', { target_restaurant_id: restaurant.id });
+        const { error } = await supabase.rpc('soft_delete_restaurant', { target_restaurant_id: restaurant.id });
         if (error) { setPageError(error.message); return; }
         window.location.href = '/admin/restaurants';
       },
