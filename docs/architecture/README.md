@@ -1,6 +1,6 @@
 # SpinBite Architecture — Documentation Index
 
-**Last updated:** 2026-07-07
+**Last updated:** 2026-07-09
 
 SpinBite has two living architecture documentation trees. This page is the index that ties them together — read this first.
 
@@ -20,6 +20,7 @@ SpinBite has two living architecture documentation trees. This page is the index
 | Production Release Checklist v1 | [`/architecture/production_release_checklist_v1.md`](/architecture/production_release_checklist_v1.md) | Release gates |
 | Menu Library Hardening Audit | [`menu-library-hardening-audit-2026-07-03.md`](./menu-library-hardening-audit-2026-07-03.md) | Pre-merge audit for the Menu Library redesign — RLS sweep findings, deterministic resolution verification, owner-scoping decision, builder refactor boundaries. Post-merge follow-ups (RLS recursion fix, category reordering, name uniqueness, Clone Menu/soft-delete) are covered in `spinbite-platform-architecture-v4.md` §4.3, not in this doc. |
 | **Order Operations Engine v1** | [`spinbite-order-operations-engine-v1.md`](./spinbite-order-operations-engine-v1.md) | **Design audit, not yet implemented.** Order/item state machines, kitchen stations + KDS, staff roles (new `restaurant_staff` prerequisite), order timeline/analytics, realtime, AI hooks, roadmap. Grounded against competitor research (Toast/Square/Clover/SpotOn/Lightspeed/Revel/Oracle MICROS/Shake Shack) and live schema — flags that `orders.touchpoint_id` doesn't actually exist despite v4 §5.4 claiming it does. |
+| **Ask SpinBite AI Agent** | [`ask-spinbite-ai-agent-v1.md`](./ask-spinbite-ai-agent-v1.md) | **Living capability log, first real AI-agent implementation.** Dashboard command center (Q&A + menu discount actions via structured output, preview, human-confirm, apply). Append new capabilities here as rows, not new docs. Flags an unresolved tension with `ai-engine-roadmap-v1.md`'s "no price manipulation" guardrail. |
 | Engineering Rules | [`/docs/engineering/claude-engineering-rules.md`](../engineering/claude-engineering-rules.md) | Mandatory engineering rules, numbered up to 66 (non-sequential). Rules 18–25 were found missing 2026-07-07 and restored the same day from a verified memory record; Rules 17, 30, 47–51 remain genuinely missing (flagged, not fabricated). Includes Rule 42 (docs must update with infra changes), Rule 56/57 (verify schema/realtime-publication state live, not just from tracked migrations/RLS), Rule 64/65/66 (session-consistency invariants for randomized/claimed/stale-fetched state) |
 
 **Rule (Rule 42):** any migration, new API route, new engine function, new realtime channel, or RLS policy change touching sessions/presence/intelligence must update the relevant `/architecture/` (root) doc in the same PR. Any change to product decisions, invariants, or the multi-tenant/security model must update `spinbite-platform-architecture-v4.md`.
@@ -52,7 +53,7 @@ app/
 └── api/
     ├── public/{orders,promotion-play,customer-identity,sessions}/
     ├── coupons/issue/
-    └── admin/{intelligence,generate-food-image,sessions,validate}/
+    └── admin/{intelligence,generate-food-image,sessions,validate,menus/discount-action}/
 
 components/
 ├── public/RestaurantPublicPage.tsx  ← public menu + promotion surface
@@ -72,6 +73,7 @@ lib/
 ├── rewards.ts                 ← weighted reward pick, coupon codes
 ├── session-intelligence.ts    ← pure-TS behavioral analysis (V2/V3/V3.1)
 ├── intelligence/               ← AI content-generation engine + providers
+├── menu-discount-actions/     ← Ask SpinBite: resolve/apply AI-proposed discount changes
 ├── navigation.ts               ← admin/super-admin nav source of truth
 ├── ui-layers.ts                ← centralized z-index
 └── supabase/                  ← client/server helpers, generated types
