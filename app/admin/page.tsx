@@ -9,6 +9,7 @@ import { CommandCenter } from '@/components/admin/dashboard/CommandCenter';
 import { AiStatusCard } from '@/components/admin/dashboard/AiStatusCard';
 import { KpiRow } from '@/components/admin/dashboard/KpiRow';
 import { QuickActionsRow } from '@/components/admin/dashboard/QuickActionsRow';
+import { RecentActivityTimeline } from '@/components/admin/dashboard/RecentActivityTimeline';
 
 type Restaurant = {
   id: string;
@@ -153,6 +154,11 @@ export default function AdminPage() {
           <h2 className="mb-3 text-lg font-black text-[#1F1F1F]">Today</h2>
           {metricsError && <p className="mb-3 rounded-2xl bg-red-50 p-3 text-sm font-black text-red-700">{metricsError}</p>}
           <KpiRow kpis={kpis} />
+        </div>
+
+        <div>
+          <h2 className="mb-3 text-lg font-black text-[#1F1F1F]">Recent activity</h2>
+          <RecentActivityTimeline />
         </div>
 
         <div>
