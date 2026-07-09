@@ -21,6 +21,13 @@ type Restaurant = {
   owner_name?: string | null;
 };
 
+type MetricTrends = {
+  revenue: number[];
+  orders: number[];
+  avgOrderValue: number[];
+  redemptions: number[];
+};
+
 type MetricCounts = {
   restaurants: number;
   activePromotions: number;
@@ -31,7 +38,10 @@ type MetricCounts = {
   ordersToday: number;
   avgOrderValue: number;
   activeGuests: number;
+  trends: MetricTrends;
 };
+
+const EMPTY_TRENDS: MetricTrends = { revenue: [], orders: [], avgOrderValue: [], redemptions: [] };
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(amount);
@@ -58,6 +68,7 @@ export default function AdminPage() {
     ordersToday: 0,
     avgOrderValue: 0,
     activeGuests: 0,
+    trends: EMPTY_TRENDS,
   });
   const [copy, setCopy] = useState(fallbackCopy);
   const [loading, setLoading] = useState(true);
@@ -115,6 +126,7 @@ export default function AdminPage() {
         ordersToday: payload.ordersToday || 0,
         avgOrderValue: payload.avgOrderValue || 0,
         activeGuests: payload.activeGuests || 0,
+        trends: payload.trends || EMPTY_TRENDS,
       });
     }
     loadCounts();
@@ -126,11 +138,11 @@ export default function AdminPage() {
   const redemptionRate = counts.issuedCoupons > 0 ? Math.round((counts.redeemedCoupons / counts.issuedCoupons) * 100) : 0;
 
   const kpis = [
-    { label: 'Revenue Today', value: formatCurrency(counts.revenueToday) },
-    { label: 'Orders', value: counts.ordersToday },
+    { label: 'Revenue Today', value: formatCurrency(counts.revenueToday), trend: counts.trends.revenue },
+    { label: 'Orders', value: counts.ordersToday, trend: counts.trends.orders },
     { label: 'Active Guests', value: counts.activeGuests },
-    { label: 'Avg. Order Value', value: formatCurrency(counts.avgOrderValue) },
-    { label: 'Coupon Redemptions', value: counts.redeemedCoupons, href: '/admin/coupons' },
+    { label: 'Avg. Order Value', value: formatCurrency(counts.avgOrderValue), trend: counts.trends.avgOrderValue },
+    { label: 'Coupon Redemptions', value: counts.redeemedCoupons, href: '/admin/coupons', trend: counts.trends.redemptions },
   ];
 
   const dashboardContext = {

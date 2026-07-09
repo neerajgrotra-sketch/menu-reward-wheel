@@ -28,6 +28,13 @@ function makeServiceClient() {
 
 export const dynamic = 'force-dynamic';
 
+function formatWaitDuration(minutes: number): string {
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  const hours = minutes / 60;
+  if (hours < 24) return `${Math.round(hours)}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
 type Health = 'good' | 'warn' | 'bad';
 
 export async function GET() {
@@ -109,7 +116,7 @@ export async function GET() {
             ? 'No active orders'
             : ordersHealth === 'good'
               ? `${activeOrders.length} active`
-              : `${activeOrders.length} active, oldest waiting ${Math.round(oldestMinutes)}m`,
+              : `${activeOrders.length} active, oldest waiting ${formatWaitDuration(oldestMinutes)}`,
       },
       tables: {
         count: occupiedTouchpoints.size,
