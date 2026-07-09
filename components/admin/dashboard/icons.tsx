@@ -77,6 +77,20 @@ const ICON_PATHS: Record<string, JSX.Element> = {
       <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.4" />
     </>
   ),
+  dollar: (
+    <>
+      <line x1="12" y1="2" x2="12" y2="22" />
+      <path d="M17 6.5c0-1.9-2.2-3.5-5-3.5s-5 1.4-5 3.3c0 1.9 2.2 2.7 5 3.2 2.8.5 5 1.3 5 3.2 0 1.9-2.2 3.3-5 3.3s-5-1.6-5-3.5" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <circle cx="17" cy="9" r="2.5" />
+      <path d="M15.5 14a5 5 0 0 1 5.5 5" />
+    </>
+  ),
 };
 
 export type DashboardIconName = keyof typeof ICON_PATHS;

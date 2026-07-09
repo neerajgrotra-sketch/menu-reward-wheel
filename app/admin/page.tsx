@@ -138,11 +138,26 @@ export default function AdminPage() {
   const redemptionRate = counts.issuedCoupons > 0 ? Math.round((counts.redeemedCoupons / counts.issuedCoupons) * 100) : 0;
 
   const kpis = [
-    { label: 'Revenue Today', value: formatCurrency(counts.revenueToday), trend: counts.trends.revenue },
-    { label: 'Orders', value: counts.ordersToday, trend: counts.trends.orders },
-    { label: 'Active Guests', value: counts.activeGuests },
-    { label: 'Avg. Order Value', value: formatCurrency(counts.avgOrderValue), trend: counts.trends.avgOrderValue },
-    { label: 'Coupon Redemptions', value: counts.redeemedCoupons, href: '/admin/coupons', trend: counts.trends.redemptions },
+    {
+      label: 'Revenue Today', value: formatCurrency(counts.revenueToday), trend: counts.trends.revenue,
+      icon: 'dollar' as const, iconBg: '#E1F3EA', iconColor: '#1F8A5B',
+    },
+    {
+      label: 'Orders', value: counts.ordersToday, trend: counts.trends.orders,
+      icon: 'list' as const, iconBg: '#E3EEFC', iconColor: '#2F6FE0',
+    },
+    {
+      label: 'Active Guests', value: counts.activeGuests,
+      icon: 'users' as const, iconBg: '#FFE9D6', iconColor: '#D9770A',
+    },
+    {
+      label: 'Avg. Order Value', value: formatCurrency(counts.avgOrderValue), trend: counts.trends.avgOrderValue,
+      icon: 'card' as const, iconBg: '#DFF5F3', iconColor: '#12867A',
+    },
+    {
+      label: 'Coupon Redemptions', value: counts.redeemedCoupons, href: '/admin/coupons', trend: counts.trends.redemptions,
+      icon: 'ticket' as const, iconBg: '#FCE4EC', iconColor: '#C2185B',
+    },
   ];
 
   const dashboardContext = {
@@ -169,7 +184,7 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-[#FFF8F0] px-4 py-6 text-[#1F1F1F] md:px-8 md:py-10">
       <DashboardIconSprite />
-      <section className="mx-auto flex max-w-5xl flex-col gap-8">
+      <section className="mx-auto flex max-w-6xl flex-col gap-8">
         <DashboardGreeting ownerName={restaurant.owner_name} restaurantName={restaurant.name} />
 
         <div className="flex flex-col gap-3.5">
@@ -183,20 +198,14 @@ export default function AdminPage() {
           <KpiRow kpis={kpis} />
         </div>
 
-        <RecommendationsSection
-          restaurantId={restaurant.id}
-          dashboardContext={dashboardContext}
-          promotionsHref={`/admin/promotions?slug=${restaurant.slug}&mode=create`}
-        />
-
-        <div>
-          <h2 className="mb-3 text-lg font-black text-[#1F1F1F]">Operations</h2>
-          <OperationsOverview activePromotions={counts.activePromotions} />
-        </div>
-
-        <div>
-          <h2 className="mb-3 text-lg font-black text-[#1F1F1F]">Recent activity</h2>
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+          <RecommendationsSection
+            restaurantId={restaurant.id}
+            dashboardContext={dashboardContext}
+            promotionsHref={`/admin/promotions?slug=${restaurant.slug}&mode=create`}
+          />
           <RecentActivityTimeline />
+          <OperationsOverview activePromotions={counts.activePromotions} />
         </div>
 
         <div>
