@@ -229,6 +229,102 @@ export type Database = {
         }
         Relationships: []
       }
+      dashboard_assistant_conversations: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          last_message_at: string
+          restaurant_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          last_message_at?: string
+          restaurant_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          last_message_at?: string
+          restaurant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_assistant_conversations_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dashboard_assistant_messages: {
+        Row: {
+          action: Json | null
+          content: string
+          conversation_id: string
+          created_at: string
+          created_by: string
+          id: string
+          intent: string | null
+          outcome: Json | null
+          related_message_id: string | null
+          restaurant_id: string
+          role: string
+        }
+        Insert: {
+          action?: Json | null
+          content: string
+          conversation_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          intent?: string | null
+          outcome?: Json | null
+          related_message_id?: string | null
+          restaurant_id: string
+          role: string
+        }
+        Update: {
+          action?: Json | null
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          intent?: string | null
+          outcome?: Json | null
+          related_message_id?: string | null
+          restaurant_id?: string
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_assistant_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_assistant_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_assistant_messages_related_message_id_fkey"
+            columns: ["related_message_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_assistant_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_assistant_messages_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       faqs: {
         Row: {
           answer: string

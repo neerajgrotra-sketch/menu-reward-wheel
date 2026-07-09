@@ -2,6 +2,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
 
 // Keys that must be present in rawInput for each feature.
+//
+// dashboard_assistant's caller (app/api/admin/assistant/messages/route.ts)
+// also always passes a `conversation_history` key (a flattened transcript of
+// recent turns, '' on a fresh conversation) so its prompt template can
+// reference {{conversation_history}} to resolve short follow-up replies
+// ("only cardamom chai") against the prior turn. It's deliberately NOT
+// listed as required here — buildContext already passes any rawInput key
+// through below, and requiring a non-empty value would break turn one of
+// every conversation.
 const REQUIRED_INPUT_KEYS: Record<string, string[]> = {
   menu_description_generation:        ['item_name'],
   restaurant_profile_generation:      ['restaurant_name'],
