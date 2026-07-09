@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import type { ResolvableAction, ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
+import type { DashboardAssistantMessage } from '@/lib/dashboard-assistant/types';
+import type { ActionOutcomePayload } from '@/lib/dashboard-assistant/outcome';
 import { DashboardIcon } from './icons';
 
 type PreviewResponse =
@@ -14,6 +16,15 @@ type Props = {
   restaurantId: string;
   action: ResolvableAction;
   onDismiss: () => void;
+  // When present, resolving this proposal (ambiguous / applied / cancelled)
+  // is also recorded as a chat message via
+  // POST /api/admin/assistant/messages/outcome, so a clarifying reply can see
+  // the real candidate names and so the proposal stops rendering as live on
+  // reload (lib/dashboard-assistant/types.ts's isProposalLive). Omitted
+  // entirely keeps this component's original standalone behavior.
+  conversationId?: string;
+  messageId?: string;
+  onResolved?: (outcomeMessage: DashboardAssistantMessage) => void;
 };
 
 function describeState(state: { specialEnabled: boolean; specialType: string | null; specialPercent: number | null; specialPrice: number | null }): string {
@@ -23,11 +34,28 @@ function describeState(state: { specialEnabled: boolean; specialType: string | n
   return 'Discount';
 }
 
-export function DiscountActionPreview({ restaurantId, action, onDismiss }: Props) {
+export function DiscountActionPreview({ restaurantId, action, onDismiss, conversationId, messageId, onResolved }: Props) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [error, setError] = useState('');
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResponse | null>(null);
+
+  async function reportOutcome(payload: ActionOutcomePayload) {
+    if (!conversationId || !messageId) return;
+    try {
+      const response = await fetch('/api/admin/assistant/messages/outcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantId, conversationId, relatedMessageId: messageId, payload }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok && result.outcomeMessage) onResolved?.(result.outcomeMessage);
+    } catch {
+      // Best-effort: the underlying menu change already applied/was declined
+      // successfully — a failure to log the chat outcome must not be
+      // reported as if the action itself failed.
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +69,9 @@ export function DiscountActionPreview({ restaurantId, action, onDismiss }: Props
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Couldn't check your menu right now.");
         if (!cancelled) setPreview(payload);
+        if (!cancelled && payload && payload.resolved === false) {
+          await reportOutcome({ kind: 'ambiguous', reason: payload.reason, candidates: payload.candidates });
+        }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't check your menu right now.");
       }
@@ -62,11 +93,17 @@ export function DiscountActionPreview({ restaurantId, action, onDismiss }: Props
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Couldn't apply that change.");
       setApplyResult(payload);
+      await reportOutcome({ kind: 'applied', applied: payload.applied, total: payload.total, failed: payload.failed });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't apply that change.");
     } finally {
       setApplying(false);
     }
+  }
+
+  async function handleCancel() {
+    await reportOutcome({ kind: 'cancelled' });
+    onDismiss();
   }
 
   return (
@@ -104,7 +141,7 @@ export function DiscountActionPreview({ restaurantId, action, onDismiss }: Props
             ))}
           </ul>
           <div className="mt-4 flex gap-2">
-            <button type="button" onClick={onDismiss} disabled={applying} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] disabled:opacity-50">
+            <button type="button" onClick={handleCancel} disabled={applying} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] disabled:opacity-50">
               Cancel
             </button>
             <button

@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { DashboardIcon } from './icons';
 import { DiscountActionPreview } from './DiscountActionPreview';
-import { parseDashboardAssistantOutput, DashboardAssistantParseError, type MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
+import type { MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
 import type { ResolvableAction } from '@/lib/menu-discount-actions/resolve';
 import { resolveDiscountSchedule } from '@/lib/menu-discount-actions/schedule';
+import type { DashboardAssistantMessage } from '@/lib/dashboard-assistant/types';
+import { isProposalLive, hasResolvedOutcome } from '@/lib/dashboard-assistant/types';
 
 function toResolvableAction(action: MenuDiscountAction): ResolvableAction {
   if (action.type === 'clear_discount') return action;
@@ -34,11 +36,12 @@ type Props = {
 };
 
 export function CommandCenter({ restaurantId, dashboardContext }: Props) {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<DashboardAssistantMessage[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [value, setValue] = useState('');
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [notice, setNotice] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [pendingAction, setPendingAction] = useState<ResolvableAction | null>(null);
   const [asking, setAsking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -48,6 +51,24 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
     }, 3600);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHistory() {
+      try {
+        const response = await fetch(`/api/admin/assistant/conversations?restaurantId=${encodeURIComponent(restaurantId)}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!cancelled && response.ok) {
+          setConversationId(payload.conversation?.id ?? null);
+          setMessages(payload.messages ?? []);
+        }
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    }
+    loadHistory();
+    return () => { cancelled = true; };
+  }, [restaurantId]);
 
   function fillPrompt(prompt: string) {
     setValue(prompt);
@@ -61,20 +82,18 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
 
     setAsking(true);
     setNotice('');
-    setAnswer('');
-    setPendingAction(null);
+    setValue('');
 
     try {
-      const response = await fetch('/api/admin/intelligence/generate', {
+      const response = await fetch('/api/admin/assistant/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          featureKey: 'dashboard_assistant',
-          restaurantId,
-          context: { question, ...dashboardContext },
-        }),
+        body: JSON.stringify({ restaurantId, conversationId, message: question, dashboardContext }),
       });
       const payload = await response.json().catch(() => ({}));
+
+      if (payload.conversationId) setConversationId(payload.conversationId);
+      if (payload.userMessage) setMessages((current) => [...current, payload.userMessage]);
 
       if (!response.ok) {
         setNotice(
@@ -85,22 +104,16 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
         return;
       }
 
-      try {
-        const parsed = parseDashboardAssistantOutput(payload.output || '');
-        if (parsed.intent === 'answer') {
-          setAnswer(parsed.answer);
-        } else {
-          setPendingAction(toResolvableAction(parsed.action));
-        }
-      } catch (parseErr) {
-        const reason = parseErr instanceof DashboardAssistantParseError ? parseErr.message : 'unexpected response';
-        setNotice(`SpinBite gave an answer that couldn't be understood (${reason}). Try rephrasing.`);
-      }
+      if (payload.assistantMessage) setMessages((current) => [...current, payload.assistantMessage]);
     } catch {
       setNotice("Couldn't reach SpinBite. Try again in a moment.");
     } finally {
       setAsking(false);
     }
+  }
+
+  function handleResolved(outcomeMessage: DashboardAssistantMessage) {
+    setMessages((current) => [...current, outcomeMessage]);
   }
 
   return (
@@ -117,6 +130,15 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
       <h2 className="relative mt-3 text-3xl font-black leading-tight text-[#1F1F1F] md:text-4xl">
         What would you like me to do today?
       </h2>
+
+      {!loadingHistory && messages.length > 0 && (
+        <div className="mt-5 max-h-96 space-y-3 overflow-y-auto rounded-2xl border border-stone-100 bg-[#FBFAF8] p-4">
+          {messages.map((message) => (
+            <ChatTurn key={message.id} message={message} messages={messages} restaurantId={restaurantId} conversationId={conversationId} onResolved={handleResolved} />
+          ))}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="mt-5 rounded-2xl border-[1.5px] border-stone-200 bg-[#FFF8F0] p-3 focus-within:border-[#6C4FD1] focus-within:ring-4 focus-within:ring-[#EFE9FB]">
         <label htmlFor="ask-spinbite-input" className="sr-only">Tell SpinBite what to do</label>
         <textarea
@@ -151,14 +173,6 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
         </div>
       </form>
       {notice && <p className="mt-3 text-sm font-bold text-[#6C4FD1]">{notice}</p>}
-      {answer && (
-        <div className="mt-3 rounded-2xl bg-[#EFE9FB] p-4">
-          <p className="text-sm font-semibold leading-6 text-[#1F1F1F]">{answer}</p>
-        </div>
-      )}
-      {pendingAction && (
-        <DiscountActionPreview restaurantId={restaurantId} action={pendingAction} onDismiss={() => setPendingAction(null)} />
-      )}
       <div className="mt-4 flex flex-wrap gap-2">
         {SUGGESTED_PROMPTS.map((prompt) => (
           <button
@@ -173,4 +187,47 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
       </div>
     </div>
   );
+}
+
+type ChatTurnProps = {
+  message: DashboardAssistantMessage;
+  messages: DashboardAssistantMessage[];
+  restaurantId: string;
+  conversationId: string | null;
+  onResolved: (outcomeMessage: DashboardAssistantMessage) => void;
+};
+
+function ChatTurn({ message, messages, restaurantId, conversationId, onResolved }: ChatTurnProps) {
+  if (message.role === 'user') {
+    return (
+      <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-[#1F1F1F] px-4 py-2.5 text-sm font-semibold text-white">
+        {message.content}
+      </div>
+    );
+  }
+
+  const bubbleClass = 'max-w-[85%] rounded-2xl rounded-tl-sm bg-[#EFE9FB] px-4 py-2.5 text-sm font-semibold leading-6 text-[#1F1F1F]';
+
+  if (message.intent === 'menu_discount_action') {
+    if (isProposalLive(message, messages) && conversationId) {
+      return (
+        <div>
+          <div className={bubbleClass}>{message.content}</div>
+          <DiscountActionPreview
+            restaurantId={restaurantId}
+            action={toResolvableAction(message.action as unknown as MenuDiscountAction)}
+            conversationId={conversationId}
+            messageId={message.id}
+            onDismiss={() => {}}
+            onResolved={onResolved}
+          />
+        </div>
+      );
+    }
+    if (!hasResolvedOutcome(message, messages)) {
+      return <div className={`${bubbleClass} opacity-60`}>{message.content} — no longer active, ask again to reapply.</div>;
+    }
+  }
+
+  return <div className={bubbleClass}>{message.content}</div>;
 }
