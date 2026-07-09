@@ -11,6 +11,7 @@ import { KpiRow } from '@/components/admin/dashboard/KpiRow';
 import { QuickActionsRow } from '@/components/admin/dashboard/QuickActionsRow';
 import { RecentActivityTimeline } from '@/components/admin/dashboard/RecentActivityTimeline';
 import { OperationsOverview } from '@/components/admin/dashboard/OperationsOverview';
+import { RecommendationsSection } from '@/components/admin/dashboard/RecommendationsSection';
 
 type Restaurant = {
   id: string;
@@ -169,6 +170,12 @@ export default function AdminPage() {
           {metricsError && <p className="mb-3 rounded-2xl bg-red-50 p-3 text-sm font-black text-red-700">{metricsError}</p>}
           <KpiRow kpis={kpis} />
         </div>
+
+        <RecommendationsSection
+          restaurantId={restaurant.id}
+          dashboardContext={dashboardContext}
+          promotionsHref={`/admin/promotions?slug=${restaurant.slug}&mode=create`}
+        />
 
         <div>
           <h2 className="mb-3 text-lg font-black text-[#1F1F1F]">Operations</h2>
