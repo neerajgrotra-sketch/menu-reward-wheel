@@ -131,14 +131,43 @@ export async function GET() {
       });
     }
 
+    // Named guests reconnecting (e.g. testing, or a returning customer within
+    // the fetch window) create a fresh session_guests row each time — collapse
+    // repeats of the same name into one entry rather than spamming the feed.
+    // Nameless guests are kept individually since each is likely a distinct
+    // anonymous customer.
+    const namedGuestGroups = new Map<string, { id: string; count: number; latestJoinedAt: string }>();
     for (const guest of guestsResult.data || []) {
       if (!guest.joined_at) continue;
+      const name = guest.guest_name as string | null;
+      if (!name) {
+        events.push({
+          id: `guest-${guest.id}`,
+          type: 'guest_joined',
+          title: 'Guest joined',
+          meta: 'New guest',
+          occurredAt: guest.joined_at as string,
+        });
+        continue;
+      }
+      const existing = namedGuestGroups.get(name);
+      if (!existing || guest.joined_at > existing.latestJoinedAt) {
+        namedGuestGroups.set(name, {
+          id: guest.id as string,
+          count: (existing?.count ?? 0) + 1,
+          latestJoinedAt: guest.joined_at as string,
+        });
+      } else {
+        existing.count += 1;
+      }
+    }
+    for (const [name, group] of Array.from(namedGuestGroups.entries())) {
       events.push({
-        id: `guest-${guest.id}`,
+        id: `guest-${group.id}`,
         type: 'guest_joined',
         title: 'Guest joined',
-        meta: (guest.guest_name as string) || 'New guest',
-        occurredAt: guest.joined_at as string,
+        meta: group.count > 1 ? `${name} · ${group.count} visits` : name,
+        occurredAt: group.latestJoinedAt,
       });
     }
 

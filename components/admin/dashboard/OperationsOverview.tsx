@@ -69,14 +69,14 @@ export function OperationsOverview({ activePromotions }: Props) {
     },
     {
       label: 'Payments',
-      icon: 'ticket',
+      icon: 'card',
       count: operations?.payments.count ?? 0,
       health: operations ? operations.payments.health : 'neutral',
       note: operations?.payments.note ?? 'Loading…',
     },
     {
       label: 'Tables',
-      icon: 'store',
+      icon: 'grid',
       count: operations?.tables.count ?? 0,
       health: operations ? operations.tables.health : 'neutral',
       note: operations?.tables.note ?? 'Loading…',

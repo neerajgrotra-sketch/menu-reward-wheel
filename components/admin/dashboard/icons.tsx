@@ -63,6 +63,20 @@ const ICON_PATHS: Record<string, JSX.Element> = {
       <path d="M9 20v-6h6v6" />
     </>
   ),
+  card: (
+    <>
+      <rect x="2" y="5" width="20" height="14" rx="2.2" />
+      <line x1="2" y1="10" x2="22" y2="10" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect x="3" y="3" width="7.5" height="7.5" rx="1.4" />
+      <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.4" />
+      <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.4" />
+      <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.4" />
+    </>
+  ),
 };
 
 export type DashboardIconName = keyof typeof ICON_PATHS;
