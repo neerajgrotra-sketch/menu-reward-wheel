@@ -5,12 +5,11 @@ import { DashboardIcon, type DashboardIconName } from './icons';
 
 type Health = 'good' | 'warn' | 'bad' | 'neutral';
 
-type Tile = {
+type Row = {
   label: string;
   icon: DashboardIconName;
-  count: number;
-  health: Health;
   note: string;
+  health: Health;
 };
 
 type OperationsPayload = {
@@ -19,11 +18,11 @@ type OperationsPayload = {
   payments: { count: number; health: Health; note: string };
 };
 
-const HEALTH_DOT: Record<Health, string> = {
-  good: 'bg-[#1F8A5B]',
-  warn: 'bg-[#B4790C]',
-  bad: 'bg-[#C1442D]',
-  neutral: 'bg-stone-300',
+const HEALTH_PILL: Record<Health, { label: string; bg: string; text: string }> = {
+  good: { label: 'On track', bg: '#E1F3EA', text: '#1F8A5B' },
+  warn: { label: 'Attention', bg: '#FBEDD1', text: '#B4790C' },
+  bad: { label: 'Needs attention', bg: '#FBE6E0', text: '#C1442D' },
+  neutral: { label: 'Idle', bg: '#F3EBDF', text: '#7A6B59' },
 };
 
 type Props = {
@@ -52,49 +51,61 @@ export function OperationsOverview({ activePromotions }: Props) {
 
   if (error) return <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>;
 
-  const tiles: Tile[] = [
+  const rows: Row[] = [
     {
       label: 'Orders',
       icon: 'list',
-      count: operations?.orders.count ?? 0,
       health: operations ? operations.orders.health : 'neutral',
       note: operations?.orders.note ?? 'Loading…',
     },
     {
       label: 'Promotions',
       icon: 'tag',
-      count: activePromotions,
       health: activePromotions > 0 ? 'good' : 'neutral',
       note: activePromotions > 0 ? `${activePromotions} live` : 'None live',
     },
     {
       label: 'Payments',
       icon: 'card',
-      count: operations?.payments.count ?? 0,
       health: operations ? operations.payments.health : 'neutral',
       note: operations?.payments.note ?? 'Loading…',
     },
     {
       label: 'Tables',
       icon: 'grid',
-      count: operations?.tables.count ?? 0,
       health: operations ? operations.tables.health : 'neutral',
       note: operations?.tables.note ?? 'Loading…',
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-      {tiles.map((tile) => (
-        <div key={tile.label} className="rounded-3xl bg-white p-4 shadow">
-          <div className="flex items-center justify-between">
-            <DashboardIcon name={tile.icon} className="h-4 w-4 text-stone-400" />
-            <span className={`h-2 w-2 rounded-full ${HEALTH_DOT[tile.health]}`} aria-hidden="true" />
-          </div>
-          <p className="mt-2 text-sm font-black text-[#1F1F1F]">{tile.label}</p>
-          <p className="mt-0.5 text-xs font-semibold text-stone-500">{tile.note}</p>
-        </div>
-      ))}
+    <div className="rounded-3xl bg-white p-5 shadow">
+      <p className="text-sm font-black text-[#1F1F1F]">Operations</p>
+      <ul className="mt-3">
+        {rows.map((row, index) => {
+          const pill = HEALTH_PILL[row.health];
+          return (
+            <li
+              key={row.label}
+              className={`flex items-center gap-3 py-2.5 ${index < rows.length - 1 ? 'border-b border-stone-100' : ''}`}
+            >
+              <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-[#FFF8F0] text-stone-400">
+                <DashboardIcon name={row.icon} className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-[#1F1F1F]">{row.label}</span>
+                <span className="block truncate text-xs font-semibold text-stone-500">{row.note}</span>
+              </span>
+              <span
+                className="flex-none rounded-full px-2.5 py-1 text-[11px] font-bold"
+                style={{ background: pill.bg, color: pill.text }}
+              >
+                {pill.label}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
