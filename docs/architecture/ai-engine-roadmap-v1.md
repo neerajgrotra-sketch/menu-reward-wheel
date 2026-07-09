@@ -3,6 +3,8 @@
 _Concept document — no implementation planned until operational primitives are stable_  
 _Audit date: 2026-06-15_
 
+**Update 2026-07-09:** the first real (narrow) implementation of this doc's core pattern — structured intent, human-approval gate, no autonomous execution — shipped as "Ask SpinBite" menu discount actions. See [`ask-spinbite-ai-agent-v1.md`](./ask-spinbite-ai-agent-v1.md), which also flags an unresolved tension with this doc's Constraint #1 ("No price manipulation") that needs product review — that feature changes `menu_items.special_*` fields, which this constraint didn't anticipate since it predates the columns it would apply to.
+
 ---
 
 ## Vision
