@@ -113,6 +113,7 @@ export default function DiningIntelligencePage() {
         .from('restaurants')
         .select('id,name,slug,hero_image_url,logo_url,address_line1,city,province_state')
         .eq('owner_id', userData.user.id)
+        .is('deleted_at', null)
         .order('name');
 
       if (result.error) { setError(result.error.message); setLoading(false); return; }

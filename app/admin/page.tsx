@@ -63,7 +63,7 @@ export default function AdminPage() {
       const user = userData.user;
       if (!user) { window.location.href = '/auth'; return; }
       const requestedSlug = new URLSearchParams(window.location.search).get('slug');
-      const { data } = await supabase.from('restaurants').select('id,name,slug,brand_color,owner_name').eq('owner_id', user.id).order('created_at', { ascending: false });
+      const { data } = await supabase.from('restaurants').select('id,name,slug,brand_color,owner_name').eq('owner_id', user.id).is('deleted_at', null).order('created_at', { ascending: false });
       const ownedRestaurants = (data || []) as Restaurant[];
       if (ownedRestaurants.length === 0) { window.location.href = '/admin/restaurants'; return; }
       const matched = requestedSlug ? ownedRestaurants.find((item) => item.slug === requestedSlug) : ownedRestaurants[0];

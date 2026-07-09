@@ -196,6 +196,7 @@ export async function generateMetadata({
       .from('restaurants')
       .select('name,description,logo_url')
       .eq('slug', params.restaurantSlug)
+      .is('deleted_at', null)
       .single();
     if (!data) return { title: 'Menu' };
     return {
@@ -244,6 +245,7 @@ export default async function PermanentRestaurantQrPage({
       'id,name,slug,description,hero_image_url,logo_url,brand_color,secondary_color,accent_color,phone,address_line1,city,province_state,postal_code,country,website_url,instagram_url,facebook_url,google_maps_url,hours,experience_mode,current_promotion_id'
     )
     .eq('slug', params.restaurantSlug)
+    .is('deleted_at', null)
     .single();
 
   if (restaurantResult.error || !restaurantResult.data) {

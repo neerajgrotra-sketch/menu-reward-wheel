@@ -313,6 +313,7 @@ function PrintKitContent() {
         .select('id,name,slug,logo_url,address_line1,city,experience_mode')
         .eq('id', params.restaurantId)
         .eq('owner_id', userData.user.id)
+        .is('deleted_at', null)
         .single();
 
       if (err || !data) { setError('Restaurant not found or access denied.'); setLoading(false); return; }

@@ -46,6 +46,7 @@ export default function SetupPage() {
         .select('id,name,address_line1,city,phone,cuisine_type,image_url,brand_color')
         .eq('id', id)
         .eq('owner_id', user.id)
+        .is('deleted_at', null)
         .single();
 
       if (loadError || !data) {

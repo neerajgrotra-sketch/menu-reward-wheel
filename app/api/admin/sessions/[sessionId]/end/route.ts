@@ -49,6 +49,7 @@ export async function PATCH(
       .select('id')
       .eq('id', session.restaurant_id)
       .eq('owner_id', userData.user.id)
+      .is('deleted_at', null)
       .maybeSingle();
 
     if (!restaurant) {

@@ -57,7 +57,7 @@ export default function PromotionPrintKitPage() {
       const promotionResult = await supabase.from('promotions').select('id,name,slug,status,restaurant_id,starts_at,ends_at,coupon_expiry_minutes').eq('id', params.id).single();
       if (promotionResult.error || !promotionResult.data) { setError('Promotion not found.'); setLoading(false); return; }
       const currentPromotion = promotionResult.data as Promotion;
-      const restaurantResult = await supabase.from('restaurants').select('id,name,slug,address_line1,city,phone,logo_url').eq('id', currentPromotion.restaurant_id).eq('owner_id', user.id).single();
+      const restaurantResult = await supabase.from('restaurants').select('id,name,slug,address_line1,city,phone,logo_url').eq('id', currentPromotion.restaurant_id).eq('owner_id', user.id).is('deleted_at', null).single();
       if (restaurantResult.error || !restaurantResult.data) { setError('Restaurant not found or access denied.'); setLoading(false); return; }
       const currentRestaurant = restaurantResult.data as Restaurant;
       setPromotion(currentPromotion); setRestaurant(currentRestaurant); setPlayUrl(`${window.location.origin}/r/${currentRestaurant.slug}`); setLoading(false);

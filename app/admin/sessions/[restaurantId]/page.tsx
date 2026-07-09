@@ -34,6 +34,7 @@ export default function RestaurantSessionsPage({ params }: { params: { restauran
         .select('id,name,address_line1,city,province_state')
         .eq('id', restaurantId)
         .eq('owner_id', userData.user.id)
+        .is('deleted_at', null)
         .maybeSingle();
 
       if (!data) { setNotFound(true); setLoading(false); return; }

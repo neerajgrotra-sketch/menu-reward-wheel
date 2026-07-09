@@ -43,7 +43,8 @@ export async function GET() {
     const restaurantsResult = await serviceClient
       .from('restaurants')
       .select('id')
-      .eq('owner_id', userData.user.id);
+      .eq('owner_id', userData.user.id)
+      .is('deleted_at', null);
 
     if (restaurantsResult.error) {
       return NextResponse.json({ error: restaurantsResult.error.message }, { status: 500 });

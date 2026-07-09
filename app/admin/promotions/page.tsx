@@ -142,7 +142,7 @@ export default function PromotionsPage() {
       const requestedMode = params.get('mode');
       const requestedSlug = params.get('slug');
       if (requestedMode === 'create' || requestedMode === 'manage') setMode(requestedMode);
-      const result = await supabase.from('restaurants').select('id,name,slug,address_line1,city,phone').eq('owner_id', userData.user.id).order('created_at', { ascending: false });
+      const result = await supabase.from('restaurants').select('id,name,slug,address_line1,city,phone').eq('owner_id', userData.user.id).is('deleted_at', null).order('created_at', { ascending: false });
       if (result.error) { setError(result.error.message); return; }
       const owned = (result.data || []) as Restaurant[];
       setRestaurants(owned);

@@ -50,6 +50,7 @@ export async function GET(
     .select('id')
     .eq('id', job.restaurant_id)
     .eq('owner_id', userId)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!restaurant) {

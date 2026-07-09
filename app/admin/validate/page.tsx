@@ -144,7 +144,7 @@ export default function ValidateCouponPage() {
     const coupon = couponResult.data as unknown as CouponRecord;
     setRecord(coupon);
 
-    const ownerCheck = await supabase.from('restaurants').select('id').eq('id', coupon.restaurant_id).eq('owner_id', user.id).maybeSingle();
+    const ownerCheck = await supabase.from('restaurants').select('id').eq('id', coupon.restaurant_id).eq('owner_id', user.id).is('deleted_at', null).maybeSingle();
 
     if (ownerCheck.error || !ownerCheck.data) {
       setStatus('wrong_restaurant');

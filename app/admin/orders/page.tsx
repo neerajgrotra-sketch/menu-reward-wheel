@@ -152,6 +152,7 @@ export default function AdminOrdersPage() {
       .from('restaurants')
       .select('id,name')
       .eq('owner_id', user.id)
+      .is('deleted_at', null)
       .limit(1)
       .maybeSingle();
     return data as Restaurant | null;

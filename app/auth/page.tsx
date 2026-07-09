@@ -24,6 +24,7 @@ export default function AuthPage() {
       .from('restaurants')
       .select('id')
       .eq('owner_id', user.id)
+      .is('deleted_at', null)
       .limit(1);
 
     window.location.href = data && data.length > 0 ? '/admin' : '/admin/restaurants';

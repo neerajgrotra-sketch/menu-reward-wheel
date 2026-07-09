@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
       .select('id')
       .eq('id', restaurantId)
       .eq('owner_id', userData.user.id)
+      .is('deleted_at', null)
       .maybeSingle();
 
     if (!restaurant) {

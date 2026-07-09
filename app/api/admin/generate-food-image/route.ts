@@ -55,6 +55,7 @@ export async function POST(request: Request) {
     .select('id, name')
     .eq('id', restaurantId)
     .eq('owner_id', userId)
+    .is('deleted_at', null)
     .maybeSingle();
 
   if (!restaurant) {

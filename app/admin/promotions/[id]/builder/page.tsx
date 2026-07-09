@@ -235,6 +235,7 @@ export default function PromotionBuilderPage() {
         .from('restaurants')
         .select('id,name,slug,address_line1,city,owner_id')
         .eq('id', loadedPromotion.restaurant_id)
+        .is('deleted_at', null)
         .single();
       if (restaurantResult.data) setRestaurant(restaurantResult.data);
 

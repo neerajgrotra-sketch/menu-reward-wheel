@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
       .from('restaurants')
       .select('id,name,slug,address_line1,city,owner_id')
       .eq('id', promotion.restaurant_id)
+      .is('deleted_at', null)
       .single();
 
     if (restaurantResult.error || !restaurantResult.data) {

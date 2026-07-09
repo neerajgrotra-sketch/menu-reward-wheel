@@ -70,6 +70,7 @@ export default function RewardEditorPage() {
         .from('restaurants')
         .select('id,name,slug')
         .eq('id', currentPromotion.restaurant_id)
+        .is('deleted_at', null)
         .single();
 
       if (restaurantResult.data) setRestaurant(restaurantResult.data as Restaurant);

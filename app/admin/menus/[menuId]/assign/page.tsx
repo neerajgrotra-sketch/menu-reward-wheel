@@ -38,7 +38,7 @@ export default function AssignMenuLocationsPage() {
       setMenuName(menuResult.data.name);
 
       const [restaurantsResult, assignmentsResult] = await Promise.all([
-        supabase.from('restaurants').select('id,name,slug,address_line1,city').eq('owner_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('restaurants').select('id,name,slug,address_line1,city').eq('owner_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('restaurant_menu_assignments').select('id,restaurant_id').eq('menu_id', menuId).eq('active', true),
       ]);
       if (restaurantsResult.error) { setError(restaurantsResult.error.message); setLoading(false); return; }
