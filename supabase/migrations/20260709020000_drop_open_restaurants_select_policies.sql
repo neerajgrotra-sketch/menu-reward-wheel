@@ -1,0 +1,36 @@
+-- Release 1, PR-010 — close unauthenticated bulk-read exposure on public.restaurants.
+--
+-- Two legacy public-read SELECT policies are dropped:
+--   "public read restaurants"  — traced to an untracked legacy file
+--                                 (supabase/schema.sql:53), predates the
+--                                 current service-role resolution pattern.
+--   "allow select restaurants" — has no source anywhere, tracked or
+--                                 untracked; exists only in the live
+--                                 database (the same class of drift already
+--                                 documented for the play_sessions
+--                                 constraint and the supabase_realtime
+--                                 publication gap).
+--
+-- Verified via a full impact analysis (approved) before this migration was
+-- written: every anonymous-facing flow (QR/touchpoint menu, direct
+-- restaurant menu, metadata/OG generation, promotion play, coupon claim,
+-- order placement/tracking, session lifecycle, payment checkout) resolves
+-- restaurants exclusively through a service-role client, which bypasses RLS
+-- entirely and is unaffected by this change. Every other table's RLS policy
+-- that references restaurants does so via an owner-scoped subquery
+-- (restaurants.owner_id = auth.uid()), which already yields zero rows for
+-- anonymous callers today, independent of these two policies, and is
+-- satisfied for authenticated owners by the untouched
+-- "owners read own restaurants" policy.
+--
+-- After this migration, the only remaining SELECT policy on public.restaurants
+-- is "owners read own restaurants" (authenticated, owner_id = auth.uid()).
+-- INSERT ("authenticated users create restaurants") and UPDATE
+-- ("owners update own restaurants") policies are untouched.
+--
+-- Rollback (hotfix only — reintroduces the exposure this migration closes):
+--   create policy "public read restaurants" on public.restaurants for select to public using (true);
+--   create policy "allow select restaurants" on public.restaurants for select to public using (true);
+
+drop policy if exists "public read restaurants" on public.restaurants;
+drop policy if exists "allow select restaurants" on public.restaurants;
