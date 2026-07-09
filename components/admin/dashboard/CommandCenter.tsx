@@ -2,6 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DashboardIcon } from './icons';
+import { DiscountActionPreview } from './DiscountActionPreview';
+import { parseDashboardAssistantOutput, DashboardAssistantParseError, type MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
+import type { ResolvableAction } from '@/lib/menu-discount-actions/resolve';
+import { resolveDiscountSchedule } from '@/lib/menu-discount-actions/schedule';
+
+function toResolvableAction(action: MenuDiscountAction): ResolvableAction {
+  if (action.type === 'clear_discount') return action;
+  return { type: 'set_discount', target: action.target, discount: resolveDiscountSchedule(action.discount) };
+}
 
 const ROTATING_PLACEHOLDERS = [
   'Apply 20% discount on desserts after 7 PM…',
@@ -29,6 +38,7 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [notice, setNotice] = useState('');
   const [answer, setAnswer] = useState('');
+  const [pendingAction, setPendingAction] = useState<ResolvableAction | null>(null);
   const [asking, setAsking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -52,6 +62,7 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
     setAsking(true);
     setNotice('');
     setAnswer('');
+    setPendingAction(null);
 
     try {
       const response = await fetch('/api/admin/intelligence/generate', {
@@ -74,7 +85,17 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
         return;
       }
 
-      setAnswer(payload.output || '');
+      try {
+        const parsed = parseDashboardAssistantOutput(payload.output || '');
+        if (parsed.intent === 'answer') {
+          setAnswer(parsed.answer);
+        } else {
+          setPendingAction(toResolvableAction(parsed.action));
+        }
+      } catch (parseErr) {
+        const reason = parseErr instanceof DashboardAssistantParseError ? parseErr.message : 'unexpected response';
+        setNotice(`SpinBite gave an answer that couldn't be understood (${reason}). Try rephrasing.`);
+      }
     } catch {
       setNotice("Couldn't reach SpinBite. Try again in a moment.");
     } finally {
@@ -134,6 +155,9 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
         <div className="mt-3 rounded-2xl bg-[#EFE9FB] p-4">
           <p className="text-sm font-semibold leading-6 text-[#1F1F1F]">{answer}</p>
         </div>
+      )}
+      {pendingAction && (
+        <DiscountActionPreview restaurantId={restaurantId} action={pendingAction} onDismiss={() => setPendingAction(null)} />
       )}
       <div className="mt-4 flex flex-wrap gap-2">
         {SUGGESTED_PROMPTS.map((prompt) => (
