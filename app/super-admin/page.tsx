@@ -43,6 +43,13 @@ const cards = [
     copy: 'Manage generation features, prompt templates, provider costs, and A/B experiments.',
     status: 'Available now',
   },
+  {
+    title: 'Capabilities',
+    href: '/super-admin/capabilities',
+    icon: '🧩',
+    copy: 'Turn Restaurant Planner capabilities on or off — per environment, per owner, or per restaurant.',
+    status: 'Available now',
+  },
 ];
 
 export default async function SuperAdminPage() {

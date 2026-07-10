@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
+import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
+import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
+import { makeServiceClient } from '@/lib/intelligence/generate-route-helpers';
 
 // GET /api/admin/assistant/conversations?restaurantId=...
 // Returns the most recent Ask SpinBite conversation for a restaurant (Phase 1
@@ -23,16 +26,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'restaurantId is required.' }, { status: 400 });
   }
 
-  const { data: restaurant } = await authClient
-    .from('restaurants')
-    .select('id')
-    .eq('id', restaurantId)
-    .eq('owner_id', userData.user.id)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  if (!restaurant) {
-    return NextResponse.json({ error: 'Restaurant not found or access denied.' }, { status: 403 });
+  const toolCtx: ToolContext = { supabase: authClient, serviceClient: makeServiceClient(), restaurantId, ownerId: userData.user.id };
+  const restaurantResult = await getRestaurant.execute({}, toolCtx);
+  if (!restaurantResult.ok) {
+    return NextResponse.json({ error: restaurantResult.reason }, { status: 403 });
   }
 
   const { data: conversation } = await authClient
@@ -53,5 +50,22 @@ export async function GET(request: Request) {
     .eq('conversation_id', conversation.id)
     .order('created_at', { ascending: true });
 
-  return NextResponse.json({ conversation, messages: messages ?? [] });
+  // V2: batch-fetch the exact proposal row each message represents (not
+  // just the latest in its group — an older chat bubble must keep showing
+  // the resolved_snapshot/confidence/reasoning it had at the time it was
+  // sent), keyed by proposal id so the client can render ProposalCard
+  // immediately on reload with no per-message round trip.
+  const proposalIds = Array.from(
+    new Set((messages ?? []).map((m) => m.proposal_id).filter((id): id is string => id !== null)),
+  );
+  let proposals: Record<string, unknown> = {};
+  if (proposalIds.length > 0) {
+    const { data: proposalRows } = await authClient
+      .from('restaurant_planner_proposals')
+      .select('*')
+      .in('id', proposalIds);
+    proposals = Object.fromEntries((proposalRows ?? []).map((p) => [p.id, p]));
+  }
+
+  return NextResponse.json({ conversation, messages: messages ?? [], proposals });
 }

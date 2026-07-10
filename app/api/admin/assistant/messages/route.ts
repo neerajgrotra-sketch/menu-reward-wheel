@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/database.types';
-import { generate } from '@/lib/intelligence/intelligence-engine';
+import { runPlannerTurn } from '@/lib/restaurant-planner/planner-engine';
+import { PlannerParseError } from '@/lib/restaurant-planner/types';
+import { buildProposal } from '@/lib/restaurant-planner/capabilities/menu-pricing';
+import { insertProposalVersion, findOpenProposalGroup } from '@/lib/restaurant-planner/proposals';
+import { isCapabilityAvailable, explainCapabilityUnavailable } from '@/lib/restaurant-planner/tool-registry';
+import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
+import { getConversationContext } from '@/lib/restaurant-planner/tools/conversation';
+import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
 import { checkRateLimit, incrementUsage, makeServiceClient, clientSafeError } from '@/lib/intelligence/generate-route-helpers';
-import { parseDashboardAssistantOutput, DashboardAssistantParseError } from '@/lib/intelligence/actions/menu-discount-schema';
 import { describeProposedAction } from '@/lib/dashboard-assistant/describe-action';
-import { buildTranscript } from '@/lib/dashboard-assistant/transcript';
 
 // POST /api/admin/assistant/messages
 // The conversation-aware sibling of /api/admin/intelligence/generate for the
@@ -14,14 +19,16 @@ import { buildTranscript } from '@/lib/dashboard-assistant/transcript';
 // conversation_history rawInput key (so a short follow-up like "only
 // cardamom chai" can be resolved against the prior turn's request — see
 // lib/intelligence/context-builder.ts), and persists the assistant's reply.
-// Reuses the same generate() engine and rate-limit helpers as the generic
-// route rather than forking a parallel AI-calling path, so usage is metered
-// identically.
+// The actual model call + structured-output classification is owned by the
+// Restaurant Planner (lib/restaurant-planner/planner-engine.ts), which reuses
+// the same generate() engine and rate-limit helpers as the generic route so
+// usage is metered identically — this route stays about persistence and
+// auth, not AI orchestration.
 //
 // Never writes to menu_items — a menu_discount_action reply only stores the
-// raw AI action; resolving/previewing/applying it still goes through the
-// unchanged discount-action/preview and /apply routes via
-// DiscountActionPreview.tsx.
+// raw planner action; resolving/previewing/applying it still goes through
+// the unchanged discount-action/preview and /apply routes via
+// ProposalCard.tsx.
 
 export async function POST(request: Request) {
   const authClient = createServerAuthClient();
@@ -50,16 +57,15 @@ export async function POST(request: Request) {
   if (!restaurantId) return NextResponse.json({ error: 'restaurantId is required.' }, { status: 400 });
   if (!message) return NextResponse.json({ error: 'message is required.' }, { status: 400 });
 
-  const { data: restaurant } = await authClient
-    .from('restaurants')
-    .select('id')
-    .eq('id', restaurantId)
-    .eq('owner_id', userId)
-    .is('deleted_at', null)
-    .maybeSingle();
+  // Restaurant Tool Library: this exact ownership query used to be
+  // inline-duplicated in all 6 Restaurant-Planner routes — one
+  // implementation now (lib/restaurant-planner/tools/restaurant.ts).
+  const serviceClient = makeServiceClient();
+  const toolCtx: ToolContext = { supabase: authClient, serviceClient, restaurantId, ownerId: userId };
+  const restaurantResult = await getRestaurant.execute({}, toolCtx);
 
-  if (!restaurant) {
-    return NextResponse.json({ error: 'Restaurant not found or access denied.' }, { status: 403 });
+  if (!restaurantResult.ok) {
+    return NextResponse.json({ error: restaurantResult.reason }, { status: 403 });
   }
 
   // Resolve (or create) the conversation. A client-supplied conversationId is
@@ -88,15 +94,13 @@ export async function POST(request: Request) {
     activeConversationId = created.id;
   }
 
-  // Prior turns only — fetched before inserting this user message, used to
-  // build the transcript handed to the model.
-  const { data: priorMessages } = await authClient
-    .from('dashboard_assistant_messages')
-    .select('*')
-    .eq('conversation_id', activeConversationId)
-    .order('created_at', { ascending: true });
-
-  const transcript = buildTranscript(priorMessages ?? []);
+  // Prior turns + transcript (V2: tagged with the currently-open proposal,
+  // if any, so the model can reference it via refersToProposalId on a
+  // follow-up like "make it 15% instead" — Objective 7). Previously two
+  // separate inline steps (a raw message fetch + a duplicated open-status
+  // filter); one tool call now.
+  const conversationContext = await getConversationContext.execute({ conversationId: activeConversationId }, toolCtx);
+  const transcript = conversationContext.ok ? conversationContext.data.transcript : '';
 
   const { data: userMessage, error: userMessageError } = await authClient
     .from('dashboard_assistant_messages')
@@ -114,7 +118,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Could not save your message.' }, { status: 500 });
   }
 
-  const serviceClient = makeServiceClient();
   const rateLimitCheck = await checkRateLimit(serviceClient, restaurantId);
   if (!rateLimitCheck.ok) {
     // The user's message was already persisted above — return it (and the
@@ -128,32 +131,142 @@ export async function POST(request: Request) {
   const { limits } = rateLimitCheck;
 
   try {
-    const result = await generate({
-      featureKey: 'dashboard_assistant',
-      restaurantId,
-      userId,
-      rawInput: { question: message, conversation_history: transcript, ...dashboardContext },
-    });
+    // A PlannerParseError means the model call itself succeeded (and
+    // consumed quota) but returned output that didn't match PlannerOutput —
+    // handled locally as a graceful fallback message. Any other error
+    // (disabled feature, missing template, provider failure) rethrows to
+    // the outer catch below, which maps it via clientSafeError.
+    let turn: Awaited<ReturnType<typeof runPlannerTurn>> | null = null;
+    let parseFailureReason: string | null = null;
+    try {
+      turn = await runPlannerTurn({
+        restaurantId,
+        userId,
+        message,
+        conversationHistory: transcript,
+        dashboardContext,
+        supabase: authClient,
+      });
+    } catch (err) {
+      if (err instanceof PlannerParseError) {
+        parseFailureReason = err.message;
+      } else {
+        throw err;
+      }
+    }
 
     await incrementUsage(serviceClient, restaurantId, limits);
 
     let content: string;
-    let intent: 'answer' | 'menu_discount_action';
+    let intent: 'answer' | 'clarification' | 'unsupported' | 'menu_discount_action';
     let action: Json | null = null;
-    try {
-      const parsed = parseDashboardAssistantOutput(result.output);
-      if (parsed.intent === 'answer') {
-        content = parsed.answer;
-        intent = 'answer';
-      } else {
-        content = describeProposedAction(parsed.action);
-        intent = 'menu_discount_action';
-        action = parsed.action as unknown as Json;
-      }
-    } catch (parseErr) {
-      const reason = parseErr instanceof DashboardAssistantParseError ? parseErr.message : 'unexpected response';
-      content = `SpinBite gave an answer that couldn't be understood (${reason}). Try rephrasing.`;
+    let capability: string | null = null;
+    let candidates: Json | null = null;
+    let proposalGroupId: string | null = null;
+    let proposalId: string | null = null;
+    // The freshly built/inserted proposal row, if any — returned alongside
+    // the message so the client can render ProposalCard's confidence,
+    // reasoning, and resolved_snapshot immediately, with no second fetch.
+    let proposalPayload: Awaited<ReturnType<typeof insertProposalVersion>> | null = null;
+
+    if (!turn) {
+      content = `SpinBite gave an answer that couldn't be understood (${parseFailureReason}). Try rephrasing.`;
       intent = 'answer';
+    } else {
+      switch (turn.output.intent) {
+        case 'answer':
+          content = turn.output.answer;
+          intent = 'answer';
+          break;
+        case 'clarification':
+          content = turn.output.question;
+          intent = 'clarification';
+          candidates = (turn.output.candidates as unknown as Json) ?? null;
+          break;
+        case 'unsupported':
+          content = turn.output.note || `SpinBite doesn't support "${turn.output.capability}" requests yet — that's coming soon.`;
+          intent = 'unsupported';
+          capability = turn.output.capability;
+          break;
+        case 'menu_discount_action': {
+          // Capability Management: query the registry before selecting
+          // tools — checked here, not inside the planner, so a future
+          // capability's route gets this for free by calling the same
+          // function with its own key (no planner change needed). A
+          // disabled capability explains itself instead of attempting
+          // resolution; the model already thinks menu_pricing is generally
+          // supported (its system prompt says so), so this is a
+          // server-side override of its classification, same pattern as
+          // the ambiguous-resolution downgrade below.
+          const available = await isCapabilityAvailable(serviceClient, {
+            capabilityKey: turn.output.capability,
+            restaurantId,
+            ownerId: userId,
+          });
+          if (!available) {
+            content = explainCapabilityUnavailable(turn.output.capability);
+            intent = 'unsupported';
+            capability = turn.output.capability;
+            break;
+          }
+
+          // V2: a follow-up that modifies the conversation's currently-open
+          // proposal (per the [proposal:<id>] tag in conversation_history)
+          // re-verifies refersToProposalId before trusting it — belongs to
+          // this conversation/restaurant and is still open — rather than
+          // accepting it outright (Objective 7).
+          let targetGroupId: string | undefined;
+          if (turn.output.refersToProposalId) {
+            const openGroup = await findOpenProposalGroup(authClient, {
+              proposalGroupId: turn.output.refersToProposalId,
+              conversationId: activeConversationId,
+              restaurantId,
+            });
+            targetGroupId = openGroup?.proposal_group_id;
+          }
+
+          const built = await buildProposal(authClient, restaurantId, turn.output.action);
+
+          if (built.kind === 'unresolved') {
+            // Deterministic resolution (never the model) found the target
+            // ambiguous or absent — surfaces as a clarification with real,
+            // never-hallucinated candidates instead of a proposal. The
+            // original action is still persisted (target intentionally
+            // left as-is, not yet resolvable) so a TargetSelector checkbox
+            // submission can rebuild the same discount against a narrowed
+            // {scope:'items', names:[...]} target without another model
+            // call — see target-selection/route.ts.
+            content = built.reason;
+            intent = 'clarification';
+            capability = turn.output.capability;
+            action = turn.output.action as unknown as Json;
+            candidates = (built.candidates as unknown as Json) ?? null;
+          } else {
+            const proposal = await insertProposalVersion(authClient, {
+              proposalGroupId: targetGroupId,
+              restaurantId,
+              conversationId: activeConversationId,
+              capability: turn.output.capability,
+              action: turn.output.action as unknown as Json,
+              resolvedSnapshot: built.resolveResult.items as unknown as Json,
+              confidence: built.confidence,
+              reasoning: built.reasoning,
+              planTasks: built.planTasks as unknown as Json,
+              status: targetGroupId ? 'modified' : 'draft',
+              createdBy: userId,
+            });
+
+            content = describeProposedAction(turn.output.action);
+            intent = 'menu_discount_action';
+            capability = turn.output.capability;
+            action = turn.output.action as unknown as Json;
+            proposalGroupId = proposal.proposal_group_id;
+            proposalId = proposal.id;
+            proposalPayload = proposal;
+          }
+          break;
+        }
+      }
     }
 
     const { data: assistantMessage, error: assistantMessageError } = await authClient
@@ -165,6 +278,10 @@ export async function POST(request: Request) {
         content,
         intent,
         action,
+        capability,
+        candidates,
+        proposal_group_id: proposalGroupId,
+        proposal_id: proposalId,
         created_by: userId,
       })
       .select('*')
@@ -177,7 +294,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ conversationId: activeConversationId, userMessage, assistantMessage });
+    return NextResponse.json({ conversationId: activeConversationId, userMessage, assistantMessage, proposal: proposalPayload });
   } catch (err: unknown) {
     console.error('[assistant/messages] Error:', err);
     const { message: errorMessage, status } = clientSafeError(err);
