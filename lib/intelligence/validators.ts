@@ -1,4 +1,4 @@
-import { parseDashboardAssistantOutput, DashboardAssistantParseError } from './actions/menu-discount-schema';
+import { parsePlannerOutput, PlannerParseError } from '../restaurant-planner/types';
 
 export class ValidationError extends Error {
   constructor(featureKey: string, reason: string) {
@@ -10,17 +10,18 @@ export class ValidationError extends Error {
 type OutputValidator = (output: string, featureKey: string) => string;
 
 const VALIDATORS: Record<string, OutputValidator> = {
-  // Requires strict JSON matching DashboardAssistantOutput (see
-  // lib/intelligence/actions/menu-discount-schema.ts) instead of prose, so a
-  // request can resolve to either a text answer or a structured action.
-  // Returns the validated JSON string unchanged — callers parse it with the
-  // same shared parser rather than re-deriving the shape here.
+  // Requires strict JSON matching PlannerOutput (see
+  // lib/restaurant-planner/types.ts) instead of prose, so a request can
+  // resolve to an answer, a clarifying question, an unsupported-capability
+  // notice, or a structured action. Returns the validated JSON string
+  // unchanged — callers parse it with the same shared parser rather than
+  // re-deriving the shape here.
   dashboard_assistant: (output, featureKey) => {
     const trimmed = output.trim();
     try {
-      parseDashboardAssistantOutput(trimmed);
+      parsePlannerOutput(trimmed);
     } catch (err) {
-      const reason = err instanceof DashboardAssistantParseError ? err.message : 'unknown parse error';
+      const reason = err instanceof PlannerParseError ? err.message : 'unknown parse error';
       throw new ValidationError(featureKey, reason);
     }
     return trimmed;

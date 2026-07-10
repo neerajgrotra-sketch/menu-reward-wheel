@@ -125,6 +125,39 @@ export type Database = {
           },
         ]
       }
+      capability_settings: {
+        Row: {
+          capability_key: string
+          created_at: string
+          enabled: boolean
+          id: string
+          scope: string
+          scope_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          capability_key: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          scope: string
+          scope_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          capability_key?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          scope?: string
+          scope_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       coupon_redemptions: {
         Row: {
           coupon_code: string
@@ -264,6 +297,8 @@ export type Database = {
       dashboard_assistant_messages: {
         Row: {
           action: Json | null
+          candidates: Json | null
+          capability: string | null
           content: string
           conversation_id: string
           created_at: string
@@ -271,12 +306,16 @@ export type Database = {
           id: string
           intent: string | null
           outcome: Json | null
+          proposal_group_id: string | null
+          proposal_id: string | null
           related_message_id: string | null
           restaurant_id: string
           role: string
         }
         Insert: {
           action?: Json | null
+          candidates?: Json | null
+          capability?: string | null
           content: string
           conversation_id: string
           created_at?: string
@@ -284,12 +323,16 @@ export type Database = {
           id?: string
           intent?: string | null
           outcome?: Json | null
+          proposal_group_id?: string | null
+          proposal_id?: string | null
           related_message_id?: string | null
           restaurant_id: string
           role: string
         }
         Update: {
           action?: Json | null
+          candidates?: Json | null
+          capability?: string | null
           content?: string
           conversation_id?: string
           created_at?: string
@@ -297,6 +340,8 @@ export type Database = {
           id?: string
           intent?: string | null
           outcome?: Json | null
+          proposal_group_id?: string | null
+          proposal_id?: string | null
           related_message_id?: string | null
           restaurant_id?: string
           role?: string
@@ -307,6 +352,20 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "dashboard_assistant_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_assistant_messages_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "restaurant_planner_proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dashboard_assistant_messages_proposal_group_id_fkey"
+            columns: ["proposal_group_id"]
+            isOneToOne: false
+            referencedRelation: "restaurant_planner_proposals"
             referencedColumns: ["id"]
           },
           {
@@ -1873,6 +1932,89 @@ export type Database = {
             foreignKeyName: "restaurant_order_counters_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: true
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restaurant_planner_proposals: {
+        Row: {
+          action: Json
+          capability: string
+          confidence: string | null
+          conversation_id: string
+          created_at: string
+          created_by: string
+          id: string
+          plan_tasks: Json | null
+          proposal_group_id: string
+          reasoning: string | null
+          related_message_id: string | null
+          resolved_snapshot: Json | null
+          restaurant_id: string
+          status: string
+          version: number
+        }
+        Insert: {
+          action: Json
+          capability: string
+          confidence?: string | null
+          conversation_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          plan_tasks?: Json | null
+          proposal_group_id: string
+          reasoning?: string | null
+          related_message_id?: string | null
+          resolved_snapshot?: Json | null
+          restaurant_id: string
+          status: string
+          version?: number
+        }
+        Update: {
+          action?: Json
+          capability?: string
+          confidence?: string | null
+          conversation_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          plan_tasks?: Json | null
+          proposal_group_id?: string
+          reasoning?: string | null
+          related_message_id?: string | null
+          resolved_snapshot?: Json | null
+          restaurant_id?: string
+          status?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restaurant_planner_proposals_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_assistant_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restaurant_planner_proposals_proposal_group_id_fkey"
+            columns: ["proposal_group_id"]
+            isOneToOne: false
+            referencedRelation: "restaurant_planner_proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restaurant_planner_proposals_related_message_id_fkey"
+            columns: ["related_message_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_assistant_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restaurant_planner_proposals_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
             referencedRelation: "restaurants"
             referencedColumns: ["id"]
           },

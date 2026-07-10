@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
 import type { Json } from '@/lib/supabase/database.types';
 import { describeOutcome, isActionOutcomePayload, type ActionOutcomePayload } from '@/lib/dashboard-assistant/outcome';
+import { findOpenProposalGroup } from '@/lib/restaurant-planner/proposals';
+import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
+import { cancelPromotion } from '@/lib/restaurant-planner/tools/promotion';
+import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
+import { makeServiceClient } from '@/lib/intelligence/generate-route-helpers';
 
 // POST /api/admin/assistant/messages/outcome
 // Records what happened to a menu_discount_action proposal — ambiguous (from
@@ -49,21 +54,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const { data: restaurant } = await authClient
-    .from('restaurants')
-    .select('id')
-    .eq('id', restaurantId)
-    .eq('owner_id', userId)
-    .is('deleted_at', null)
-    .maybeSingle();
-
-  if (!restaurant) {
-    return NextResponse.json({ error: 'Restaurant not found or access denied.' }, { status: 403 });
+  const toolCtx: ToolContext = { supabase: authClient, serviceClient: makeServiceClient(), restaurantId, ownerId: userId };
+  const restaurantResult = await getRestaurant.execute({}, toolCtx);
+  if (!restaurantResult.ok) {
+    return NextResponse.json({ error: restaurantResult.reason }, { status: 403 });
   }
 
   const { data: relatedMessage } = await authClient
     .from('dashboard_assistant_messages')
-    .select('id')
+    .select('id, proposal_group_id')
     .eq('id', relatedMessageId)
     .eq('conversation_id', conversationId)
     .eq('restaurant_id', restaurantId)
@@ -71,6 +70,23 @@ export async function POST(request: Request) {
 
   if (!relatedMessage) {
     return NextResponse.json({ error: 'Related message not found.' }, { status: 404 });
+  }
+
+  // V2 — Objective 8: a cancellation is also a proposal status transition,
+  // appended as a new version (never an update) so the group's history
+  // shows it was explicitly declined rather than just going stale.
+  if (payload.kind === 'cancelled' && relatedMessage.proposal_group_id) {
+    const openProposal = await findOpenProposalGroup(authClient, {
+      proposalGroupId: relatedMessage.proposal_group_id,
+      conversationId,
+      restaurantId,
+    });
+    if (openProposal) {
+      const result = await cancelPromotion.execute({ openProposal }, toolCtx);
+      if (!result.ok) {
+        console.error('[assistant/messages/outcome] Failed to record cancelled proposal version:', result.reason);
+      }
+    }
   }
 
   const { data: outcomeMessage, error: insertError } = await authClient

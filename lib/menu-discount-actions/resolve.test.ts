@@ -187,6 +187,137 @@ describe('resolveMenuDiscountAction against a real menu snapshot', () => {
     if (!result.resolved) throw new Error('expected resolved');
     expect(result.items).toHaveLength(8); // every Breakfast item, discounted or not
   });
+
+  // V2: the confirmed Phase-1 gap — "chai" used to be ambiguous no matter
+  // what. scope:"name_contains" is the new primitive that makes "apply to
+  // all chai" actually work, without touching how scope:"item" behaves.
+  describe('V2 — name_contains (the "apply to all matches" fix)', () => {
+    it('"all chai" now resolves directly to all 3 real chai items instead of always failing', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'name_contains', query: 'chai' },
+        discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (!result.resolved) throw new Error('expected resolved');
+      expect(result.items.map((i) => i.id).sort()).toEqual(['cardamom-chai', 'kashmiri-chai', 'masala-chai'].sort());
+      expect(result.matchKind).toBe('name_contains');
+    });
+
+    it('scope:"item" with the same query "chai" is still ambiguous — the two scopes are intentionally different', () => {
+      const action: ResolvableAction = { type: 'set_discount', target: { scope: 'item', name: 'chai' }, discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true } };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(false);
+    });
+
+    it('name_contains respects an exclude list', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'name_contains', query: 'chai', exclude: ['Kashmiri Chai'] },
+        discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (!result.resolved) throw new Error('expected resolved');
+      expect(result.items.map((i) => i.id).sort()).toEqual(['cardamom-chai', 'masala-chai'].sort());
+    });
+  });
+
+  describe('V2 — items (explicit checkbox-style selection)', () => {
+    it('resolves an explicit list of real names to exactly those items', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'items', names: ['Cardamom Chai', 'Masala Chai'] },
+        discount: { discountType: 'percentage', value: 15, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (!result.resolved) throw new Error('expected resolved');
+      expect(result.items.map((i) => i.id).sort()).toEqual(['cardamom-chai', 'masala-chai'].sort());
+      expect(result.matchKind).toBe('items_explicit');
+    });
+
+    it('fails the whole target if any one name in the list does not resolve — never silently drops it', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'items', names: ['Cardamom Chai', 'Nonexistent Item'] },
+        discount: { discountType: 'percentage', value: 15, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(false);
+      if (result.resolved) throw new Error('expected unresolved');
+      expect(result.reason).toMatch(/nonexistent item/i);
+    });
+  });
+
+  describe('V2 — category exclude ("every dessert except gulab jamun")', () => {
+    it('excludes a named item from an otherwise category-wide target', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'category', name: 'Breakfast', exclude: ['Masala Chai', 'Lassi'] },
+        discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (!result.resolved) throw new Error('expected resolved');
+      expect(result.items).toHaveLength(6); // 8 Breakfast items minus the 2 excluded
+      expect(result.items.map((i) => i.id)).not.toContain('masala-chai');
+    });
+
+    it('unresolves cleanly when the exclude list removes every item in the category (real Desserts has exactly 2 items)', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'category', name: 'Desserts', exclude: ['Ras Malai', 'Halwa'] },
+        discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(false);
+      if (result.resolved) throw new Error('expected unresolved');
+      expect(result.reason).toMatch(/excluded/i);
+    });
+
+    it('unresolves cleanly when an exclude list removes every name_contains match ("all chai except every chai")', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'name_contains', query: 'chai', exclude: ['Cardamom Chai', 'Kashmiri Chai', 'Masala Chai'] },
+        discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(false);
+    });
+  });
+
+  describe('V2 — duplicate names in an explicit items selection', () => {
+    it('dedupes a repeated name rather than erroring or double-counting', () => {
+      const action: ResolvableAction = {
+        type: 'set_discount',
+        target: { scope: 'items', names: ['Cardamom Chai', 'Cardamom Chai'] },
+        discount: { discountType: 'percentage', value: 15, specialStartAt: null, specialEndAt: null, specialNoExpiry: true },
+      };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (!result.resolved) throw new Error('expected resolved');
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe('cardamom-chai');
+    });
+  });
+
+  describe('V2 — matchKind (confidence-scoring inputs)', () => {
+    it('reports item_exact for an exact single-item match', () => {
+      const action: ResolvableAction = { type: 'clear_discount', target: { scope: 'item', name: 'Kashmiri Chai' } };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (result.resolved) expect(result.matchKind).toBe('item_exact');
+    });
+
+    it('reports category_exact for an exact category match', () => {
+      const action: ResolvableAction = { type: 'set_discount', target: { scope: 'category', name: 'Breakfast' }, discount: { discountType: 'percentage', value: 20, specialStartAt: null, specialEndAt: null, specialNoExpiry: true } };
+      const result = resolveMenuDiscountAction(action, realCategories, realItems);
+      expect(result.resolved).toBe(true);
+      if (result.resolved) expect(result.matchKind).toBe('category_exact');
+    });
+  });
 });
 
 describe('isResolvableAction', () => {

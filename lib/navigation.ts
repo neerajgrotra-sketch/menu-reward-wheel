@@ -21,5 +21,6 @@ export const superAdminNavigation: NavItem[] = [
   { label: 'Homepage Content', href: '/super-admin/content', icon: '📝' },
   { label: 'FAQs', href: '/super-admin/faqs', icon: '❓' },
   { label: 'Intelligence Lab', href: '/super-admin/intelligence-lab', icon: '🧠' },
+  { label: 'Capabilities', href: '/super-admin/capabilities', icon: '🧩' },
   { label: 'Settings', href: '/super-admin/settings', icon: '🚦' },
 ];

@@ -2,12 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DashboardIcon } from './icons';
-import { DiscountActionPreview } from './DiscountActionPreview';
+import { ProposalCard } from './ProposalCard';
+import { TargetSelector } from './TargetSelector';
 import type { MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
 import type { ResolvableAction } from '@/lib/menu-discount-actions/resolve';
 import { resolveDiscountSchedule } from '@/lib/menu-discount-actions/schedule';
 import type { DashboardAssistantMessage } from '@/lib/dashboard-assistant/types';
-import { isProposalLive, hasResolvedOutcome } from '@/lib/dashboard-assistant/types';
+import { isProposalLive, isClarificationLive, hasResolvedOutcome } from '@/lib/dashboard-assistant/types';
+import type { Database } from '@/lib/supabase/database.types';
+
+type ProposalRow = Database['public']['Tables']['restaurant_planner_proposals']['Row'];
 
 function toResolvableAction(action: MenuDiscountAction): ResolvableAction {
   if (action.type === 'clear_discount') return action;
@@ -38,6 +42,11 @@ type Props = {
 export function CommandCenter({ restaurantId, dashboardContext }: Props) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<DashboardAssistantMessage[]>([]);
+  // V2: proposals are fetched/persisted separately from messages (one
+  // restaurant_planner_proposals row per version) — this map, keyed by
+  // proposal id, is what makes ProposalCard's initial render instant
+  // instead of waiting on a live /preview round trip.
+  const [proposals, setProposals] = useState<Record<string, ProposalRow>>({});
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [value, setValue] = useState('');
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
@@ -61,6 +70,7 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
         if (!cancelled && response.ok) {
           setConversationId(payload.conversation?.id ?? null);
           setMessages(payload.messages ?? []);
+          setProposals(payload.proposals ?? {});
         }
       } finally {
         if (!cancelled) setLoadingHistory(false);
@@ -73,6 +83,11 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
   function fillPrompt(prompt: string) {
     setValue(prompt);
     inputRef.current?.focus();
+  }
+
+  function mergeProposal(proposal: ProposalRow | null | undefined) {
+    if (!proposal) return;
+    setProposals((current) => ({ ...current, [proposal.id]: proposal }));
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -105,6 +120,7 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
       }
 
       if (payload.assistantMessage) setMessages((current) => [...current, payload.assistantMessage]);
+      mergeProposal(payload.proposal);
     } catch {
       setNotice("Couldn't reach SpinBite. Try again in a moment.");
     } finally {
@@ -114,6 +130,11 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
 
   function handleResolved(outcomeMessage: DashboardAssistantMessage) {
     setMessages((current) => [...current, outcomeMessage]);
+  }
+
+  function handleSelectionResolved(payload: { userMessage: DashboardAssistantMessage; assistantMessage: DashboardAssistantMessage; proposal?: ProposalRow }) {
+    setMessages((current) => [...current, payload.userMessage, payload.assistantMessage]);
+    mergeProposal(payload.proposal);
   }
 
   return (
@@ -134,7 +155,17 @@ export function CommandCenter({ restaurantId, dashboardContext }: Props) {
       {!loadingHistory && messages.length > 0 && (
         <div className="mt-5 max-h-96 space-y-3 overflow-y-auto rounded-2xl border border-stone-100 bg-[#FBFAF8] p-4">
           {messages.map((message) => (
-            <ChatTurn key={message.id} message={message} messages={messages} restaurantId={restaurantId} conversationId={conversationId} onResolved={handleResolved} />
+            <ChatTurn
+              key={message.id}
+              message={message}
+              messages={messages}
+              restaurantId={restaurantId}
+              conversationId={conversationId}
+              proposal={message.proposal_id ? proposals[message.proposal_id] : undefined}
+              onResolved={handleResolved}
+              onSelectionResolved={handleSelectionResolved}
+              onModify={fillPrompt}
+            />
           ))}
         </div>
       )}
@@ -194,10 +225,13 @@ type ChatTurnProps = {
   messages: DashboardAssistantMessage[];
   restaurantId: string;
   conversationId: string | null;
+  proposal?: ProposalRow;
   onResolved: (outcomeMessage: DashboardAssistantMessage) => void;
+  onSelectionResolved: (payload: { userMessage: DashboardAssistantMessage; assistantMessage: DashboardAssistantMessage; proposal?: ProposalRow }) => void;
+  onModify: (draftText: string) => void;
 };
 
-function ChatTurn({ message, messages, restaurantId, conversationId, onResolved }: ChatTurnProps) {
+function ChatTurn({ message, messages, restaurantId, conversationId, proposal, onResolved, onSelectionResolved, onModify }: ChatTurnProps) {
   if (message.role === 'user') {
     return (
       <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-sm bg-[#1F1F1F] px-4 py-2.5 text-sm font-semibold text-white">
@@ -208,18 +242,24 @@ function ChatTurn({ message, messages, restaurantId, conversationId, onResolved 
 
   const bubbleClass = 'max-w-[85%] rounded-2xl rounded-tl-sm bg-[#EFE9FB] px-4 py-2.5 text-sm font-semibold leading-6 text-[#1F1F1F]';
 
+  // 'menu_discount_action' is the one capability with a real ProposalCard
+  // today (lib/restaurant-planner/tool-registry.ts's CAPABILITY_REGISTRY —
+  // the other 8 entries are metadata-only stubs). 'unsupported' falls
+  // through to the default bubble below, same as 'answer'.
   if (message.intent === 'menu_discount_action') {
     if (isProposalLive(message, messages) && conversationId) {
       return (
         <div>
           <div className={bubbleClass}>{message.content}</div>
-          <DiscountActionPreview
+          <ProposalCard
             restaurantId={restaurantId}
             action={toResolvableAction(message.action as unknown as MenuDiscountAction)}
+            proposal={proposal}
             conversationId={conversationId}
             messageId={message.id}
             onDismiss={() => {}}
             onResolved={onResolved}
+            onModify={onModify}
           />
         </div>
       );
@@ -227,6 +267,26 @@ function ChatTurn({ message, messages, restaurantId, conversationId, onResolved 
     if (!hasResolvedOutcome(message, messages)) {
       return <div className={`${bubbleClass} opacity-60`}>{message.content} — no longer active, ask again to reapply.</div>;
     }
+  }
+
+  // V2 (Objective 2) — a clarification with real, resolver-sourced
+  // candidates renders checkboxes instead of asking the user to retype a
+  // name; a plain clarification (no candidates) falls through to the
+  // default bubble, unchanged from Phase 1.
+  if (isClarificationLive(message, messages) && conversationId) {
+    return (
+      <div>
+        <div className={bubbleClass}>{message.content}</div>
+        <TargetSelector
+          restaurantId={restaurantId}
+          conversationId={conversationId}
+          relatedMessageId={message.id}
+          candidates={(message.candidates as unknown as Array<{ name: string; categoryName: string }>) ?? []}
+          onResolved={onSelectionResolved}
+          onDismiss={() => {}}
+        />
+      </div>
+    );
   }
 
   return <div className={bubbleClass}>{message.content}</div>;
