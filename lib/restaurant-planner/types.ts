@@ -120,10 +120,23 @@ export class PlannerParseError extends Error {
   }
 }
 
+// Defensive: strips a markdown code fence around the JSON if the model
+// added one despite the prompt explicitly saying not to — a common habit
+// for shorter responses, and confirmed live in production (two real
+// dashboard_assistant calls failed this exact way immediately after the
+// v2 prompt went live: short, non-JSON output on an otherwise-working
+// model call). A no-op for already-bare JSON, so this can never change
+// behavior for a compliant response — only rescues a non-compliant one
+// that would otherwise be silently dropped as a parse failure.
+function stripCodeFence(raw: string): string {
+  const fenced = raw.trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced ? fenced[1].trim() : raw;
+}
+
 export function parsePlannerOutput(raw: string): PlannerOutput {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(stripCodeFence(raw));
   } catch {
     throw new PlannerParseError('output was not valid JSON');
   }

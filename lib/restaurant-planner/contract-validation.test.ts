@@ -20,9 +20,17 @@ describe('parsePlannerOutput — malformed model output', () => {
     expect(() => parsePlannerOutput(raw)).toThrow(PlannerParseError);
   });
 
-  it('rejects markdown-fenced JSON — the prompt must instruct against fences since the parser does not strip them', () => {
+  // Reversed 2026-07-10: this used to assert the parser rejected fenced
+  // JSON, on the theory that the prompt's "no markdown code fences"
+  // instruction would be sufficient on its own. It wasn't — two real
+  // dashboard_assistant calls in production failed this exact way within
+  // a minute of the v2 prompt going live (Output validation failed: output
+  // was not valid JSON). parsePlannerOutput now strips a wrapping fence
+  // defensively (see stripCodeFence in types.ts) rather than trusting model
+  // formatting discipline over the actual contract.
+  it('tolerates markdown-fenced JSON — confirmed necessary by a real production failure, not just a defensive guess', () => {
     const raw = '```json\n{"intent":"answer","answer":"Sales are up."}\n```';
-    expect(() => parsePlannerOutput(raw)).toThrow(PlannerParseError);
+    expect(parsePlannerOutput(raw)).toEqual({ intent: 'answer', answer: 'Sales are up.' });
   });
 
   it('rejects an intent value outside the four supported ones (no "execute"/"applied" style intent exists)', () => {

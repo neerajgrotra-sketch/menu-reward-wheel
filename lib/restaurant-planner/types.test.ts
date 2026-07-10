@@ -42,6 +42,27 @@ describe('parsePlannerOutput', () => {
     expect(() => parsePlannerOutput('not json')).toThrow(PlannerParseError);
   });
 
+  describe('markdown code fence tolerance (confirmed live in production — see prompt-contract.test.ts)', () => {
+    it('parses JSON wrapped in a ```json fence despite the prompt saying not to', () => {
+      const raw = '```json\n{"intent":"answer","answer":"Sales are up 5%."}\n```';
+      expect(parsePlannerOutput(raw)).toEqual({ intent: 'answer', answer: 'Sales are up 5%.' });
+    });
+
+    it('parses JSON wrapped in a bare ``` fence (no "json" language tag)', () => {
+      const raw = '```\n{"intent":"clarification","question":"Which item?"}\n```';
+      expect(parsePlannerOutput(raw)).toEqual({ intent: 'clarification', question: 'Which item?', candidates: undefined });
+    });
+
+    it('still rejects genuine prose that only happens to be wrapped in triple backticks', () => {
+      expect(() => parsePlannerOutput('```\nI cannot help with that.\n```')).toThrow(PlannerParseError);
+    });
+
+    it('is a no-op for already-bare JSON — never changes behavior for a compliant response', () => {
+      const raw = '{"intent":"answer","answer":"Bare JSON, no fence."}';
+      expect(parsePlannerOutput(raw)).toEqual({ intent: 'answer', answer: 'Bare JSON, no fence.' });
+    });
+  });
+
   it('rejects an unrecognized intent', () => {
     expect(() => parsePlannerOutput('{"intent":"do_something_else"}')).toThrow(PlannerParseError);
   });
