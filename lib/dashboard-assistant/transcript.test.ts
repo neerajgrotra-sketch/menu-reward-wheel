@@ -19,6 +19,7 @@ function message(overrides: Partial<MessageRow>): MessageRow {
     proposal_id: null,
     candidates: null,
     related_message_id: null,
+    revenue_opportunities: null,
     created_by: 'u1',
     created_at: new Date().toISOString(),
     ...overrides,

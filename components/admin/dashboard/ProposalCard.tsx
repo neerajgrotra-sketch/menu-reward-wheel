@@ -103,6 +103,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
   const [error, setError] = useState('');
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResponse | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   const planTasks = (proposal?.plan_tasks as unknown as PlanTask[] | null) ?? null;
   const confidence = proposal?.confidence ?? null;
@@ -128,6 +129,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      setError('');
       try {
         const response = await fetch('/api/admin/menus/discount-action/preview', {
           method: 'POST',
@@ -152,7 +154,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
     load();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [retryToken]);
 
   async function handleApply() {
     setApplying(true);
@@ -185,24 +187,37 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-stone-200 bg-white p-4">
-      {error && <p className="text-sm font-bold text-red-600">{error}</p>}
+    <div className="mt-3 animate-[dash-fade-in_0.2s_ease-out] rounded-2xl border border-stone-200 bg-white p-4">
+      {error && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl bg-red-50 p-3">
+          <p className="text-sm font-bold text-red-600">{error}</p>
+          {!preview && (
+            <button
+              type="button"
+              onClick={() => setRetryToken((n) => n + 1)}
+              className="rounded-full border border-red-300 px-3 py-1 text-xs font-black text-red-600 hover:bg-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      )}
 
-      {!error && !preview && <p className="text-sm font-semibold text-stone-400">Checking your menu…</p>}
+      {!preview && !error && <p className="text-sm font-semibold text-stone-400">Checking your menu…</p>}
 
-      {!error && preview && !preview.resolved && (
+      {preview && !preview.resolved && (
         <div>
           <p className="text-sm font-bold text-[#1F1F1F]">{preview.reason}</p>
           {preview.candidates && preview.candidates.length > 0 && (
             <p className="mt-1 text-sm text-stone-500">Did you mean: {preview.candidates.join(', ')}?</p>
           )}
-          <button type="button" onClick={onDismiss} className="mt-3 rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F]">
+          <button type="button" onClick={onDismiss} className="mt-3 min-h-[44px] rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400">
             Dismiss
           </button>
         </div>
       )}
 
-      {!error && preview && preview.resolved && !applyResult && (
+      {preview && preview.resolved && !applyResult && (
         <div>
           {confidence && (
             <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wide ${CONFIDENCE_STYLE[confidence] ?? 'bg-stone-100 text-stone-500'}`}>
@@ -271,12 +286,12 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
               </li>
             ))}
           </ul>
-          <div className="mt-4 flex gap-2">
-            <button type="button" onClick={handleCancel} disabled={applying} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] disabled:opacity-50">
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" onClick={handleCancel} disabled={applying} className="min-h-[44px] rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 disabled:opacity-50">
               Cancel
             </button>
             {onModify && (
-              <button type="button" onClick={handleModify} disabled={applying} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] disabled:opacity-50">
+              <button type="button" onClick={handleModify} disabled={applying} className="min-h-[44px] rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 disabled:opacity-50">
                 Modify
               </button>
             )}
@@ -284,7 +299,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
               type="button"
               onClick={handleApply}
               disabled={applying || Boolean(staleness && !staleness.ok)}
-              className="flex items-center gap-1.5 rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              className="flex min-h-[44px] items-center gap-1.5 rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF6B00] disabled:opacity-50"
             >
               {applying ? (
                 <>
@@ -302,7 +317,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
         </div>
       )}
 
-      {!error && applyResult && (
+      {applyResult && (
         <div>
           <p className="text-sm font-bold text-[#1F8A5B]">
             Applied to {applyResult.applied} of {applyResult.total} items.
@@ -317,7 +332,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
               Already had this exact discount, skipped: {applyResult.skippedNoOp.join(', ')}
             </p>
           )}
-          <button type="button" onClick={onDismiss} className="mt-3 rounded-full bg-[#1F1F1F] px-4 py-2 text-sm font-bold text-white">
+          <button type="button" onClick={onDismiss} className="mt-3 min-h-[44px] rounded-full bg-[#1F1F1F] px-4 py-2 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F1F1F]">
             Done
           </button>
         </div>

@@ -40,9 +40,29 @@ export const CAPABILITY_REGISTRY = {
     previewEndpoint: '/api/admin/menus/discount-action/preview',
     applyEndpoint: '/api/admin/menus/discount-action/apply',
   },
+  // Revenue Intelligence Agent V1: read-only analysis + proposal generation,
+  // never a direct write of its own — every recommendation converts into an
+  // ordinary menu_pricing proposal (see revenue-intelligence.ts), so this
+  // capability has no menu-mutating endpoint of its own.
+  // previewEndpoint has no separate round trip to point at — opportunities
+  // generate inline as part of the normal chat turn (messages/route.ts),
+  // same as menu_discount_action itself. Ships disabled by default (no
+  // capability_settings row is inserted by this capability's code — see
+  // the architecture doc's "non-code rollout steps").
+  revenue_intelligence: {
+    status: 'active',
+    label: 'Revenue Intelligence',
+    previewEndpoint: '/api/admin/assistant/messages',
+    applyEndpoint: '/api/admin/assistant/revenue-intelligence/create-proposal',
+  },
+  // Labels below are deliberately restaurant-owner-facing business language
+  // ("Marketing Campaigns"), not internal architecture naming ("Campaign
+  // Agent") — these strings surface directly in chat via
+  // describeUnsupportedRequest/explainCapabilityUnavailable, and "Agent" is
+  // implementation vocabulary an owner has no reason to know or care about.
   menu_agent: {
     status: 'planned',
-    label: 'Menu Agent',
+    label: 'Menu Editing',
     capabilities: ['Create, edit, or remove menu items and categories', 'Reorder menu structure', 'Manage item availability'],
     supportedActions: ['create_item', 'update_item', 'archive_item', 'reorder_category'],
     requiredContext: ['menu_snapshot'],
@@ -50,7 +70,7 @@ export const CAPABILITY_REGISTRY = {
   },
   promotion_agent: {
     status: 'planned',
-    label: 'Promotion Agent',
+    label: 'Promotions & Rewards',
     capabilities: ['Create spin-wheel / game promotions', 'Configure rewards and redemption limits'],
     supportedActions: ['create_promotion', 'update_promotion_rewards'],
     requiredContext: ['promotion_snapshot'],
@@ -58,7 +78,7 @@ export const CAPABILITY_REGISTRY = {
   },
   pricing_agent: {
     status: 'planned',
-    label: 'Pricing Agent',
+    label: 'Base Pricing & Bundles',
     capabilities: ['Base price changes', 'Bundle/combo pricing', 'Dynamic pricing rules'],
     supportedActions: ['update_base_price', 'create_bundle'],
     requiredContext: ['menu_snapshot'],
@@ -66,7 +86,7 @@ export const CAPABILITY_REGISTRY = {
   },
   analytics_agent: {
     status: 'planned',
-    label: 'Analytics Agent',
+    label: 'Sales Analytics',
     capabilities: ['Explain sales trends', 'Identify slow/fast movers', 'Compare periods'],
     supportedActions: ['explain_sales_trend', 'compare_periods'],
     requiredContext: ['order_history'],
@@ -74,7 +94,7 @@ export const CAPABILITY_REGISTRY = {
   },
   campaign_agent: {
     status: 'planned',
-    label: 'Campaign Agent',
+    label: 'Marketing Campaigns',
     capabilities: ['Plan and launch marketing campaigns', 'Draft SMS/email/social copy'],
     supportedActions: ['create_campaign'],
     requiredContext: ['restaurant_profile'],
@@ -82,7 +102,7 @@ export const CAPABILITY_REGISTRY = {
   },
   customer_agent: {
     status: 'planned',
-    label: 'Customer Agent',
+    label: 'Customer Management',
     capabilities: ['Segment customers', 'Manage loyalty and consent', 'Draft targeted offers'],
     supportedActions: ['segment_customers', 'draft_targeted_offer'],
     requiredContext: ['customer_identity'],
@@ -90,7 +110,7 @@ export const CAPABILITY_REGISTRY = {
   },
   inventory_agent: {
     status: 'planned',
-    label: 'Inventory Agent',
+    label: 'Inventory Tracking',
     capabilities: ['Track stock levels', 'Flag low-stock items', 'Auto-86 out-of-stock items'],
     supportedActions: ['flag_low_stock', 'toggle_item_availability'],
     requiredContext: ['inventory_snapshot'],
@@ -98,7 +118,7 @@ export const CAPABILITY_REGISTRY = {
   },
   ordering_agent: {
     status: 'planned',
-    label: 'Ordering Agent',
+    label: 'Order Operations',
     capabilities: ['Kitchen/order workflow changes', 'Order routing rules'],
     supportedActions: ['update_order_routing'],
     requiredContext: ['order_operations_state'],
@@ -141,4 +161,30 @@ export async function isCapabilityAvailable(
 export function explainCapabilityUnavailable(capabilityKey: string): string {
   const label = isRegisteredCapability(capabilityKey) ? CAPABILITY_REGISTRY[capabilityKey].label : undefined;
   return describeCapabilityUnavailable(capabilityKey, label);
+}
+
+function humanizeCapabilityKey(capabilityKey: string): string {
+  return capabilityKey
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Deterministic fallback for the model's 'unsupported' intent — used only
+// when the planner didn't already supply its own `note` (see
+// app/api/admin/assistant/messages/route.ts). Per the product standard,
+// "capability unavailable" must never be a dead end: name what IS built
+// today (every 'active' registry entry) alongside what was actually asked
+// for, instead of a bare "not supported yet."
+export function describeUnsupportedRequest(capabilityKey: string): string {
+  const activeLabels = Object.values(CAPABILITY_REGISTRY)
+    .filter((entry) => entry.status === 'active')
+    .map((entry) => entry.label);
+  const requestedLabel = isRegisteredCapability(capabilityKey) ? CAPABILITY_REGISTRY[capabilityKey].label : humanizeCapabilityKey(capabilityKey);
+
+  const capabilitiesLine =
+    activeLabels.length > 0
+      ? `I can currently help with ${activeLabels.join(' and ')}.`
+      : "I can't take action on your restaurant's data yet — I can still answer questions.";
+
+  return `${capabilitiesLine} ${requestedLabel} isn't enabled for this restaurant yet.`;
 }

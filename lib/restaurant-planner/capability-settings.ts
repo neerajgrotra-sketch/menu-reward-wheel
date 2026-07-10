@@ -113,6 +113,11 @@ export async function isCapabilityEnabled(
 // chance to fabricate a reason). Takes a display label rather than looking
 // one up itself — see the file header for why (avoids a circular import
 // with tool-registry.ts, which owns CAPABILITY_REGISTRY's labels).
+//
+// Deliberately doesn't say "try again later" — this is a toggle only a
+// platform admin can flip, so retrying changes nothing; naming the actual
+// next action (ask the admin) instead of a vague retry is what the product
+// standard calls "offer the next best action, never dead-end the user."
 export function describeCapabilityUnavailable(capabilityKey: string, label?: string): string {
-  return `${label ?? capabilityKey} isn't turned on for this restaurant right now — ask your SpinBite platform admin, or try again later.`;
+  return `${label ?? capabilityKey} isn't turned on for this restaurant yet — ask your SpinBite platform admin to enable it.`;
 }
