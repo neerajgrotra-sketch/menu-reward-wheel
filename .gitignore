@@ -3,3 +3,7 @@ node_modules
 .next
 .claude/
 tsconfig.tsbuildinfo
+
+# Tier 2 live-eval captures — scratch landing zone, never auto-promoted.
+# See eval/README.md.
+eval/live/.captures/
