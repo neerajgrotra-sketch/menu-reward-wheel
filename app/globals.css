@@ -48,6 +48,17 @@ section.mx-auto.max-w-5xl > .bg-gradient-to-br.from-\[\#FF6B00\].to-\[\#E63939\]
   .reward-pulse-btn { animation: none !important; }
 }
 
+/* ── Ask SpinBite chat bubble entrance ───────────────────────────────────── */
+@keyframes dash-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="dash-fade-in"], .animate-\[dash-fade-in_0\.2s_ease-out\] {
+    animation: none !important;
+  }
+}
+
 /* ── Game selector mini icon animations ──────────────────────────────────── */
 /* Keyframes are global (not styled-jsx scoped) so inline styles can reference
    them. Classes are applied directly in GameVisual.tsx component classNames.  */

@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "eval:live": "vitest run --config eval/live/vitest.live-eval.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

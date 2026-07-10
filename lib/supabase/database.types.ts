@@ -310,6 +310,7 @@ export type Database = {
           proposal_id: string | null
           related_message_id: string | null
           restaurant_id: string
+          revenue_opportunities: Json | null
           role: string
         }
         Insert: {
@@ -327,6 +328,7 @@ export type Database = {
           proposal_id?: string | null
           related_message_id?: string | null
           restaurant_id: string
+          revenue_opportunities?: Json | null
           role: string
         }
         Update: {
@@ -344,6 +346,7 @@ export type Database = {
           proposal_id?: string | null
           related_message_id?: string | null
           restaurant_id?: string
+          revenue_opportunities?: Json | null
           role?: string
         }
         Relationships: [
@@ -355,15 +358,15 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "dashboard_assistant_messages_proposal_id_fkey"
-            columns: ["proposal_id"]
+            foreignKeyName: "dashboard_assistant_messages_proposal_group_id_fkey"
+            columns: ["proposal_group_id"]
             isOneToOne: false
             referencedRelation: "restaurant_planner_proposals"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "dashboard_assistant_messages_proposal_group_id_fkey"
-            columns: ["proposal_group_id"]
+            foreignKeyName: "dashboard_assistant_messages_proposal_id_fkey"
+            columns: ["proposal_id"]
             isOneToOne: false
             referencedRelation: "restaurant_planner_proposals"
             referencedColumns: ["id"]

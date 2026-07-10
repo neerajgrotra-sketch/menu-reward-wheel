@@ -22,13 +22,38 @@ type Props = {
   relatedMessageId: string;
   candidates: Candidate[];
   onResolved: (payload: { userMessage: DashboardAssistantMessage; assistantMessage: DashboardAssistantMessage; proposal?: ProposalRow }) => void;
+  // Cancel needs its own outcome message (same shape ProposalCard's Cancel
+  // reports via /messages/outcome) — otherwise nothing is persisted and,
+  // per isClarificationLive's "still the most recent assistant turn" rule,
+  // the exact same checkboxes reappear unresolved on the next page load.
+  onCancelled: (outcomeMessage: DashboardAssistantMessage) => void;
   onDismiss: () => void;
 };
 
-export function TargetSelector({ restaurantId, conversationId, relatedMessageId, candidates, onResolved, onDismiss }: Props) {
+export function TargetSelector({ restaurantId, conversationId, relatedMessageId, candidates, onResolved, onCancelled, onDismiss }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
+
+  async function handleCancel() {
+    setCancelling(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/assistant/messages/outcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantId, conversationId, relatedMessageId, payload: { kind: 'cancelled' } }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Couldn't cancel that.");
+      onCancelled(payload.outcomeMessage);
+      onDismiss();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't cancel that.");
+      setCancelling(false);
+    }
+  }
 
   function toggle(name: string) {
     setSelected((current) => {
@@ -59,13 +84,17 @@ export function TargetSelector({ restaurantId, conversationId, relatedMessageId,
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-stone-200 bg-white p-4">
-      {error && <p className="mb-2 text-sm font-bold text-red-600">{error}</p>}
+    <div className="mt-3 animate-[dash-fade-in_0.2s_ease-out] rounded-2xl border border-stone-200 bg-white p-4">
+      {error && (
+        <div className="mb-3 rounded-xl bg-red-50 p-3">
+          <p className="text-sm font-bold text-red-600">{error}</p>
+        </div>
+      )}
       <p className="text-sm font-black text-[#1F1F1F]">Select which items to include:</p>
       <ul className="mt-2 max-h-64 divide-y divide-stone-100 overflow-y-auto">
         {candidates.map((candidate) => (
           <li key={candidate.name}>
-            <label className="flex cursor-pointer items-center gap-3 py-2 text-sm">
+            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 py-2 text-sm">
               <input
                 type="checkbox"
                 checked={selected.has(candidate.name)}
@@ -79,17 +108,17 @@ export function TargetSelector({ restaurantId, conversationId, relatedMessageId,
         ))}
       </ul>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={onDismiss} disabled={submitting} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] disabled:opacity-50">
-          Cancel
+        <button type="button" onClick={handleCancel} disabled={submitting || cancelling} className="min-h-[44px] rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 disabled:opacity-50">
+          {cancelling ? 'Cancelling…' : 'Cancel'}
         </button>
-        <button type="button" onClick={() => submit('all')} disabled={submitting} className="rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] disabled:opacity-50">
+        <button type="button" onClick={() => submit('all')} disabled={submitting || cancelling} className="min-h-[44px] rounded-full border border-stone-200 px-4 py-2 text-sm font-bold text-stone-500 hover:text-[#1F1F1F] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-400 disabled:opacity-50">
           Apply to all
         </button>
         <button
           type="button"
           onClick={() => submit(Array.from(selected))}
-          disabled={submitting || selected.size === 0}
-          className="flex items-center gap-1.5 rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          disabled={submitting || cancelling || selected.size === 0}
+          className="flex min-h-[44px] items-center gap-1.5 rounded-full bg-[#FF6B00] px-4 py-2 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF6B00] disabled:opacity-50"
         >
           {submitting ? (
             <>

@@ -109,4 +109,19 @@ describe('parsePlannerOutput', () => {
       expect(() => parsePlannerOutput(raw)).toThrow(PlannerParseError);
     });
   });
+
+  describe('Revenue Intelligence Agent V1 — revenue_goal intent', () => {
+    it('parses a recognized goal', () => {
+      const result = parsePlannerOutput('{"intent":"revenue_goal","goal":"increase_beverage_sales"}');
+      expect(result).toEqual({ intent: 'revenue_goal', goal: 'increase_beverage_sales' });
+    });
+
+    it('rejects a goal outside the closed 8-value enum — never trusts free-text goal classification', () => {
+      expect(() => parsePlannerOutput('{"intent":"revenue_goal","goal":"increase_catering_orders"}')).toThrow(PlannerParseError);
+    });
+
+    it('rejects a missing goal', () => {
+      expect(() => parsePlannerOutput('{"intent":"revenue_goal"}')).toThrow(PlannerParseError);
+    });
+  });
 });

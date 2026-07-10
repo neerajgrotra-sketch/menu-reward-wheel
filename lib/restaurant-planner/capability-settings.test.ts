@@ -59,7 +59,7 @@ describe('resolveCapabilityDecision — priority order', () => {
 describe('describeCapabilityUnavailable', () => {
   it('uses the provided label when given', () => {
     expect(describeCapabilityUnavailable('analytics_agent', 'Analytics Agent')).toBe(
-      "Analytics Agent isn't turned on for this restaurant right now — ask your SpinBite platform admin, or try again later.",
+      "Analytics Agent isn't turned on for this restaurant yet — ask your SpinBite platform admin to enable it.",
     );
   });
 

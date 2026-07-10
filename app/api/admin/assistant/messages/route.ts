@@ -5,12 +5,14 @@ import { runPlannerTurn } from '@/lib/restaurant-planner/planner-engine';
 import { PlannerParseError } from '@/lib/restaurant-planner/types';
 import { buildProposal } from '@/lib/restaurant-planner/capabilities/menu-pricing';
 import { insertProposalVersion, findOpenProposalGroup } from '@/lib/restaurant-planner/proposals';
-import { isCapabilityAvailable, explainCapabilityUnavailable } from '@/lib/restaurant-planner/tool-registry';
+import { isCapabilityAvailable, explainCapabilityUnavailable, describeUnsupportedRequest } from '@/lib/restaurant-planner/tool-registry';
 import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
 import { getConversationContext } from '@/lib/restaurant-planner/tools/conversation';
 import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
 import { checkRateLimit, incrementUsage, makeServiceClient, clientSafeError } from '@/lib/intelligence/generate-route-helpers';
 import { describeProposedAction } from '@/lib/dashboard-assistant/describe-action';
+import { generateRevenueOpportunities } from '@/lib/restaurant-planner/capabilities/revenue-intelligence';
+import { REVENUE_GOAL_LABEL } from '@/lib/restaurant-planner/types';
 
 // POST /api/admin/assistant/messages
 // The conversation-aware sibling of /api/admin/intelligence/generate for the
@@ -158,12 +160,13 @@ export async function POST(request: Request) {
     await incrementUsage(serviceClient, restaurantId, limits);
 
     let content: string;
-    let intent: 'answer' | 'clarification' | 'unsupported' | 'menu_discount_action';
+    let intent: 'answer' | 'clarification' | 'unsupported' | 'menu_discount_action' | 'revenue_opportunities';
     let action: Json | null = null;
     let capability: string | null = null;
     let candidates: Json | null = null;
     let proposalGroupId: string | null = null;
     let proposalId: string | null = null;
+    let revenueOpportunities: Json | null = null;
     // The freshly built/inserted proposal row, if any — returned alongside
     // the message so the client can render ProposalCard's confidence,
     // reasoning, and resolved_snapshot immediately, with no second fetch.
@@ -184,10 +187,45 @@ export async function POST(request: Request) {
           candidates = (turn.output.candidates as unknown as Json) ?? null;
           break;
         case 'unsupported':
-          content = turn.output.note || `SpinBite doesn't support "${turn.output.capability}" requests yet — that's coming soon.`;
+          content = turn.output.note || describeUnsupportedRequest(turn.output.capability);
           intent = 'unsupported';
           capability = turn.output.capability;
           break;
+        case 'revenue_goal': {
+          // Revenue Intelligence Agent V1: same capability-gate pattern as
+          // menu_discount_action below — checked here, not inside the
+          // planner, same reasoning. Everything past this gate is
+          // deterministic code (lib/restaurant-planner/capabilities/revenue-
+          // intelligence.ts) — no second model call.
+          const available = await isCapabilityAvailable(serviceClient, {
+            capabilityKey: 'revenue_intelligence',
+            restaurantId,
+            ownerId: userId,
+          });
+          if (!available) {
+            content = explainCapabilityUnavailable('revenue_intelligence');
+            intent = 'unsupported';
+            capability = 'revenue_intelligence';
+            break;
+          }
+
+          const result = await generateRevenueOpportunities(toolCtx, turn.output.goal);
+          capability = 'revenue_intelligence';
+
+          if (result.kind === 'answer') {
+            content = result.text;
+            intent = 'answer';
+          } else {
+            const label = REVENUE_GOAL_LABEL[turn.output.goal];
+            content =
+              result.opportunities.length === 1
+                ? `I found one way to increase ${label}.`
+                : `I found ${result.opportunities.length} ways to increase ${label}.`;
+            intent = 'revenue_opportunities';
+            revenueOpportunities = { goal: turn.output.goal, opportunities: result.opportunities } as unknown as Json;
+          }
+          break;
+        }
         case 'menu_discount_action': {
           // Capability Management: query the registry before selecting
           // tools — checked here, not inside the planner, so a future
@@ -282,6 +320,7 @@ export async function POST(request: Request) {
         candidates,
         proposal_group_id: proposalGroupId,
         proposal_id: proposalId,
+        revenue_opportunities: revenueOpportunities,
         created_by: userId,
       })
       .select('*')

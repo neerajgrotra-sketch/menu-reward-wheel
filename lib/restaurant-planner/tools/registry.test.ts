@@ -36,6 +36,33 @@ describe('TOOL_REGISTRY', () => {
     const writeTools = Object.entries(TOOL_REGISTRY).filter(([, tool]) => tool.permission === 'write');
     expect(writeTools.map(([key]) => key)).toEqual(['applyPromotion']);
   });
+
+  it('registers all 7 Revenue Intelligence analytics tools as read-only, non-mutating, revenue_intelligence-tagged', () => {
+    const names = [
+      'getCategorySalesBreakdown',
+      'getOrdersByDaypart',
+      'getPromotionCoverage',
+      'getQrAdoptionStats',
+      'getCouponEngagementStats',
+      'getAverageOrderValue',
+      'getFrequentlyCoOrderedItems',
+    ];
+    for (const name of names) {
+      const tool = TOOL_REGISTRY[name];
+      expect(tool, name).toBeDefined();
+      expect(tool.capability, name).toBe('revenue_intelligence');
+      expect(tool.permission, name).toBe('read');
+      expect(tool.mutating, name).toBe(false);
+    }
+  });
+});
+
+describe('listToolsForCapability("revenue_intelligence")', () => {
+  it('returns exactly the 7 new analytics tools', () => {
+    const tools = listToolsForCapability('revenue_intelligence');
+    expect(tools).toHaveLength(7);
+    expect(tools.every((t) => t.capability === 'revenue_intelligence')).toBe(true);
+  });
 });
 
 describe('getTool', () => {

@@ -10,6 +10,7 @@ import * as pricing from './pricing';
 import * as promotion from './promotion';
 import * as restaurant from './restaurant';
 import * as conversation from './conversation';
+import * as analytics from './analytics';
 import type { ToolDefinition } from './types';
 import type { CapabilityKey } from '../tool-registry';
 
@@ -60,6 +61,17 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition<any, any>> = {
   // library already filters by restaurant_id at the query level (stronger
   // than a separate checkable step, since there's no window where scope
   // could be skipped). See the architecture doc for the full reasoning.
+
+  // Analytics Tools (Revenue Intelligence Agent V1) — read-only evidence
+  // sources; see lib/restaurant-planner/revenue-intelligence/ for what
+  // consumes them.
+  getCategorySalesBreakdown: analytics.getCategorySalesBreakdown,
+  getOrdersByDaypart: analytics.getOrdersByDaypart,
+  getPromotionCoverage: analytics.getPromotionCoverage,
+  getQrAdoptionStats: analytics.getQrAdoptionStats,
+  getCouponEngagementStats: analytics.getCouponEngagementStats,
+  getAverageOrderValue: analytics.getAverageOrderValue,
+  getFrequentlyCoOrderedItems: analytics.getFrequentlyCoOrderedItems,
 };
 
 export function getTool(name: string): ToolDefinition<any, any> | undefined {
