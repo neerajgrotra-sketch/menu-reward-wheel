@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { estimateDiscountImpact, computeConfidence, buildPlanTasks, explainProposal, revalidateProposal } from './menu-pricing';
+import {
+  estimateDiscountImpact,
+  computeConfidence,
+  buildPlanTasks,
+  explainProposal,
+  revalidateProposal,
+  composeExecutiveSummary,
+  composeWhyNow,
+  composeConfidenceEvidence,
+  composeConsiderations,
+  explainProposalBullets,
+  computeDecisionScore,
+  composeDecisionSummary,
+  composeTradeoffs,
+  composeAlternatives,
+  composeWhyThisRecommendation,
+  composeSuccessMetrics,
+  composeMonitoringReminder,
+} from './menu-pricing';
 import type { ResolvableAction, ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
 import type { MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
 
@@ -187,5 +205,215 @@ describe('revalidateProposal (V2 — pre-execution staleness check)', () => {
     const live = resolvedItem({ before: { specialEnabled: true, specialType: 'percentage', specialPercent: 10, specialPrice: null } });
     const result = revalidateProposal([snap], [live]);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('composeExecutiveSummary (V2 — backfilled)', () => {
+  it('labels a low-confidence recommendation as experimental regardless of considerations or impact', () => {
+    const text = composeExecutiveSummary({ confidence: 'low', considerationCount: 0, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
+    expect(text).toMatch(/Experimental recommendation/);
+  });
+
+  it('surfaces the consideration count when there are open considerations, regardless of confidence', () => {
+    const text = composeExecutiveSummary({ confidence: 'high', considerationCount: 2, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    expect(text).toContain('2 points worth reviewing');
+  });
+
+  it('uses singular phrasing for exactly one consideration', () => {
+    const text = composeExecutiveSummary({ confidence: 'high', considerationCount: 1, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    expect(text).toContain('one point worth reviewing');
+  });
+
+  it('cites the revenue impact for a clean high-confidence, no-consideration recommendation', () => {
+    const text = composeExecutiveSummary({ confidence: 'high', considerationCount: 0, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
+    expect(text).toContain('Low-risk recommendation');
+    expect(text).toContain('+6–10%');
+  });
+
+  it('falls back to a hard-to-measure phrase when there is no revenue impact figure', () => {
+    const text = composeExecutiveSummary({ confidence: 'medium', considerationCount: 0, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    expect(text).toContain('modest, hard-to-measure effect');
+  });
+});
+
+describe('composeWhyNow (V2 — backfilled)', () => {
+  it('lists every applicable timing signal', () => {
+    const signals = composeWhyNow({ campaignCoverage: 'none', itemCoverage: 'none', hasRecentDiscount: false });
+    expect(signals).toHaveLength(3);
+  });
+
+  it('omits a signal whose condition does not hold', () => {
+    const signals = composeWhyNow({ campaignCoverage: 'active', itemCoverage: 'none', hasRecentDiscount: false });
+    expect(signals.some((s) => s.includes('No active campaign'))).toBe(false);
+  });
+
+  it('falls back to "no special timing factors" when every signal is absent', () => {
+    const signals = composeWhyNow({ campaignCoverage: 'active', itemCoverage: 'active', hasRecentDiscount: true });
+    expect(signals).toEqual(['No special timing factors were detected for this recommendation.']);
+  });
+});
+
+describe('composeConfidenceEvidence (V2 — backfilled)', () => {
+  it('marks all four checks met for a strong, fully-informed, adequately-ordered item', () => {
+    const evidence = composeConfidenceEvidence({ matchKind: 'item_exact', scheduleParseFailed: false, allPricesKnown: true, orderCount: 10 });
+    expect(evidence.every((e) => e.met)).toBe(true);
+    expect(evidence).toHaveLength(4);
+  });
+
+  it('marks the match, pricing, schedule, and order-count checks unmet independently', () => {
+    const evidence = composeConfidenceEvidence({ matchKind: 'item_substring', scheduleParseFailed: true, allPricesKnown: false, orderCount: 1 });
+    expect(evidence.every((e) => !e.met)).toBe(true);
+  });
+});
+
+describe('composeConsiderations (V2 — backfilled)', () => {
+  it('passes warnings through untouched', () => {
+    const considerations = composeConsiderations({ warnings: ['Margin estimate unavailable.'], campaignOverlap: false, orderCount: 10 });
+    expect(considerations).toEqual(['Margin estimate unavailable.']);
+  });
+
+  it('appends a campaign-overlap consideration when one exists', () => {
+    const considerations = composeConsiderations({ warnings: [], campaignOverlap: true, orderCount: 10 });
+    expect(considerations).toContain('An active campaign-level promotion already covers this category.');
+  });
+
+  it('appends a limited-data consideration below the minimum order threshold', () => {
+    const considerations = composeConsiderations({ warnings: [], campaignOverlap: false, orderCount: 2 });
+    expect(considerations.some((c) => c.includes('Limited historical sales data'))).toBe(true);
+  });
+
+  it('returns an empty list when nothing is wrong', () => {
+    expect(composeConsiderations({ warnings: [], campaignOverlap: false, orderCount: 10 })).toEqual([]);
+  });
+});
+
+describe('explainProposalBullets (V2 — backfilled)', () => {
+  it('bullets the match explanation, item count, and revenue impact', () => {
+    const bullets = explainProposalBullets({ matchKind: 'item_exact', itemCount: 1, scheduleParseFailed: false, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
+    expect(bullets).toContain('This change affects 1 item.');
+    expect(bullets.some((b) => b.includes('+6–10%'))).toBe(true);
+  });
+
+  it('surfaces a schedule-parse failure as its own bullet', () => {
+    const bullets = explainProposalBullets({ matchKind: 'item_exact', itemCount: 1, scheduleParseFailed: true, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    expect(bullets.some((b) => b.includes("couldn't be understood"))).toBe(true);
+  });
+});
+
+describe('computeDecisionScore (V1 — Decision Intelligence Layer)', () => {
+  it('is strong for high confidence, good data, strong evidence, and no considerations', () => {
+    expect(computeDecisionScore({ confidence: 'high', evidenceMetCount: 4, dataQuality: 'good', considerationCount: 0 })).toBe('strong');
+  });
+
+  it('is weak for low confidence, limited data, and multiple considerations', () => {
+    expect(computeDecisionScore({ confidence: 'low', evidenceMetCount: 0, dataQuality: 'limited', considerationCount: 3 })).toBe('weak');
+  });
+
+  it('downgrades an otherwise-high-confidence score when considerations pile up', () => {
+    const clean = computeDecisionScore({ confidence: 'high', evidenceMetCount: 4, dataQuality: 'good', considerationCount: 0 });
+    const withConsiderations = computeDecisionScore({ confidence: 'high', evidenceMetCount: 4, dataQuality: 'good', considerationCount: 3 });
+    expect(clean).toBe('strong');
+    expect(withConsiderations).not.toBe('strong');
+  });
+
+  it('is moderate for a medium-confidence match with no other signals', () => {
+    expect(computeDecisionScore({ confidence: 'medium', evidenceMetCount: 0, dataQuality: 'limited', considerationCount: 0 })).toBe('moderate');
+  });
+});
+
+describe('composeDecisionSummary (V1)', () => {
+  it('maps each tier to its owner-facing emoji and label', () => {
+    expect(composeDecisionSummary({ tier: 'strong', supportingFacts: [], riskFacts: [] })).toMatchObject({ emoji: '🟢', label: 'Recommended' });
+    expect(composeDecisionSummary({ tier: 'good', supportingFacts: [], riskFacts: [] })).toMatchObject({ emoji: '🟡', label: 'Worth Testing' });
+    expect(composeDecisionSummary({ tier: 'moderate', supportingFacts: [], riskFacts: [] })).toMatchObject({ emoji: '🟠', label: 'Experimental' });
+    expect(composeDecisionSummary({ tier: 'weak', supportingFacts: [], riskFacts: [] })).toMatchObject({ emoji: '🔴', label: 'Insufficient Evidence' });
+  });
+
+  it('includes real supporting and risk facts, capped at two each, plus the tier verdict', () => {
+    const summary = composeDecisionSummary({
+      tier: 'good',
+      supportingFacts: ['Strong item match', 'Complete pricing information', 'Schedule understood as requested'],
+      riskFacts: ['Limited historical sales data.'],
+    });
+    expect(summary.bullets).toEqual(['Strong item match', 'Complete pricing information', 'Limited historical sales data.', 'Recommended as an experiment.']);
+  });
+
+  it('falls back to a placeholder bullet when there is no supporting or risk evidence at all', () => {
+    const summary = composeDecisionSummary({ tier: 'weak', supportingFacts: [], riskFacts: [] });
+    expect(summary.bullets[0]).toBe('No additional evidence is available yet.');
+  });
+});
+
+describe('composeTradeoffs (V1)', () => {
+  it('deduplicates repeated benefit and risk signals', () => {
+    const result = composeTradeoffs({ benefitSignals: ['Low risk.', 'Low risk.'], riskSignals: ['Limited data.'] });
+    expect(result.benefits).toEqual(['Low risk.']);
+    expect(result.tradeoffs).toEqual(['Limited data.']);
+  });
+
+  it('returns empty arrays rather than fabricating content when there are no signals', () => {
+    expect(composeTradeoffs({ benefitSignals: [], riskSignals: [] })).toEqual({ benefits: [], tradeoffs: [] });
+  });
+});
+
+describe('composeAlternatives (V1)', () => {
+  it('prefers real co-order evidence over generic templates', () => {
+    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['Rasmalai', 'Gulab Jamun'] });
+    expect(alternatives).toHaveLength(2);
+    expect(alternatives.every((a) => a.evidenceBacked)).toBe(true);
+    expect(alternatives[0].text).toContain('Bundle Kashmiri Chai with Rasmalai');
+  });
+
+  it('caps evidence-backed alternatives at two even with more co-ordered items', () => {
+    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['A', 'B', 'C'] });
+    expect(alternatives).toHaveLength(2);
+  });
+
+  it('falls back to generic, non-evidence-backed templates only when no co-order data exists', () => {
+    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: [] });
+    expect(alternatives).toHaveLength(2);
+    expect(alternatives.every((a) => !a.evidenceBacked)).toBe(true);
+  });
+
+  it('uses a generic plural label for multi-item proposals', () => {
+    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai', 'Masala Chai'], coOrderedNames: [] });
+    expect(alternatives[0].text).toContain('these items');
+  });
+});
+
+describe('composeWhyThisRecommendation (V1)', () => {
+  it('explains the direct-discount choice against real alternatives', () => {
+    const text = composeWhyThisRecommendation([{ text: 'Bundle Kashmiri Chai with Rasmalai — frequently ordered together', evidenceBacked: true }]);
+    expect(text).toContain('Bundle Kashmiri Chai with Rasmalai');
+    expect(text).toContain('Ask SpinBite can apply automatically today');
+  });
+
+  it('does not fabricate an alternative when none exist', () => {
+    const text = composeWhyThisRecommendation([]);
+    expect(text).toBe('No deterministic alternative was identified — this is the most direct way to reach the objective.');
+  });
+});
+
+describe('composeSuccessMetrics (V1)', () => {
+  it('includes an item-order metric and average order value for a single item with no category', () => {
+    const metrics = composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: null });
+    expect(metrics).toEqual(['Orders containing Kashmiri Chai', 'Average order value']);
+  });
+
+  it('adds a category-revenue metric when a single category is known', () => {
+    const metrics = composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: 'Beverages' });
+    expect(metrics).toContain('Beverages category revenue');
+  });
+
+  it('never lists promotion redemption — menu_items specials have no redemption event', () => {
+    const metrics = composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: 'Beverages' });
+    expect(metrics.some((m) => m.toLowerCase().includes('redemption'))).toBe(false);
+  });
+});
+
+describe('composeMonitoringReminder (V1)', () => {
+  it('recommends a longer review window for a strong recommendation and a shorter one for a weak one', () => {
+    expect(composeMonitoringReminder('strong')).toEqual({ days: 7, label: 'Check performance after 1 week.' });
+    expect(composeMonitoringReminder('weak')).toEqual({ days: 1, label: 'Check performance after 1 day.' });
   });
 });
