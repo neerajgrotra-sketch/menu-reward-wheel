@@ -188,7 +188,7 @@ export default function AdminPage() {
         <DashboardGreeting ownerName={restaurant.owner_name} restaurantName={restaurant.name} />
 
         <div className="flex flex-col gap-3.5">
-          <CommandCenter restaurantId={restaurant.id} dashboardContext={dashboardContext} />
+          <CommandCenter restaurantId={restaurant.id} restaurantName={restaurant.name} dashboardContext={dashboardContext} />
           <AiStatusCard restaurantName={restaurant.name} />
         </div>
 
