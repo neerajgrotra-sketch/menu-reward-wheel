@@ -9,11 +9,18 @@ import {
   composeConfidenceEvidence,
   composeConsiderations,
   explainProposalBullets,
+  computeDecisionScore,
+  composeDecisionSummary,
+  composeTradeoffs,
+  composeAlternatives,
+  composeWhyThisRecommendation,
+  composeSuccessMetrics,
+  composeMonitoringReminder,
 } from '@/lib/restaurant-planner/capabilities/menu-pricing';
 import { getProposalById } from '@/lib/restaurant-planner/proposals';
 import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
 import { previewPromotion } from '@/lib/restaurant-planner/tools/promotion';
-import { getPromotionCoverage, getItemOrderStats } from '@/lib/restaurant-planner/tools/analytics';
+import { getPromotionCoverage, getItemOrderStats, getFrequentlyCoOrderedItems } from '@/lib/restaurant-planner/tools/analytics';
 import { MIN_ORDERS_FOR_ANY_OPPORTUNITY } from '@/lib/restaurant-planner/revenue-intelligence/facts';
 import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
 import { makeServiceClient } from '@/lib/intelligence/generate-route-helpers';
@@ -100,7 +107,7 @@ export async function POST(request: Request) {
   const categoryIds = Array.from(new Set(preview.items.map((item) => item.categoryId)));
   const primaryCategoryId = categoryIds.length === 1 ? categoryIds[0] : undefined;
 
-  const [coverageResult, orderStatsResult, recentDiscountResult] = await Promise.all([
+  const [coverageResult, orderStatsResult, recentDiscountResult, coOrderedResult] = await Promise.all([
     getPromotionCoverage.execute({ categoryId: primaryCategoryId }, toolCtx),
     getItemOrderStats.execute({ menuItemIds: itemIds }, toolCtx),
     authClient
@@ -110,6 +117,7 @@ export async function POST(request: Request) {
       .in('menu_item_id', itemIds)
       .gte('created_at', new Date(Date.now() - RECENT_DISCOUNT_WINDOW_MS).toISOString())
       .limit(1),
+    getFrequentlyCoOrderedItems.execute({}, toolCtx),
   ]);
 
   const coverage = coverageResult.ok ? coverageResult.data : { campaignCoverage: 'none' as const, itemCoverage: 'none' as const };
@@ -136,6 +144,38 @@ export async function POST(request: Request) {
 
   const dataQuality: 'good' | 'limited' = orderCount >= MIN_ORDERS_FOR_ANY_OPPORTUNITY ? 'good' : 'limited';
 
+  // V1 (Decision Intelligence Layer): everything below is a second pass over
+  // facts already computed above (plus one new query, coOrderedResult) — no
+  // new resolution/confidence/apply logic.
+  const coOrderedPairs = coOrderedResult.ok ? coOrderedResult.data : [];
+  const itemIdSet = new Set(itemIds);
+  const coOrderedNames = Array.from(
+    new Set(
+      coOrderedPairs
+        .filter((pair) => itemIdSet.has(pair.itemAId) !== itemIdSet.has(pair.itemBId))
+        .map((pair) => (itemIdSet.has(pair.itemAId) ? pair.itemBName : pair.itemAName)),
+    ),
+  );
+
+  const evidenceMetCount = confidenceEvidence.filter((e) => e.met).length;
+  const decisionTier = computeDecisionScore({ confidence, evidenceMetCount, dataQuality, considerationCount: considerations.length });
+  const decisionSummary = composeDecisionSummary({
+    tier: decisionTier,
+    supportingFacts: confidenceEvidence.filter((e) => e.met).map((e) => e.label),
+    riskFacts: considerations,
+  });
+  const tradeoffs = composeTradeoffs({
+    benefitSignals: [...reasoningBullets, ...whyNow, ...(preview.revenueImpact ? [`Expected revenue impact: ${preview.revenueImpact}.`] : [])],
+    riskSignals: considerations,
+  });
+  const primaryCategoryName = categoryIds.length === 1 ? (preview.items[0]?.categoryName ?? null) : null;
+  // Alternatives are other promotional levers instead of applying a
+  // discount — not meaningful for clear_discount (removing one).
+  const alternatives = action.type === 'set_discount' ? composeAlternatives({ itemNames: preview.items.map((i) => i.name), coOrderedNames }) : [];
+  const whyThisRecommendation = action.type === 'set_discount' ? composeWhyThisRecommendation(alternatives) : null;
+  const successMetrics = composeSuccessMetrics({ itemNames: preview.items.map((i) => i.name), categoryName: primaryCategoryName });
+  const monitoringReminder = composeMonitoringReminder(decisionTier);
+
   return NextResponse.json({
     ...preview,
     revalidation,
@@ -146,5 +186,11 @@ export async function POST(request: Request) {
     reasoningBullets,
     executiveSummary,
     dataQuality,
+    decisionSummary,
+    tradeoffs,
+    alternatives,
+    whyThisRecommendation,
+    successMetrics,
+    monitoringReminder,
   });
 }

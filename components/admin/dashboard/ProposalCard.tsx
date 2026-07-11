@@ -6,7 +6,7 @@ import type { DashboardAssistantMessage } from '@/lib/dashboard-assistant/types'
 import type { ActionOutcomePayload } from '@/lib/dashboard-assistant/outcome';
 import type { Database } from '@/lib/supabase/database.types';
 import { DashboardIcon } from './icons';
-import { CONFIDENCE_STYLE } from './confidence-style';
+import { CONFIDENCE_STYLE, DECISION_TIER_STYLE } from './confidence-style';
 
 // Proposal Experience V2 — the proposal card is the primary decision surface
 // for a restaurant owner: it should answer "what, why, why now, what
@@ -32,6 +32,12 @@ type PlanTask = { id: string; label: string; status: 'pending' | 'completed' | '
 type ConfidenceEvidenceItem = { met: boolean; label: string };
 type Confidence = 'high' | 'medium' | 'low';
 
+type DecisionTier = 'strong' | 'good' | 'moderate' | 'weak';
+type DecisionSummary = { tier: DecisionTier; emoji: string; label: string; bullets: string[] };
+type Tradeoffs = { benefits: string[]; tradeoffs: string[] };
+type Alternative = { text: string; evidenceBacked: boolean };
+type MonitoringReminder = { days: 1 | 3 | 7; label: string };
+
 type PreviewResponse =
   | {
       resolved: true;
@@ -47,6 +53,12 @@ type PreviewResponse =
       reasoningBullets: string[];
       executiveSummary: string;
       dataQuality: 'good' | 'limited';
+      decisionSummary: DecisionSummary;
+      tradeoffs: Tradeoffs;
+      alternatives: Alternative[];
+      whyThisRecommendation: string | null;
+      successMetrics: string[];
+      monitoringReminder: MonitoringReminder;
     }
   | { resolved: false; reason: string; candidates?: string[] };
 
@@ -456,6 +468,28 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
         </p>
       </div>
 
+      {/* Should I Do This? — the owner-facing decision verdict, distinct
+          from (and shown separately above) the underlying Confidence badge. */}
+      {resolvedPreview && (
+        <div className="mt-4 rounded-xl border border-stone-100 bg-white p-3">
+          <p className="text-xs font-black uppercase tracking-wide text-stone-400">Should I Do This?</p>
+          <span
+            className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-base font-black ${DECISION_TIER_STYLE[resolvedPreview.decisionSummary.tier]}`}
+          >
+            <span aria-hidden="true">{resolvedPreview.decisionSummary.emoji}</span>
+            {resolvedPreview.decisionSummary.label}
+          </span>
+          <ul className="mt-2 space-y-1">
+            {resolvedPreview.decisionSummary.bullets.map((bullet, i) => (
+              <li key={i} className="flex gap-2 text-sm text-stone-600">
+                <span aria-hidden="true" className="text-stone-300">•</span>
+                {bullet}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Recommendation + Objective */}
       <Section title="Recommendation">
         <p className="text-base font-bold text-[#1F1F1F]">{recommendationLabel(action)}</p>
@@ -497,6 +531,25 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* Alternatives + Why This Recommendation */}
+      {resolvedPreview && resolvedPreview.alternatives.length > 0 && (
+        <Section title="Alternative Approaches">
+          <ul className="space-y-1.5">
+            {resolvedPreview.alternatives.map((alt, i) => (
+              <li key={i} className="flex gap-2 text-sm text-stone-600">
+                <span aria-hidden="true" className="text-stone-300">•</span>
+                {alt.text}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {resolvedPreview?.whyThisRecommendation && (
+        <Section title="Why This Recommendation?">
+          <p className="text-sm text-stone-600">{resolvedPreview.whyThisRecommendation}</p>
         </Section>
       )}
 
@@ -558,6 +611,51 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
         )}
       </Section>
 
+      {/* Tradeoffs — a second, benefits-vs-tradeoffs lens on the same
+          Why-Now/reasoning/considerations facts above, not new data. */}
+      {resolvedPreview && (
+        <Section title="Tradeoffs">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Benefits</p>
+              <ul className="mt-1 space-y-1">
+                {resolvedPreview.tradeoffs.benefits.length > 0 ? (
+                  resolvedPreview.tradeoffs.benefits.map((benefit, i) => (
+                    <li key={i} className="text-sm font-semibold text-[#1F8A5B]">✓ {benefit}</li>
+                  ))
+                ) : (
+                  <li className="text-sm font-semibold text-stone-400">No specific benefits identified.</li>
+                )}
+              </ul>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Tradeoffs</p>
+              <ul className="mt-1 space-y-1">
+                {resolvedPreview.tradeoffs.tradeoffs.length > 0 ? (
+                  resolvedPreview.tradeoffs.tradeoffs.map((tradeoff, i) => (
+                    <li key={i} className="text-sm font-semibold text-stone-500">• {tradeoff}</li>
+                  ))
+                ) : (
+                  <li className="text-sm font-semibold text-stone-400">No significant tradeoffs detected.</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </Section>
+      )}
+
+      {/* Success Metrics */}
+      {resolvedPreview && (
+        <Section title="Success Metrics">
+          <p className="text-xs font-semibold text-stone-400">Monitor:</p>
+          <ul className="mt-1 space-y-1">
+            {resolvedPreview.successMetrics.map((metric, i) => (
+              <li key={i} className="text-sm font-semibold text-stone-600">• {metric}</li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {staleness && !staleness.ok && (
         <div className="mt-4 rounded-xl bg-[#FBEAE6] p-3 text-sm font-bold text-[#C1442D]">{staleness.reason}</div>
       )}
@@ -584,6 +682,12 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {lifecycle === 'draft' && resolvedPreview && (
+        <Section title="Suggested Review">
+          <p className="text-sm font-semibold text-[#1F1F1F]">{resolvedPreview.monitoringReminder.label}</p>
         </Section>
       )}
 

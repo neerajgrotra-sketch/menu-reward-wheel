@@ -91,6 +91,33 @@ const ICON_PATHS: Record<string, JSX.Element> = {
       <path d="M15.5 14a5 5 0 0 1 5.5 5" />
     </>
   ),
+  plus: (
+    <>
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </>
+  ),
+  close: (
+    <>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </>
+  ),
+  expand: (
+    <>
+      <polyline points="9,3 3,3 3,9" />
+      <polyline points="15,3 21,3 21,9" />
+      <polyline points="3,15 3,21 9,21" />
+      <polyline points="21,15 21,21 15,21" />
+    </>
+  ),
+  archive: (
+    <>
+      <rect x="3" y="4" width="18" height="4" rx="1" />
+      <path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </>
+  ),
 };
 
 export type DashboardIconName = keyof typeof ICON_PATHS;

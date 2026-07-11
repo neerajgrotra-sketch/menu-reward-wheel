@@ -264,25 +264,31 @@ export type Database = {
       }
       dashboard_assistant_conversations: {
         Row: {
+          archived_at: string | null
           created_at: string
           created_by: string
           id: string
           last_message_at: string
           restaurant_id: string
+          title: string | null
         }
         Insert: {
+          archived_at?: string | null
           created_at?: string
           created_by: string
           id?: string
           last_message_at?: string
           restaurant_id: string
+          title?: string | null
         }
         Update: {
+          archived_at?: string | null
           created_at?: string
           created_by?: string
           id?: string
           last_message_at?: string
           restaurant_id?: string
+          title?: string | null
         }
         Relationships: [
           {

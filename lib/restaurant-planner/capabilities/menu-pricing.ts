@@ -237,6 +237,123 @@ export function composeConsiderations(params: { warnings: string[]; campaignOver
   return considerations;
 }
 
+// --- V1: Decision Intelligence Layer — deterministic decision-quality
+// composers, layered on facts the V2 composers above already compute. Every
+// function below accepts only capability-agnostic inputs (Confidence,
+// evidence/consideration counts, dataQuality, plain string facts) — never
+// MatchKind or ResolvedDiscountItem — so a future capability can call these
+// unchanged once a capability-dispatch layer exists. Still only wired into
+// the menu_pricing preview route today; the dispatch layer itself is
+// separate, not-yet-started work.
+
+export type DecisionTier = 'strong' | 'good' | 'moderate' | 'weak';
+
+const DECISION_TIER_META: Record<DecisionTier, { emoji: string; label: string; verdict: string }> = {
+  strong: { emoji: '🟢', label: 'Recommended', verdict: 'Recommended.' },
+  good: { emoji: '🟡', label: 'Worth Testing', verdict: 'Recommended as an experiment.' },
+  moderate: { emoji: '🟠', label: 'Experimental', verdict: 'Treat this as an experiment and monitor results closely.' },
+  weak: { emoji: '🔴', label: 'Insufficient Evidence', verdict: 'Consider collecting more data before proceeding.' },
+};
+
+// A point system over facts already surfaced in the Confidence section —
+// deliberately distinct from Confidence itself (match/data quality only):
+// this also weighs how many considerations were raised, so a high-confidence
+// match with several open considerations doesn't read as an unqualified "go."
+export function computeDecisionScore(params: {
+  confidence: Confidence;
+  evidenceMetCount: number;
+  dataQuality: 'good' | 'limited';
+  considerationCount: number;
+}): DecisionTier {
+  let points = 0;
+  points += params.confidence === 'high' ? 2 : params.confidence === 'medium' ? 1 : 0;
+  points += params.dataQuality === 'good' ? 1 : 0;
+  points += params.evidenceMetCount >= 3 ? 1 : 0;
+  points -= params.considerationCount >= 3 ? 2 : params.considerationCount >= 1 ? 1 : 0;
+  if (points >= 4) return 'strong';
+  if (points >= 2) return 'good';
+  if (points >= 0) return 'moderate';
+  return 'weak';
+}
+
+export type DecisionSummary = { tier: DecisionTier; emoji: string; label: string; bullets: string[] };
+
+// The owner-facing "Should I Do This?" verdict — a business recommendation
+// level, distinct from (and displayed alongside, not instead of) the
+// underlying Confidence badge.
+export function composeDecisionSummary(params: { tier: DecisionTier; supportingFacts: string[]; riskFacts: string[] }): DecisionSummary {
+  const meta = DECISION_TIER_META[params.tier];
+  const bullets = [...params.supportingFacts.slice(0, 2), ...params.riskFacts.slice(0, 2)];
+  if (bullets.length === 0) bullets.push('No additional evidence is available yet.');
+  bullets.push(meta.verdict);
+  return { tier: params.tier, emoji: meta.emoji, label: meta.label, bullets };
+}
+
+export type Tradeoffs = { benefits: string[]; tradeoffs: string[] };
+
+// Regroups facts the V2 composers already produced (whyNow/reasoningBullets
+// as benefits, considerations as tradeoffs) under consultant-report framing
+// — no new facts, just a second lens on the same evidence.
+export function composeTradeoffs(params: { benefitSignals: string[]; riskSignals: string[] }): Tradeoffs {
+  return { benefits: Array.from(new Set(params.benefitSignals)), tradeoffs: Array.from(new Set(params.riskSignals)) };
+}
+
+export type Alternative = { text: string; evidenceBacked: boolean };
+
+// Decision 2: prefer real co-order evidence (evidenceBacked: true) over the
+// two generic, always-applicable templates — the templates are only used as
+// a fallback when no co-order pairs exist for the affected item(s).
+export function composeAlternatives(params: { itemNames: string[]; coOrderedNames: string[] }): Alternative[] {
+  const primary = params.itemNames.length === 1 ? params.itemNames[0] : 'these items';
+  const alternatives: Alternative[] = params.coOrderedNames
+    .slice(0, 2)
+    .map((name) => ({ text: `Bundle ${primary} with ${name} — frequently ordered together`, evidenceBacked: true }));
+  if (alternatives.length === 0) {
+    alternatives.push(
+      { text: `Feature ${primary} on the menu instead of discounting it`, evidenceBacked: false },
+      { text: `Include ${primary} in a combo or bundle offer`, evidenceBacked: false },
+    );
+  }
+  return alternatives;
+}
+
+// menu_pricing is currently the only registered, automatically-executable
+// capability (tool-registry.ts) — bundling or featuring an item has no apply
+// path yet, which is the real (not fabricated) reason a direct discount is
+// recommended over the alternatives above.
+export function composeWhyThisRecommendation(alternatives: Alternative[]): string {
+  if (alternatives.length === 0) {
+    return 'No deterministic alternative was identified — this is the most direct way to reach the objective.';
+  }
+  const considered = alternatives.map((a) => a.text).join('; ');
+  return `${considered}. A direct discount is recommended first because it is the change Ask SpinBite can apply automatically today — the alternatives above would need to be set up manually.`;
+}
+
+// Named after the real read-only tools that already exist (tools/analytics.ts)
+// — never invents a metric with no query backing it. "Promotion redemption"
+// is deliberately not listed here: a menu_items special has no separate
+// redemption event, unlike a coupon.
+export function composeSuccessMetrics(params: { itemNames: string[]; categoryName: string | null }): string[] {
+  const itemWord = params.itemNames.length === 1 ? params.itemNames[0] : 'these items';
+  const metrics = [`Orders containing ${itemWord}`];
+  if (params.categoryName) metrics.push(`${params.categoryName} category revenue`);
+  metrics.push('Average order value');
+  return metrics;
+}
+
+export type MonitoringReminder = { days: 1 | 3 | 7; label: string };
+
+const MONITORING_REMINDER_BY_TIER: Record<DecisionTier, MonitoringReminder> = {
+  strong: { days: 7, label: 'Check performance after 1 week.' },
+  good: { days: 3, label: 'Check performance after 3 days.' },
+  moderate: { days: 3, label: 'Check performance after 3 days.' },
+  weak: { days: 1, label: 'Check performance after 1 day.' },
+};
+
+export function composeMonitoringReminder(tier: DecisionTier): MonitoringReminder {
+  return MONITORING_REMINDER_BY_TIER[tier];
+}
+
 function candidatesWithCategory(
   names: string[],
   items: Array<{ name: string; category_id: string }>,
