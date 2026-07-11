@@ -33,6 +33,7 @@ export type ResolvableAction =
 export type ResolvedDiscountItem = {
   id: string;
   name: string;
+  categoryId: string;
   categoryName: string;
   price: number | null;
   before: {
@@ -233,6 +234,7 @@ export function resolveMenuDiscountAction(
     return {
       id: item.id,
       name: item.name,
+      categoryId: item.category_id,
       categoryName: categoryNameById.get(item.category_id) || '',
       price: item.price,
       before,

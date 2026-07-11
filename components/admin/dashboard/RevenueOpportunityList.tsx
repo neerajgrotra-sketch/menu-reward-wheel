@@ -6,6 +6,7 @@ import { REVENUE_GOAL_LABEL } from '@/lib/restaurant-planner/types';
 import type { DashboardAssistantMessage } from '@/lib/dashboard-assistant/types';
 import type { Database } from '@/lib/supabase/database.types';
 import { DashboardIcon } from './icons';
+import { CONFIDENCE_STYLE } from './confidence-style';
 
 // Revenue Intelligence Agent V1 — renders the ranked opportunity list a
 // revenue_opportunities message carries. Reuses ProposalCard's visual
@@ -18,12 +19,6 @@ import { DashboardIcon } from './icons';
 // flow — nothing here ever applies anything itself.
 
 type ProposalRow = Database['public']['Tables']['restaurant_planner_proposals']['Row'];
-
-const CONFIDENCE_STYLE: Record<string, string> = {
-  high: 'bg-[#E7F3EC] text-[#1F8A5B]',
-  medium: 'bg-[#FBF0DF] text-[#A9600B]',
-  low: 'bg-[#FBEAE6] text-[#C1442D]',
-};
 
 type Props = {
   restaurantId: string;

@@ -37,6 +37,8 @@ import { resolveDiscountSchedule } from '@/lib/menu-discount-actions/schedule';
 import type { MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
 import type { PlannerCandidate } from '../types';
 import type { Confidence, PlanTask } from '../proposal';
+import type { CoverageKind } from '../tools/analytics';
+import { MIN_ORDERS_FOR_ANY_OPPORTUNITY } from '../revenue-intelligence/facts';
 
 export type DiscountImpactEstimate = {
   revenueImpact: string | null;
@@ -153,6 +155,86 @@ export function explainProposal(params: {
       : 'starts at the requested time';
   const impactLine = params.impact.revenueImpact ? ` Estimated revenue impact: ${params.impact.revenueImpact}.` : '';
   return `${MATCH_EXPLANATION[params.matchKind]} ${params.itemCount} ${itemWord} affected, ${describeDiscount(params.action)}, ${scheduleLine}.${impactLine}`;
+}
+
+// --- V2: Proposal Experience — evidence-based presentation composers -----
+// Everything below turns facts the engine already computes (matchKind,
+// impact, category coverage, order counts) into card copy. None of it
+// changes resolution, confidence, or apply behavior — these are called from
+// the preview route (see discount-action/preview/route.ts), not from
+// buildProposal, so a stale persisted proposal never shows facts fresher
+// than what was true when it was built.
+
+export function explainProposalBullets(params: {
+  matchKind: MatchKind;
+  itemCount: number;
+  scheduleParseFailed: boolean;
+  impact: DiscountImpactEstimate;
+}): string[] {
+  const itemWord = params.itemCount === 1 ? 'item' : 'items';
+  const bullets = [MATCH_EXPLANATION[params.matchKind], `This change affects ${params.itemCount} ${itemWord}.`];
+  if (params.scheduleParseFailed) {
+    bullets.push("The requested start time couldn't be understood, so it will start immediately instead.");
+  }
+  if (params.impact.revenueImpact) {
+    bullets.push(`Estimated revenue impact: ${params.impact.revenueImpact}.`);
+  }
+  return bullets;
+}
+
+export function composeExecutiveSummary(params: { confidence: Confidence; considerationCount: number; impact: DiscountImpactEstimate }): string {
+  if (params.confidence === 'low') {
+    return 'Experimental recommendation — confidence is low, so treat this as a test rather than a sure win.';
+  }
+  if (params.considerationCount > 0) {
+    const pointWord = params.considerationCount === 1 ? 'one point' : `${params.considerationCount} points`;
+    return `Reasonable recommendation, with ${pointWord} worth reviewing before approving.`;
+  }
+  const impactPhrase = params.impact.revenueImpact
+    ? `expected to lift revenue ${params.impact.revenueImpact}`
+    : 'expected to have a modest, hard-to-measure effect';
+  return `Low-risk recommendation, ${impactPhrase}.`;
+}
+
+export function composeWhyNow(params: { campaignCoverage: CoverageKind; itemCoverage: CoverageKind; hasRecentDiscount: boolean }): string[] {
+  const signals: string[] = [];
+  if (params.campaignCoverage !== 'active') signals.push('No active campaign is currently running in this category.');
+  if (params.itemCoverage === 'none') signals.push('This category has no other active promotions right now.');
+  if (!params.hasRecentDiscount) signals.push('This item has not been discounted recently.');
+  if (signals.length === 0) signals.push('No special timing factors were detected for this recommendation.');
+  return signals;
+}
+
+export type ConfidenceEvidenceItem = { met: boolean; label: string };
+
+export function composeConfidenceEvidence(params: {
+  matchKind: MatchKind;
+  scheduleParseFailed: boolean;
+  allPricesKnown: boolean;
+  orderCount: number;
+}): ConfidenceEvidenceItem[] {
+  const strongMatch = params.matchKind === 'all' || params.matchKind === 'category_exact' || params.matchKind === 'item_exact' || params.matchKind === 'items_explicit';
+  const orderEvidenceAdequate = params.orderCount >= MIN_ORDERS_FOR_ANY_OPPORTUNITY;
+  return [
+    { met: strongMatch, label: strongMatch ? 'Strong item match' : 'Approximate item match — double-check this is the right item' },
+    { met: params.allPricesKnown, label: params.allPricesKnown ? 'Complete pricing information' : 'Some affected items are missing price data' },
+    { met: !params.scheduleParseFailed, label: params.scheduleParseFailed ? "Requested start time couldn't be understood" : 'Schedule understood as requested' },
+    {
+      met: orderEvidenceAdequate,
+      label: orderEvidenceAdequate
+        ? `${params.orderCount} completed orders in the last 30 days`
+        : `Only ${params.orderCount} completed order${params.orderCount === 1 ? '' : 's'} in the last 30 days`,
+    },
+  ];
+}
+
+export function composeConsiderations(params: { warnings: string[]; campaignOverlap: boolean; orderCount: number }): string[] {
+  const considerations = [...params.warnings];
+  if (params.campaignOverlap) considerations.push('An active campaign-level promotion already covers this category.');
+  if (params.orderCount < MIN_ORDERS_FOR_ANY_OPPORTUNITY) {
+    considerations.push(`Limited historical sales data — only ${params.orderCount} completed order${params.orderCount === 1 ? '' : 's'} in the last 30 days.`);
+  }
+  return considerations;
 }
 
 function candidatesWithCategory(

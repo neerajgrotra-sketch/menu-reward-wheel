@@ -30,7 +30,7 @@ export function describeProposedAction(action: MenuDiscountAction): string {
   const targetLabel = describeTarget(action.target);
 
   if (action.type === 'clear_discount') {
-    return `Proposed: remove the discount from ${targetLabel}.`;
+    return `Here's what I recommend: removing the discount from ${targetLabel}. Take a look below and let me know if you'd like any changes.`;
   }
 
   const valueLabel =
@@ -38,5 +38,5 @@ export function describeProposedAction(action: MenuDiscountAction): string {
       ? `${action.discount.value}% off`
       : `a fixed price of $${action.discount.value}`;
 
-  return `Proposed: ${valueLabel} on ${targetLabel}.`;
+  return `Here's what I recommend: ${valueLabel} on ${targetLabel}. Take a look below and let me know if you'd like any changes.`;
 }

@@ -7,6 +7,7 @@ function resolvedItem(overrides: Partial<ResolvedDiscountItem>): ResolvedDiscoun
   return {
     id: 'item-id',
     name: 'Cardamom Chai',
+    categoryId: 'category-id',
     categoryName: 'Breakfast',
     price: 3,
     before: { specialEnabled: false, specialType: null, specialPercent: null, specialPrice: null },

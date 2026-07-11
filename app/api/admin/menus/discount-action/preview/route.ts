@@ -1,12 +1,24 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
 import { isResolvableAction, type ResolvableAction, type ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
-import { revalidateProposal } from '@/lib/restaurant-planner/capabilities/menu-pricing';
+import {
+  revalidateProposal,
+  computeConfidence,
+  composeExecutiveSummary,
+  composeWhyNow,
+  composeConfidenceEvidence,
+  composeConsiderations,
+  explainProposalBullets,
+} from '@/lib/restaurant-planner/capabilities/menu-pricing';
 import { getProposalById } from '@/lib/restaurant-planner/proposals';
 import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
 import { previewPromotion } from '@/lib/restaurant-planner/tools/promotion';
+import { getPromotionCoverage, getItemOrderStats } from '@/lib/restaurant-planner/tools/analytics';
+import { MIN_ORDERS_FOR_ANY_OPPORTUNITY } from '@/lib/restaurant-planner/revenue-intelligence/facts';
 import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
 import { makeServiceClient } from '@/lib/intelligence/generate-route-helpers';
+
+const RECENT_DISCOUNT_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 // POST /api/admin/menus/discount-action/preview
 // Read-only: resolves a structured discount action (already parsed from
@@ -79,5 +91,60 @@ export async function POST(request: Request) {
     revalidation = check.ok ? { ok: true } : { ok: false, reason: check.reason };
   }
 
-  return NextResponse.json({ ...preview, revalidation });
+  // V2 (Proposal Experience): everything below turns already-computed or
+  // cheap, real, restaurant-scoped facts into the card's evidence sections
+  // (Why Now, Confidence Evidence, Things To Consider, Executive Summary) —
+  // no numbers are invented, and nothing here writes anything.
+  const scheduleParseFailed = action.type === 'set_discount' && action.discount.startTimeParseFailed === true;
+  const itemIds = preview.items.map((item) => item.id);
+  const categoryIds = Array.from(new Set(preview.items.map((item) => item.categoryId)));
+  const primaryCategoryId = categoryIds.length === 1 ? categoryIds[0] : undefined;
+
+  const [coverageResult, orderStatsResult, recentDiscountResult] = await Promise.all([
+    getPromotionCoverage.execute({ categoryId: primaryCategoryId }, toolCtx),
+    getItemOrderStats.execute({ menuItemIds: itemIds }, toolCtx),
+    authClient
+      .from('menu_discount_change_log')
+      .select('id')
+      .eq('restaurant_id', restaurantId)
+      .in('menu_item_id', itemIds)
+      .gte('created_at', new Date(Date.now() - RECENT_DISCOUNT_WINDOW_MS).toISOString())
+      .limit(1),
+  ]);
+
+  const coverage = coverageResult.ok ? coverageResult.data : { campaignCoverage: 'none' as const, itemCoverage: 'none' as const };
+  const orderStats = orderStatsResult.ok ? orderStatsResult.data : {};
+  const orderCount = itemIds.reduce((sum, id) => sum + (orderStats[id]?.count ?? 0), 0);
+  const hasRecentDiscount = (recentDiscountResult.data?.length ?? 0) > 0;
+  const allPricesKnown = preview.items.every((item) => item.price !== null);
+
+  const considerations = composeConsiderations({ warnings: preview.warnings, campaignOverlap: coverage.campaignCoverage === 'active', orderCount });
+  const confidence = computeConfidence(preview.matchKind, scheduleParseFailed);
+  const confidenceEvidence = composeConfidenceEvidence({ matchKind: preview.matchKind, scheduleParseFailed, allPricesKnown, orderCount });
+  const whyNow = composeWhyNow({ campaignCoverage: coverage.campaignCoverage, itemCoverage: coverage.itemCoverage, hasRecentDiscount });
+  const reasoningBullets = explainProposalBullets({
+    matchKind: preview.matchKind,
+    itemCount: preview.items.length,
+    scheduleParseFailed,
+    impact: { revenueImpact: preview.revenueImpact, margin: preview.margin, warnings: preview.warnings },
+  });
+  const executiveSummary = composeExecutiveSummary({
+    confidence,
+    considerationCount: considerations.length,
+    impact: { revenueImpact: preview.revenueImpact, margin: preview.margin, warnings: preview.warnings },
+  });
+
+  const dataQuality: 'good' | 'limited' = orderCount >= MIN_ORDERS_FOR_ANY_OPPORTUNITY ? 'good' : 'limited';
+
+  return NextResponse.json({
+    ...preview,
+    revalidation,
+    confidence,
+    considerations,
+    confidenceEvidence,
+    whyNow,
+    reasoningBullets,
+    executiveSummary,
+    dataQuality,
+  });
 }
