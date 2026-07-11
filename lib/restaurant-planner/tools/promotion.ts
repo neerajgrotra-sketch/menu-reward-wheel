@@ -5,7 +5,7 @@
 // the schema, and inventing one would be new business logic, not extraction.
 
 import { fetchAssignedMenus, fetchMenuContents } from '@/lib/menu/queries';
-import { resolveMenuDiscountAction, type ResolvableAction } from '@/lib/menu-discount-actions/resolve';
+import { resolveMenuDiscountAction, type ResolvableAction, type MatchKind } from '@/lib/menu-discount-actions/resolve';
 import { buildProposal, estimateDiscountImpact, applyDiscountProposal, revalidateProposal, type ProposalBuildResult, type ApplyOutcome, type ApplyDiscountResult } from '../capabilities/menu-pricing';
 import type { ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
 import { insertProposalVersion, type ProposalRow } from '../proposals';
@@ -26,7 +26,7 @@ export const createPromotionDraft: ToolDefinition<{ action: MenuDiscountAction }
 // Shaped to match exactly what ProposalCard.tsx's PreviewResponse consumes
 // (items, not just a count — the card renders each resolved item by name).
 export type PreviewResult =
-  | { resolved: true; items: ResolvedDiscountItem[]; revenueImpact: string | null; margin: string | null; warnings: string[] }
+  | { resolved: true; items: ResolvedDiscountItem[]; revenueImpact: string | null; margin: string | null; warnings: string[]; matchKind: MatchKind }
   | { resolved: false; reason: string; candidates?: string[] };
 
 // Wraps the exact resolve+estimate sequence
@@ -48,7 +48,7 @@ export const previewPromotion: ToolDefinition<{ action: ResolvableAction }, Prev
     const result = resolveMenuDiscountAction(input.action, categories, items);
     if (!result.resolved) return ok({ resolved: false, reason: result.reason, candidates: result.candidates });
     const impact = estimateDiscountImpact(input.action, result.items);
-    return ok({ resolved: true, items: result.items, ...impact });
+    return ok({ resolved: true, items: result.items, matchKind: result.matchKind, ...impact });
   },
 };
 

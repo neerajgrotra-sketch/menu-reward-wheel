@@ -291,6 +291,41 @@ export const getAverageOrderValue: ToolDefinition<{ windowDays?: number }, Avera
   },
 };
 
+export type ItemOrderStats = Record<string, { count: number }>;
+
+// The evidence source for per-item confidence/timing signals on a proposal
+// card (e.g. "only 2 completed orders in the last 30 days") — every other
+// query in this file aggregates by category or by pair; this is the one
+// gap at item granularity, added for Proposal Experience V2's "why now" /
+// confidence-evidence sections rather than fabricating those claims.
+export const getItemOrderStats: ToolDefinition<{ menuItemIds: string[]; windowDays?: number }, ItemOrderStats> = {
+  name: 'getItemOrderStats',
+  description: 'Completed-order quantity per menu item id over a trailing window (default 30 days).',
+  capability: 'revenue_intelligence',
+  permission: 'read',
+  mutating: false,
+  version: 1,
+  execute: async (input, ctx) => {
+    if (input.menuItemIds.length === 0) return ok({});
+    const empty = Object.fromEntries(input.menuItemIds.map((id) => [id, { count: 0 }]));
+    const orders = await fetchCompletedOrders(ctx, input.windowDays ?? 30);
+    if (orders.length === 0) return ok(empty);
+
+    const { data: orderItemRows } = await ctx.supabase
+      .from('order_items')
+      .select('menu_item_id, quantity')
+      .in('order_id', orders.map((o) => o.id))
+      .in('menu_item_id', input.menuItemIds);
+
+    const counts = new Map<string, number>();
+    for (const row of orderItemRows ?? []) {
+      if (!row.menu_item_id) continue;
+      counts.set(row.menu_item_id, (counts.get(row.menu_item_id) ?? 0) + (row.quantity ?? 1));
+    }
+    return ok(Object.fromEntries(input.menuItemIds.map((id) => [id, { count: counts.get(id) ?? 0 }])));
+  },
+};
+
 export type CoOrderedPair = { itemAId: string; itemAName: string; itemBId: string; itemBName: string; coOccurrenceCount: number };
 
 // The evidence source for the average-order-value goal: without a real
