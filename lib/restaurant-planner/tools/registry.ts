@@ -8,6 +8,7 @@
 import * as menu from './menu';
 import * as pricing from './pricing';
 import * as promotion from './promotion';
+import * as menuEdit from './menu-edit';
 import * as restaurant from './restaurant';
 import * as conversation from './conversation';
 import * as analytics from './analytics';
@@ -31,6 +32,14 @@ export const TOOL_REGISTRY: Record<string, ToolDefinition<any, any>> = {
   applyPromotion: promotion.applyPromotion,
   cancelPromotion: promotion.cancelPromotion,
   // archivePromotion: not implemented — no 'archived' ProposalStatus exists.
+
+  // Menu Edit Tools (menu_agent) — persistent catalog changes, distinct
+  // from Promotion/Pricing Tools' menu_pricing discount overlay.
+  createMenuEditDraft: menuEdit.createMenuEditDraft,
+  previewMenuEdit: menuEdit.previewMenuEdit,
+  applyMenuEdit: menuEdit.applyMenuEdit,
+  // No cancelMenuEdit — cancelPromotion above is already capability-generic
+  // and handles this too (see menu-edit.ts's header comment).
 
   // Pricing Tools
   calculateDiscount: pricing.calculateDiscount,

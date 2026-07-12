@@ -12,6 +12,7 @@
 // any switch that dispatches on `intent`.
 
 import { isMenuDiscountAction, type MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
+import { isMenuEditAction, type MenuEditAction } from '@/lib/intelligence/actions/menu-edit-schema';
 import type { Confidence } from './proposal';
 
 // V2 candidate shape for a clarification that needs a structured selector
@@ -111,7 +112,13 @@ export type PlannerOutput =
   // never invented, always re-verified server-side before being trusted
   // (lib/restaurant-planner/proposals.ts) — omitted means "start a new
   // proposal," never guessed.
-  | { intent: 'menu_discount_action'; capability: 'menu_pricing'; action: MenuDiscountAction; refersToProposalId?: string };
+  | { intent: 'menu_discount_action'; capability: 'menu_pricing'; action: MenuDiscountAction; refersToProposalId?: string }
+  // menu_edit capability (registry key menu_agent): persistent catalog
+  // changes (price, name, description, category, visibility, tags) — the
+  // sibling of menu_discount_action above, same refersToProposalId
+  // semantics (a follow-up like "make it $8 instead" echoes the id it was
+  // shown, never invented, always re-verified server-side).
+  | { intent: 'menu_edit_action'; capability: 'menu_agent'; action: MenuEditAction; refersToProposalId?: string };
 
 export class PlannerParseError extends Error {
   constructor(reason: string) {
@@ -191,6 +198,17 @@ export function parsePlannerOutput(raw: string): PlannerOutput {
     }
     const refersToProposalId = typeof obj.refersToProposalId === 'string' ? obj.refersToProposalId : undefined;
     return { intent: 'menu_discount_action', capability: 'menu_pricing', action: obj.action, refersToProposalId };
+  }
+
+  if (obj.intent === 'menu_edit_action') {
+    if (!isMenuEditAction(obj.action)) {
+      throw new PlannerParseError('menu_edit_action intent had a malformed "action"');
+    }
+    if (obj.refersToProposalId !== undefined && (typeof obj.refersToProposalId !== 'string' || obj.refersToProposalId.trim().length === 0)) {
+      throw new PlannerParseError('menu_edit_action intent had a malformed "refersToProposalId"');
+    }
+    const refersToProposalId = typeof obj.refersToProposalId === 'string' ? obj.refersToProposalId : undefined;
+    return { intent: 'menu_edit_action', capability: 'menu_agent', action: obj.action, refersToProposalId };
   }
 
   throw new PlannerParseError(`unrecognized intent "${String(obj.intent)}"`);

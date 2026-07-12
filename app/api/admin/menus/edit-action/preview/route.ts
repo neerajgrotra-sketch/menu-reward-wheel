@@ -1,41 +1,38 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerAuthClient } from '@/lib/supabase/server';
-import { isResolvableAction, type ResolvableAction, type ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
-import { revalidateProposal, computeConfidence, makeMenuPricingDecisionCopyAdapter } from '@/lib/restaurant-planner/capabilities/menu-pricing';
+import { isResolvableMenuEditAction, type ResolvedMenuEditItem } from '@/lib/menu-edit-actions/resolve';
+import type { MenuEditAction } from '@/lib/intelligence/actions/menu-edit-schema';
+import { revalidateProposal, computeConfidence, makeMenuEditDecisionCopyAdapter } from '@/lib/restaurant-planner/capabilities/menu-edit';
 import { composeDecisionCard } from '@/lib/restaurant-planner/decision-intelligence';
-import { toItemView, composeProposalCopy } from '@/lib/menu-discount-actions/proposal-copy';
+import { toItemView, composeProposalCopy } from '@/lib/menu-edit-actions/proposal-copy';
 import { getProposalById } from '@/lib/restaurant-planner/proposals';
 import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
-import { previewPromotion } from '@/lib/restaurant-planner/tools/promotion';
+import { previewMenuEdit } from '@/lib/restaurant-planner/tools/menu-edit';
 import { getPromotionCoverage, getItemOrderStats, getFrequentlyCoOrderedItems } from '@/lib/restaurant-planner/tools/analytics';
 import { MIN_ORDERS_FOR_ANY_OPPORTUNITY } from '@/lib/restaurant-planner/revenue-intelligence/facts';
 import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
 import { makeServiceClient } from '@/lib/intelligence/generate-route-helpers';
 
-const RECENT_DISCOUNT_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+const RECENT_ACTIVITY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
-// POST /api/admin/menus/discount-action/preview
-// Read-only: resolves a structured discount action (already parsed from
-// natural language by the Restaurant Planner) against a restaurant's real
-// menu data and returns a before/after preview plus a deterministic revenue
-// impact estimate (lib/restaurant-planner/capabilities/menu-pricing.ts) —
-// together these are the fields ProposalCard.tsx renders as the Proposal.
-// Never writes. The session client is used throughout — RLS ("Owners read
-// own menu items including deleted", 20260606040000_menu_items_enrichment.sql:83-91)
-// is the real boundary, on top of the explicit ownership check below for a
-// clean error message.
+// POST /api/admin/menus/edit-action/preview
+// Read-only: resolves a structured menu-edit action against a restaurant's
+// real menu data and returns a before/after preview — the menu_edit sibling
+// of discount-action/preview/route.ts.
 //
-// V2: an optional proposalId diffs the freshly-resolved result against that
-// proposal's persisted resolved_snapshot (Objective 3 — revalidation) and
-// includes any drift as a `revalidation` field. Omitted entirely (a bare
-// action with no proposal behind it), behavior is unchanged from Phase 1.
+// Capability-aware Decision Intelligence: uses composeDecisionCard()
+// (lib/restaurant-planner/decision-intelligence.ts) with menu_edit's OWN
+// DecisionCopyAdapter (capabilities/menu-edit.ts's
+// makeMenuEditDecisionCopyAdapter) — not menu_pricing's. This replaces the
+// earlier version of this route, which reused menu_pricing's composers
+// directly and produced pricing-flavored copy ("Complete pricing
+// information," "Average order value" as a rename's success metric) on
+// every menu_edit proposal — the pre-merge audit's Important finding #1.
 //
-// Capability-aware Decision Intelligence: the "turn facts into card copy"
-// step is now one composeDecisionCard() call (lib/restaurant-planner/
-// decision-intelligence.ts) fed menu_pricing's own DecisionCopyAdapter,
-// instead of ~10 individually-imported composer functions assembled inline
-// here. Output is unchanged for existing discount proposals — this is a
-// behavior-preserving relocation, not a rewrite.
+// "Recent activity" here means recent menu_edit_change_log activity on the
+// affected items (this capability's own audit table), not recent discount
+// activity — distinct from discount-action/preview/route.ts's identically-
+// shaped query against menu_discount_change_log.
 
 export async function POST(request: Request) {
   const authClient = createServerAuthClient();
@@ -45,12 +42,12 @@ export async function POST(request: Request) {
   }
 
   let restaurantId: string;
-  let action: ResolvableAction;
+  let action: MenuEditAction;
   let proposalId: string | undefined;
   try {
     const body = await request.json();
     restaurantId = (body.restaurantId ?? '').trim();
-    if (!isResolvableAction(body.action)) {
+    if (!isResolvableMenuEditAction(body.action)) {
       return NextResponse.json({ error: 'Malformed action.' }, { status: 400 });
     }
     action = body.action;
@@ -69,45 +66,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: restaurantResult.reason }, { status: 403 });
   }
 
-  const previewResult = await previewPromotion.execute({ action }, toolCtx);
+  const previewResult = await previewMenuEdit.execute({ action }, toolCtx);
   if (!previewResult.ok) {
     return NextResponse.json({ error: previewResult.reason }, { status: 500 });
   }
   const preview = previewResult.data;
   if (!preview.resolved) return NextResponse.json(preview);
 
-  // V2 (Objective 4): a schedule the system couldn't parse silently falls
-  // back to "starts immediately" — surfaced here as a visible warning
-  // instead, since `action` (client-schedule-resolved) already carries the
-  // flag by the time it reaches this route.
-  if (action.type === 'set_discount' && action.discount.startTimeParseFailed) {
-    preview.warnings.push("The requested start time couldn't be understood, so this will start immediately instead.");
-  }
-
   let revalidation: { ok: boolean; reason?: string } | undefined;
   if (proposalId) {
     const proposal = await getProposalById(authClient, { proposalId, restaurantId });
-    const snapshot = (proposal?.resolved_snapshot as unknown as ResolvedDiscountItem[] | null) ?? null;
+    const snapshot = (proposal?.resolved_snapshot as unknown as ResolvedMenuEditItem[] | null) ?? null;
     const check = revalidateProposal(snapshot, preview.items);
     revalidation = check.ok ? { ok: true } : { ok: false, reason: check.reason };
   }
 
-  // Real, restaurant-scoped facts the Decision Card composes from — no
-  // numbers are invented, and nothing here writes anything.
-  const scheduleParseFailed = action.type === 'set_discount' && action.discount.startTimeParseFailed === true;
   const itemIds = preview.items.map((item) => item.id);
   const categoryIds = Array.from(new Set(preview.items.map((item) => item.categoryId)));
   const primaryCategoryId = categoryIds.length === 1 ? categoryIds[0] : undefined;
 
-  const [coverageResult, orderStatsResult, recentDiscountResult, coOrderedResult] = await Promise.all([
+  const [coverageResult, orderStatsResult, recentEditResult, coOrderedResult] = await Promise.all([
     getPromotionCoverage.execute({ categoryId: primaryCategoryId }, toolCtx),
     getItemOrderStats.execute({ menuItemIds: itemIds }, toolCtx),
     authClient
-      .from('menu_discount_change_log')
+      .from('menu_edit_change_log')
       .select('id')
       .eq('restaurant_id', restaurantId)
       .in('menu_item_id', itemIds)
-      .gte('created_at', new Date(Date.now() - RECENT_DISCOUNT_WINDOW_MS).toISOString())
+      .gte('created_at', new Date(Date.now() - RECENT_ACTIVITY_WINDOW_MS).toISOString())
       .limit(1),
     getFrequentlyCoOrderedItems.execute({}, toolCtx),
   ]);
@@ -115,8 +101,7 @@ export async function POST(request: Request) {
   const coverage = coverageResult.ok ? coverageResult.data : { campaignCoverage: 'none' as const, itemCoverage: 'none' as const };
   const orderStats = orderStatsResult.ok ? orderStatsResult.data : {};
   const orderCount = itemIds.reduce((sum, id) => sum + (orderStats[id]?.count ?? 0), 0);
-  const hasRecentActivity = (recentDiscountResult.data?.length ?? 0) > 0;
-  const allPricesKnown = preview.items.every((item) => item.price !== null);
+  const hasRecentActivity = (recentEditResult.data?.length ?? 0) > 0;
   const dataQuality: 'good' | 'limited' = orderCount >= MIN_ORDERS_FOR_ANY_OPPORTUNITY ? 'good' : 'limited';
 
   const coOrderedPairs = coOrderedResult.ok ? coOrderedResult.data : [];
@@ -129,14 +114,14 @@ export async function POST(request: Request) {
     ),
   );
 
-  const confidence = computeConfidence(preview.matchKind, scheduleParseFailed);
+  const confidence = computeConfidence(preview.matchKind);
   const primaryCategoryName = categoryIds.length === 1 ? (preview.items[0]?.categoryName ?? null) : null;
 
-  const adapter = makeMenuPricingDecisionCopyAdapter(action, { allPricesKnown });
+  const adapter = makeMenuEditDecisionCopyAdapter(action);
   const decisionCard = composeDecisionCard(adapter, {
     matchKind: preview.matchKind,
     itemCount: preview.items.length,
-    scheduleParseFailed,
+    scheduleParseFailed: false,
     impact: { revenueImpact: preview.revenueImpact, margin: preview.margin, warnings: preview.warnings },
     confidence,
     campaignCoverage: coverage.campaignCoverage,
@@ -152,12 +137,11 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     ...preview,
-    // Proposal Card generalization: the generic view-model ProposalCard.tsx
-    // actually renders — a verbatim relocation of label logic that used to
-    // live client-side in the card (lib/menu-discount-actions/proposal-copy.ts).
-    // `items` here overrides the raw ResolvedDiscountItem[] spread above.
+    // Same generalization as discount-action/preview/route.ts — the generic
+    // view-model ProposalCard.tsx renders. `items` overrides the raw
+    // ResolvedMenuEditItem[] spread above.
     items: preview.items.map(toItemView),
-    copy: composeProposalCopy(action, preview.items),
+    copy: composeProposalCopy(action),
     revalidation,
     confidence,
     dataQuality,

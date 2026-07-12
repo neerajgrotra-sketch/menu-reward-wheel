@@ -60,13 +60,16 @@ export const CAPABILITY_REGISTRY = {
   // Agent") — these strings surface directly in chat via
   // describeUnsupportedRequest/explainCapabilityUnavailable, and "Agent" is
   // implementation vocabulary an owner has no reason to know or care about.
+  // menu_edit — persistent catalog changes (price, name, description,
+  // category, visibility, tags), distinct from menu_pricing's temporary/
+  // schedulable discount overlay. See docs/architecture/menu-editing-
+  // capability-boundary-audit-v1.md for why this is a peer capability
+  // rather than an expansion of menu_pricing.
   menu_agent: {
-    status: 'planned',
+    status: 'active',
     label: 'Menu Editing',
-    capabilities: ['Create, edit, or remove menu items and categories', 'Reorder menu structure', 'Manage item availability'],
-    supportedActions: ['create_item', 'update_item', 'archive_item', 'reorder_category'],
-    requiredContext: ['menu_snapshot'],
-    executionPermission: 'none',
+    previewEndpoint: '/api/admin/menus/edit-action/preview',
+    applyEndpoint: '/api/admin/menus/edit-action/apply',
   },
   promotion_agent: {
     status: 'planned',

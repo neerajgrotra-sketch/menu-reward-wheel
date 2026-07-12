@@ -10,13 +10,17 @@ export function hasResolvedOutcome(message: DashboardAssistantMessage, messages:
   return messages.some((m) => m.related_message_id === message.id);
 }
 
-// A menu_discount_action message is "live" (renders an actionable
-// ProposalCard) iff nothing has resolved it yet and it's still the
-// most recent assistant turn. Moving on to a new ask without resolving a
-// proposal makes the old one inert; re-applying a stale, possibly-superseded
-// proposal from scroll-back would be unsafe.
+// A proposal-bearing message is "live" (renders an actionable ProposalCard)
+// iff nothing has resolved it yet and it's still the most recent assistant
+// turn. Moving on to a new ask without resolving a proposal makes the old
+// one inert; re-applying a stale, possibly-superseded proposal from
+// scroll-back would be unsafe. Two intents currently carry a proposal —
+// menu_discount_action (menu_pricing) and menu_edit_action (menu_agent) —
+// both render through the same capability-generic ProposalCard.
+const PROPOSAL_INTENTS = ['menu_discount_action', 'menu_edit_action'];
+
 export function isProposalLive(message: DashboardAssistantMessage, messages: DashboardAssistantMessage[]): boolean {
-  if (message.intent !== 'menu_discount_action') return false;
+  if (!PROPOSAL_INTENTS.includes(message.intent ?? '')) return false;
   if (hasResolvedOutcome(message, messages)) return false;
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
   return lastAssistantMessage?.id === message.id;

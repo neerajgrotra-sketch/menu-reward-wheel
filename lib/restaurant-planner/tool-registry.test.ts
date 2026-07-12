@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { CAPABILITY_REGISTRY, isRegisteredCapability, isActiveCapability, explainCapabilityUnavailable, describeUnsupportedRequest } from './tool-registry';
 
 describe('CAPABILITY_REGISTRY', () => {
-  it('has exactly two active capabilities today — menu_pricing and revenue_intelligence', () => {
+  it('has exactly three active capabilities today — menu_pricing, revenue_intelligence, and menu_agent', () => {
     const active = Object.entries(CAPABILITY_REGISTRY).filter(([, entry]) => entry.status === 'active');
-    expect(active.map(([key]) => key)).toEqual(['menu_pricing', 'revenue_intelligence']);
+    expect(active.map(([key]) => key)).toEqual(['menu_pricing', 'revenue_intelligence', 'menu_agent']);
   });
 
   it('every planned capability has executionPermission "none" — none of them can write anything', () => {
@@ -27,8 +27,9 @@ describe('isRegisteredCapability / isActiveCapability', () => {
     expect(isRegisteredCapability('not_a_real_capability')).toBe(false);
   });
 
-  it('only menu_pricing is active', () => {
+  it('menu_pricing and menu_agent are active, a still-planned capability is not', () => {
     expect(isActiveCapability('menu_pricing')).toBe(true);
+    expect(isActiveCapability('menu_agent')).toBe(true);
     expect(isActiveCapability('analytics_agent')).toBe(false);
   });
 

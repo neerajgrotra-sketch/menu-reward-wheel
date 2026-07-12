@@ -131,6 +131,51 @@ describe('parsePlannerOutput', () => {
     });
   });
 
+  describe('menu_edit capability — menu_edit_action intent', () => {
+    it('parses a menu_edit_action response and tags it with capability menu_agent', () => {
+      const raw = JSON.stringify({
+        intent: 'menu_edit_action',
+        action: { type: 'set_price', target: { scope: 'item', name: 'Ras Malai' }, price: 7.99 },
+      });
+      const result = parsePlannerOutput(raw);
+      expect(result.intent).toBe('menu_edit_action');
+      expect(result).toMatchObject({ capability: 'menu_agent' });
+    });
+
+    it('rejects a menu_edit_action with a malformed action', () => {
+      const raw = JSON.stringify({ intent: 'menu_edit_action', action: { type: 'set_price', target: { scope: 'item' }, price: 7.99 } });
+      expect(() => parsePlannerOutput(raw)).toThrow(PlannerParseError);
+    });
+
+    it('parses a menu_edit_action with refersToProposalId (a modification of an open proposal)', () => {
+      const raw = JSON.stringify({
+        intent: 'menu_edit_action',
+        action: { type: 'rename_item', target: { scope: 'item', name: 'Ras Malai' }, name: 'Rasmalai Deluxe' },
+        refersToProposalId: 'a1b2c3',
+      });
+      const result = parsePlannerOutput(raw);
+      expect(result).toMatchObject({ intent: 'menu_edit_action', refersToProposalId: 'a1b2c3' });
+    });
+
+    it('omits refersToProposalId for a fresh (non-modification) proposal', () => {
+      const raw = JSON.stringify({
+        intent: 'menu_edit_action',
+        action: { type: 'set_availability', target: { scope: 'item', name: 'Ras Malai' }, available: false },
+      });
+      const result = parsePlannerOutput(raw);
+      expect(result).toMatchObject({ intent: 'menu_edit_action', refersToProposalId: undefined });
+    });
+
+    it('rejects a blank refersToProposalId rather than silently accepting it', () => {
+      const raw = JSON.stringify({
+        intent: 'menu_edit_action',
+        action: { type: 'set_availability', target: { scope: 'item', name: 'Ras Malai' }, available: false },
+        refersToProposalId: '   ',
+      });
+      expect(() => parsePlannerOutput(raw)).toThrow(PlannerParseError);
+    });
+  });
+
   describe('Revenue Intelligence Agent V1 — revenue_goal intent', () => {
     it('parses a recognized goal', () => {
       const result = parsePlannerOutput('{"intent":"revenue_goal","goal":"increase_beverage_sales"}');
