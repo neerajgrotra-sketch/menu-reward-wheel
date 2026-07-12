@@ -374,8 +374,34 @@ export function revalidateProposal(snapshot: ResolvedDiscountItem[] | null, live
 
 // --- apply (write) -------------------------------------------------------
 
-export type ApplyOutcome = { id: string; name: string; success: boolean; error?: string };
-export type ApplyDiscountResult = { applied: number; total: number; failed?: ApplyOutcome[]; skippedNoOp?: string[] };
+export type ApplyOutcome = { id: string; name: string; success: boolean; error?: string; description?: string };
+export type ApplyDiscountResult = {
+  applied: number;
+  total: number;
+  failed?: ApplyOutcome[];
+  skippedNoOp?: string[];
+  appliedItems?: Array<{ name: string; description: string }>;
+};
+
+// Human-readable summary of what actually changed for one resolved item,
+// post-write — the chat-visible confirmation's building block (see
+// lib/dashboard-assistant/outcome.ts's describeOutcome). Deliberately
+// separate from describeDiscount/explainProposal above, which describe the
+// proposed action pre-approval, not the concrete resolved before/after.
+export function describeAppliedItem(item: ResolvedDiscountItem): string {
+  if (!item.after.specialEnabled) {
+    return item.price !== null ? `${item.name}: discount removed, back to $${item.price.toFixed(2)}` : `${item.name}: discount removed`;
+  }
+  const discountedPrice =
+    item.after.specialType === 'fixed_price' && item.after.specialPrice !== null
+      ? item.after.specialPrice
+      : item.after.specialType === 'percentage' && item.price !== null && item.after.specialPercent !== null
+        ? item.price * (1 - item.after.specialPercent / 100)
+        : null;
+  if (discountedPrice === null) return `${item.name}: discount applied`;
+  const fromLabel = item.price !== null ? `$${item.price.toFixed(2)}` : 'its price';
+  return `${item.name}: ${fromLabel} → $${discountedPrice.toFixed(2)}`;
+}
 
 export async function applyDiscountProposal(
   authClient: SupabaseClient<Database>,
@@ -390,13 +416,14 @@ export async function applyDiscountProposal(
   const skippedNoOp = items.filter(isNoOp).map((item) => item.name);
 
   const outcomes = await Promise.all(realWrites.map((item) => applyOne(authClient, restaurantId, actorUserId, item)));
-  const applied = outcomes.filter((o) => o.success).length;
+  const succeeded = outcomes.filter((o) => o.success);
   const failed = outcomes.filter((o) => !o.success);
   return {
-    applied,
+    applied: succeeded.length,
     total: items.length,
     failed: failed.length > 0 ? failed : undefined,
     skippedNoOp: skippedNoOp.length > 0 ? skippedNoOp : undefined,
+    appliedItems: succeeded.length > 0 ? succeeded.map((o) => ({ name: o.name, description: o.description! })) : undefined,
   };
 }
 
@@ -449,5 +476,5 @@ async function applyOne(
     console.error('[menu-pricing/applyDiscountProposal] Failed to write change log:', logResult.error.message);
   }
 
-  return { id: item.id, name: item.name, success: true };
+  return { id: item.id, name: item.name, success: true, description: describeAppliedItem(item) };
 }

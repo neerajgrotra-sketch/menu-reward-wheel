@@ -79,7 +79,13 @@ type PreviewResponse =
     }
   | { resolved: false; reason: string; candidates?: string[] };
 
-type ApplyResponse = { applied: number; total: number; failed?: Array<{ name: string; error?: string }>; skippedNoOp?: string[] };
+type ApplyResponse = {
+  applied: number;
+  total: number;
+  failed?: Array<{ name: string; error?: string }>;
+  skippedNoOp?: string[];
+  appliedItems?: Array<{ name: string; description: string }>;
+};
 
 const PLAN_TASK_ICON: Record<PlanTask['status'], string> = {
   completed: '✓',
@@ -341,7 +347,7 @@ export function ProposalCard({ restaurantId, action, capability, previewEndpoint
       setApplyResult(payload);
       setLifecycle('completed');
       setCompletedAt(Date.now());
-      await reportOutcome({ kind: 'applied', applied: payload.applied, total: payload.total, failed: payload.failed });
+      await reportOutcome({ kind: 'applied', applied: payload.applied, total: payload.total, failed: payload.failed, appliedItems: payload.appliedItems });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't apply that change.");
       setLifecycle('draft');
@@ -656,7 +662,17 @@ export function ProposalCard({ restaurantId, action, capability, previewEndpoint
 
       {applyResult && (
         <Section title="Result">
-          <p className="text-sm font-bold text-[#1F8A5B]">Applied to {applyResult.applied} of {applyResult.total} items.</p>
+          {applyResult.appliedItems && applyResult.appliedItems.length > 0 ? (
+            <ul className="space-y-1">
+              {applyResult.appliedItems.map((item, index) => (
+                <li key={`${item.name}-${index}`} className="text-sm font-bold text-[#1F8A5B]">
+                  {item.description}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm font-bold text-[#1F8A5B]">Applied to {applyResult.applied} of {applyResult.total} items.</p>
+          )}
           {applyResult.failed && applyResult.failed.length > 0 && (
             <p className="mt-1 text-sm font-semibold text-[#C1442D]">Couldn&apos;t update: {applyResult.failed.map((f) => f.name).join(', ')}</p>
           )}

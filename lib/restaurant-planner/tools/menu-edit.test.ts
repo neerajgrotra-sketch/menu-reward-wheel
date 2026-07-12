@@ -36,6 +36,15 @@ describe('applyMenuEdit (pass-through fidelity)', () => {
     const ctx: ToolContext = { supabase: fakeAuthClient(), serviceClient: {} as any, restaurantId: 'r1', ownerId: 'o1' };
     const item = { id: 'item-id', name: 'Ras Malai', categoryId: 'cat-1', categoryName: 'Desserts', before: { price: 6.99 }, after: { price: 7.99 } };
     const outcome = await applyMenuEdit.execute({ items: [item] }, ctx);
-    expect(outcome).toEqual({ ok: true, data: { applied: 1, total: 1, failed: undefined, skippedNoOp: undefined } });
+    expect(outcome).toEqual({
+      ok: true,
+      data: {
+        applied: 1,
+        total: 1,
+        failed: undefined,
+        skippedNoOp: undefined,
+        appliedItems: [{ name: 'Ras Malai', description: 'Ras Malai: $6.99 → $7.99' }],
+      },
+    });
   });
 });
