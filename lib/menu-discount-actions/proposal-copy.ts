@@ -77,11 +77,20 @@ function objectiveLabel(action: ResolvableAction, items: ResolvedDiscountItem[])
   return 'Increase overall menu sales';
 }
 
-function effectiveAfterPrice(item: ResolvedDiscountItem): number | null {
-  if (!item.after.specialEnabled) return item.price;
-  if (item.after.specialType === 'fixed_price') return item.after.specialPrice;
-  if (item.after.specialType === 'percentage' && item.price !== null && item.after.specialPercent !== null) {
-    return item.price * (1 - item.after.specialPercent / 100);
+// Shared by both before/after: the price a customer actually pays for a
+// given special-state, not the static menu_items.price base — a currently-
+// discounted item's "Current" label must show what's being charged right
+// now (the discounted price), not the underlying base price, or a
+// clear_discount proposal's Before/After looks like a no-op ($6.99 -> $6.99)
+// even though a real change (the discount itself) is being removed.
+function effectivePrice(
+  price: number | null,
+  state: { specialEnabled: boolean; specialType: string | null; specialPercent: number | null; specialPrice: number | null },
+): number | null {
+  if (!state.specialEnabled) return price;
+  if (state.specialType === 'fixed_price') return state.specialPrice;
+  if (state.specialType === 'percentage' && price !== null && state.specialPercent !== null) {
+    return price * (1 - state.specialPercent / 100);
   }
   return null;
 }
@@ -92,13 +101,14 @@ function effectiveAfterPrice(item: ResolvedDiscountItem): number | null {
 const VISIBILITY_CHANNELS = ['Public Menu', 'Promotion Banner'];
 
 export function toItemView(item: ResolvedDiscountItem): ProposalItemView {
-  const afterPrice = effectiveAfterPrice(item);
+  const beforePrice = effectivePrice(item.price, item.before);
+  const afterPrice = effectivePrice(item.price, item.after);
   const badge = item.after.specialEnabled && item.after.specialType === 'percentage' ? `${item.after.specialPercent}% OFF` : undefined;
   return {
     id: item.id,
     name: item.name,
     categoryName: item.categoryName,
-    beforeLabel: item.price !== null ? `$${item.price.toFixed(2)}` : '—',
+    beforeLabel: beforePrice !== null ? `$${beforePrice.toFixed(2)}` : describeState(item.before),
     afterLabel: afterPrice !== null ? `$${afterPrice.toFixed(2)}` : describeState(item.after),
     badge,
   };
