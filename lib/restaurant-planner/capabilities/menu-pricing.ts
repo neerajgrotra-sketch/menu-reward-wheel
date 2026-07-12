@@ -37,14 +37,21 @@ import { resolveDiscountSchedule } from '@/lib/menu-discount-actions/schedule';
 import type { MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
 import type { PlannerCandidate } from '../types';
 import type { Confidence, PlanTask } from '../proposal';
-import type { CoverageKind } from '../tools/analytics';
 import { MIN_ORDERS_FOR_ANY_OPPORTUNITY } from '../revenue-intelligence/facts';
+import {
+  MATCH_EXPLANATION,
+  type DecisionCopyAdapter,
+  type Alternative,
+  type ImpactEstimate,
+} from '../decision-intelligence';
 
-export type DiscountImpactEstimate = {
-  revenueImpact: string | null;
-  margin: string | null;
-  warnings: string[];
-};
+// DiscountImpactEstimate is menu_pricing's own name for the shared
+// ImpactEstimate shape (lib/restaurant-planner/decision-intelligence.ts) —
+// kept as a local alias rather than importing ImpactEstimate directly at
+// every call site in this file, since every existing signature here already
+// says "Discount". Structurally identical, so this is a type alias, not a
+// separate shape.
+export type DiscountImpactEstimate = ImpactEstimate;
 
 // Rough demand-elasticity buckets by discount depth — intentionally coarse
 // and clearly labeled as an estimate. menu_items has no cost/COGS column, so
@@ -129,16 +136,6 @@ function describeDiscount(action: MenuDiscountAction): string {
     : `a fixed price of $${action.discount.value}`;
 }
 
-const MATCH_EXPLANATION: Record<MatchKind, string> = {
-  all: 'Every menu item was targeted explicitly.',
-  category_exact: 'The category name matched exactly.',
-  category_substring: 'The category name was matched approximately — double-check this is the right category.',
-  item_exact: 'The item name matched exactly.',
-  item_substring: 'The item name was matched approximately — double-check this is the right item.',
-  items_explicit: 'These items were selected explicitly.',
-  name_contains: 'Every item whose name contains the requested text was matched.',
-};
-
 export function explainProposal(params: {
   matchKind: MatchKind;
   itemCount: number;
@@ -157,201 +154,122 @@ export function explainProposal(params: {
   return `${MATCH_EXPLANATION[params.matchKind]} ${params.itemCount} ${itemWord} affected, ${describeDiscount(params.action)}, ${scheduleLine}.${impactLine}`;
 }
 
-// --- V2: Proposal Experience — evidence-based presentation composers -----
-// Everything below turns facts the engine already computes (matchKind,
-// impact, category coverage, order counts) into card copy. None of it
-// changes resolution, confidence, or apply behavior — these are called from
-// the preview route (see discount-action/preview/route.ts), not from
-// buildProposal, so a stale persisted proposal never shows facts fresher
-// than what was true when it was built.
+// --- Decision Intelligence — menu_pricing's DecisionCopyAdapter ----------
+// The domain-specific half of the Decision Card (see
+// lib/restaurant-planner/decision-intelligence.ts for the shared half and
+// the contract this implements). Every string below is byte-identical to
+// the standalone functions this replaced — a behavior-preserving move, not
+// a rewrite — now gathered into one factory so a preview route gets the
+// full adapter in one call instead of importing 7 functions individually.
+// `allPricesKnown` is pricing-specific derived data (are all resolved
+// items' prices non-null) the shared DecisionCopyAdapter interface doesn't
+// carry generically — captured here via closure instead, since it's not
+// something every future capability would have an equivalent of. `action`
+// is closed over too, so composeAlternatives/composeWhyThisRecommendation
+// can preserve the exact pre-existing rule that alternatives are only
+// meaningful for set_discount, never clear_discount (removing a discount
+// has no "alternative" to a discount) — previously a conditional inline in
+// the preview route, now inside the adapter where the route no longer
+// needs to know menu_pricing's action shape at all.
 
-export function explainProposalBullets(params: {
-  matchKind: MatchKind;
-  itemCount: number;
-  scheduleParseFailed: boolean;
-  impact: DiscountImpactEstimate;
-}): string[] {
-  const itemWord = params.itemCount === 1 ? 'item' : 'items';
-  const bullets = [MATCH_EXPLANATION[params.matchKind], `This change affects ${params.itemCount} ${itemWord}.`];
-  if (params.scheduleParseFailed) {
-    bullets.push("The requested start time couldn't be understood, so it will start immediately instead.");
-  }
-  if (params.impact.revenueImpact) {
-    bullets.push(`Estimated revenue impact: ${params.impact.revenueImpact}.`);
-  }
-  return bullets;
-}
-
-export function composeExecutiveSummary(params: { confidence: Confidence; considerationCount: number; impact: DiscountImpactEstimate }): string {
-  if (params.confidence === 'low') {
-    return 'Experimental recommendation — confidence is low, so treat this as a test rather than a sure win.';
-  }
-  if (params.considerationCount > 0) {
-    const pointWord = params.considerationCount === 1 ? 'one point' : `${params.considerationCount} points`;
-    return `Reasonable recommendation, with ${pointWord} worth reviewing before approving.`;
-  }
-  const impactPhrase = params.impact.revenueImpact
-    ? `expected to lift revenue ${params.impact.revenueImpact}`
-    : 'expected to have a modest, hard-to-measure effect';
-  return `Low-risk recommendation, ${impactPhrase}.`;
-}
-
-export function composeWhyNow(params: { campaignCoverage: CoverageKind; itemCoverage: CoverageKind; hasRecentDiscount: boolean }): string[] {
-  const signals: string[] = [];
-  if (params.campaignCoverage !== 'active') signals.push('No active campaign is currently running in this category.');
-  if (params.itemCoverage === 'none') signals.push('This category has no other active promotions right now.');
-  if (!params.hasRecentDiscount) signals.push('This item has not been discounted recently.');
-  if (signals.length === 0) signals.push('No special timing factors were detected for this recommendation.');
-  return signals;
-}
-
-export type ConfidenceEvidenceItem = { met: boolean; label: string };
-
-export function composeConfidenceEvidence(params: {
-  matchKind: MatchKind;
-  scheduleParseFailed: boolean;
-  allPricesKnown: boolean;
-  orderCount: number;
-}): ConfidenceEvidenceItem[] {
-  const strongMatch = params.matchKind === 'all' || params.matchKind === 'category_exact' || params.matchKind === 'item_exact' || params.matchKind === 'items_explicit';
-  const orderEvidenceAdequate = params.orderCount >= MIN_ORDERS_FOR_ANY_OPPORTUNITY;
-  return [
-    { met: strongMatch, label: strongMatch ? 'Strong item match' : 'Approximate item match — double-check this is the right item' },
-    { met: params.allPricesKnown, label: params.allPricesKnown ? 'Complete pricing information' : 'Some affected items are missing price data' },
-    { met: !params.scheduleParseFailed, label: params.scheduleParseFailed ? "Requested start time couldn't be understood" : 'Schedule understood as requested' },
-    {
-      met: orderEvidenceAdequate,
-      label: orderEvidenceAdequate
-        ? `${params.orderCount} completed orders in the last 30 days`
-        : `Only ${params.orderCount} completed order${params.orderCount === 1 ? '' : 's'} in the last 30 days`,
+export function makeMenuPricingDecisionCopyAdapter(action: MenuDiscountAction, params: { allPricesKnown: boolean }): DecisionCopyAdapter {
+  return {
+    composeExecutiveSummary: (facts) => {
+      if (facts.confidence === 'low') {
+        return 'Experimental recommendation — confidence is low, so treat this as a test rather than a sure win.';
+      }
+      if (facts.considerationCount > 0) {
+        const pointWord = facts.considerationCount === 1 ? 'one point' : `${facts.considerationCount} points`;
+        return `Reasonable recommendation, with ${pointWord} worth reviewing before approving.`;
+      }
+      const impactPhrase = facts.impact.revenueImpact
+        ? `expected to lift revenue ${facts.impact.revenueImpact}`
+        : 'expected to have a modest, hard-to-measure effect';
+      return `Low-risk recommendation, ${impactPhrase}.`;
     },
-  ];
-}
 
-export function composeConsiderations(params: { warnings: string[]; campaignOverlap: boolean; orderCount: number }): string[] {
-  const considerations = [...params.warnings];
-  if (params.campaignOverlap) considerations.push('An active campaign-level promotion already covers this category.');
-  if (params.orderCount < MIN_ORDERS_FOR_ANY_OPPORTUNITY) {
-    considerations.push(`Limited historical sales data — only ${params.orderCount} completed order${params.orderCount === 1 ? '' : 's'} in the last 30 days.`);
-  }
-  return considerations;
-}
+    composeWhyNow: (facts) => {
+      const signals: string[] = [];
+      if (facts.campaignCoverage !== 'active') signals.push('No active campaign is currently running in this category.');
+      if (facts.itemCoverage === 'none') signals.push('This category has no other active promotions right now.');
+      if (!facts.hasRecentActivity) signals.push('This item has not been discounted recently.');
+      if (signals.length === 0) signals.push('No special timing factors were detected for this recommendation.');
+      return signals;
+    },
 
-// --- V1: Decision Intelligence Layer — deterministic decision-quality
-// composers, layered on facts the V2 composers above already compute. Every
-// function below accepts only capability-agnostic inputs (Confidence,
-// evidence/consideration counts, dataQuality, plain string facts) — never
-// MatchKind or ResolvedDiscountItem — so a future capability can call these
-// unchanged once a capability-dispatch layer exists. Still only wired into
-// the menu_pricing preview route today; the dispatch layer itself is
-// separate, not-yet-started work.
+    composeConfidenceEvidence: (facts) => {
+      const strongMatch =
+        facts.matchKind === 'all' || facts.matchKind === 'category_exact' || facts.matchKind === 'item_exact' || facts.matchKind === 'items_explicit';
+      const orderEvidenceAdequate = facts.orderCount >= MIN_ORDERS_FOR_ANY_OPPORTUNITY;
+      return [
+        { met: strongMatch, label: strongMatch ? 'Strong item match' : 'Approximate item match — double-check this is the right item' },
+        { met: params.allPricesKnown, label: params.allPricesKnown ? 'Complete pricing information' : 'Some affected items are missing price data' },
+        { met: !facts.scheduleParseFailed, label: facts.scheduleParseFailed ? "Requested start time couldn't be understood" : 'Schedule understood as requested' },
+        {
+          met: orderEvidenceAdequate,
+          label: orderEvidenceAdequate
+            ? `${facts.orderCount} completed orders in the last 30 days`
+            : `Only ${facts.orderCount} completed order${facts.orderCount === 1 ? '' : 's'} in the last 30 days`,
+        },
+      ];
+    },
 
-export type DecisionTier = 'strong' | 'good' | 'moderate' | 'weak';
+    composeConsiderations: (facts) => {
+      const considerations = [...facts.warnings];
+      if (facts.campaignOverlap) considerations.push('An active campaign-level promotion already covers this category.');
+      if (facts.orderCount < MIN_ORDERS_FOR_ANY_OPPORTUNITY) {
+        considerations.push(`Limited historical sales data — only ${facts.orderCount} completed order${facts.orderCount === 1 ? '' : 's'} in the last 30 days.`);
+      }
+      return considerations;
+    },
 
-const DECISION_TIER_META: Record<DecisionTier, { emoji: string; label: string; verdict: string }> = {
-  strong: { emoji: '🟢', label: 'Recommended', verdict: 'Recommended.' },
-  good: { emoji: '🟡', label: 'Worth Testing', verdict: 'Recommended as an experiment.' },
-  moderate: { emoji: '🟠', label: 'Experimental', verdict: 'Treat this as an experiment and monitor results closely.' },
-  weak: { emoji: '🔴', label: 'Insufficient Evidence', verdict: 'Consider collecting more data before proceeding.' },
-};
+    // Decision 2: prefer real co-order evidence (evidenceBacked: true) over
+    // the two generic, always-applicable templates — the templates are only
+    // used as a fallback when no co-order pairs exist for the affected item(s).
+    // Not meaningful for clear_discount (removing a discount has no
+    // "alternative" to a discount) — preserves the exact pre-existing rule.
+    composeAlternatives: (facts) => {
+      if (action.type !== 'set_discount') return [];
+      const primary = facts.itemNames.length === 1 ? facts.itemNames[0] : 'these items';
+      const alternatives: Alternative[] = facts.coOrderedNames
+        .slice(0, 2)
+        .map((name) => ({ text: `Bundle ${primary} with ${name} — frequently ordered together`, evidenceBacked: true }));
+      if (alternatives.length === 0) {
+        alternatives.push(
+          { text: `Feature ${primary} on the menu instead of discounting it`, evidenceBacked: false },
+          { text: `Include ${primary} in a combo or bundle offer`, evidenceBacked: false },
+        );
+      }
+      return alternatives;
+    },
 
-// A point system over facts already surfaced in the Confidence section —
-// deliberately distinct from Confidence itself (match/data quality only):
-// this also weighs how many considerations were raised, so a high-confidence
-// match with several open considerations doesn't read as an unqualified "go."
-export function computeDecisionScore(params: {
-  confidence: Confidence;
-  evidenceMetCount: number;
-  dataQuality: 'good' | 'limited';
-  considerationCount: number;
-}): DecisionTier {
-  let points = 0;
-  points += params.confidence === 'high' ? 2 : params.confidence === 'medium' ? 1 : 0;
-  points += params.dataQuality === 'good' ? 1 : 0;
-  points += params.evidenceMetCount >= 3 ? 1 : 0;
-  points -= params.considerationCount >= 3 ? 2 : params.considerationCount >= 1 ? 1 : 0;
-  if (points >= 4) return 'strong';
-  if (points >= 2) return 'good';
-  if (points >= 0) return 'moderate';
-  return 'weak';
-}
+    // menu_pricing is currently the only registered, automatically-executable
+    // capability with a discount lever (tool-registry.ts) — bundling or
+    // featuring an item has no apply path yet, which is the real (not
+    // fabricated) reason a direct discount is recommended over the
+    // alternatives above. null for clear_discount, matching the pre-existing
+    // rule (never "No deterministic alternative..." filler for a removal).
+    composeWhyThisRecommendation: (alternatives) => {
+      if (action.type !== 'set_discount') return null;
+      if (alternatives.length === 0) {
+        return 'No deterministic alternative was identified — this is the most direct way to reach the objective.';
+      }
+      const considered = alternatives.map((a) => a.text).join('; ');
+      return `${considered}. A direct discount is recommended first because it is the change Ask SpinBite can apply automatically today — the alternatives above would need to be set up manually.`;
+    },
 
-export type DecisionSummary = { tier: DecisionTier; emoji: string; label: string; bullets: string[] };
-
-// The owner-facing "Should I Do This?" verdict — a business recommendation
-// level, distinct from (and displayed alongside, not instead of) the
-// underlying Confidence badge.
-export function composeDecisionSummary(params: { tier: DecisionTier; supportingFacts: string[]; riskFacts: string[] }): DecisionSummary {
-  const meta = DECISION_TIER_META[params.tier];
-  const bullets = [...params.supportingFacts.slice(0, 2), ...params.riskFacts.slice(0, 2)];
-  if (bullets.length === 0) bullets.push('No additional evidence is available yet.');
-  bullets.push(meta.verdict);
-  return { tier: params.tier, emoji: meta.emoji, label: meta.label, bullets };
-}
-
-export type Tradeoffs = { benefits: string[]; tradeoffs: string[] };
-
-// Regroups facts the V2 composers already produced (whyNow/reasoningBullets
-// as benefits, considerations as tradeoffs) under consultant-report framing
-// — no new facts, just a second lens on the same evidence.
-export function composeTradeoffs(params: { benefitSignals: string[]; riskSignals: string[] }): Tradeoffs {
-  return { benefits: Array.from(new Set(params.benefitSignals)), tradeoffs: Array.from(new Set(params.riskSignals)) };
-}
-
-export type Alternative = { text: string; evidenceBacked: boolean };
-
-// Decision 2: prefer real co-order evidence (evidenceBacked: true) over the
-// two generic, always-applicable templates — the templates are only used as
-// a fallback when no co-order pairs exist for the affected item(s).
-export function composeAlternatives(params: { itemNames: string[]; coOrderedNames: string[] }): Alternative[] {
-  const primary = params.itemNames.length === 1 ? params.itemNames[0] : 'these items';
-  const alternatives: Alternative[] = params.coOrderedNames
-    .slice(0, 2)
-    .map((name) => ({ text: `Bundle ${primary} with ${name} — frequently ordered together`, evidenceBacked: true }));
-  if (alternatives.length === 0) {
-    alternatives.push(
-      { text: `Feature ${primary} on the menu instead of discounting it`, evidenceBacked: false },
-      { text: `Include ${primary} in a combo or bundle offer`, evidenceBacked: false },
-    );
-  }
-  return alternatives;
-}
-
-// menu_pricing is currently the only registered, automatically-executable
-// capability (tool-registry.ts) — bundling or featuring an item has no apply
-// path yet, which is the real (not fabricated) reason a direct discount is
-// recommended over the alternatives above.
-export function composeWhyThisRecommendation(alternatives: Alternative[]): string {
-  if (alternatives.length === 0) {
-    return 'No deterministic alternative was identified — this is the most direct way to reach the objective.';
-  }
-  const considered = alternatives.map((a) => a.text).join('; ');
-  return `${considered}. A direct discount is recommended first because it is the change Ask SpinBite can apply automatically today — the alternatives above would need to be set up manually.`;
-}
-
-// Named after the real read-only tools that already exist (tools/analytics.ts)
-// — never invents a metric with no query backing it. "Promotion redemption"
-// is deliberately not listed here: a menu_items special has no separate
-// redemption event, unlike a coupon.
-export function composeSuccessMetrics(params: { itemNames: string[]; categoryName: string | null }): string[] {
-  const itemWord = params.itemNames.length === 1 ? params.itemNames[0] : 'these items';
-  const metrics = [`Orders containing ${itemWord}`];
-  if (params.categoryName) metrics.push(`${params.categoryName} category revenue`);
-  metrics.push('Average order value');
-  return metrics;
-}
-
-export type MonitoringReminder = { days: 1 | 3 | 7; label: string };
-
-const MONITORING_REMINDER_BY_TIER: Record<DecisionTier, MonitoringReminder> = {
-  strong: { days: 7, label: 'Check performance after 1 week.' },
-  good: { days: 3, label: 'Check performance after 3 days.' },
-  moderate: { days: 3, label: 'Check performance after 3 days.' },
-  weak: { days: 1, label: 'Check performance after 1 day.' },
-};
-
-export function composeMonitoringReminder(tier: DecisionTier): MonitoringReminder {
-  return MONITORING_REMINDER_BY_TIER[tier];
+    // Named after the real read-only tools that already exist
+    // (tools/analytics.ts) — never invents a metric with no query backing
+    // it. "Promotion redemption" is deliberately not listed here: a
+    // menu_items special has no separate redemption event, unlike a coupon.
+    composeSuccessMetrics: (facts) => {
+      const itemWord = facts.itemNames.length === 1 ? facts.itemNames[0] : 'these items';
+      const metrics = [`Orders containing ${itemWord}`];
+      if (facts.categoryName) metrics.push(`${facts.categoryName} category revenue`);
+      metrics.push('Average order value');
+      return metrics;
+    },
+  };
 }
 
 function candidatesWithCategory(

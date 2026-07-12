@@ -4,6 +4,7 @@ import type { Json } from '@/lib/supabase/database.types';
 import { runPlannerTurn } from '@/lib/restaurant-planner/planner-engine';
 import { PlannerParseError } from '@/lib/restaurant-planner/types';
 import { buildProposal } from '@/lib/restaurant-planner/capabilities/menu-pricing';
+import { buildProposal as buildMenuEditProposal } from '@/lib/restaurant-planner/capabilities/menu-edit';
 import { insertProposalVersion, findOpenProposalGroup } from '@/lib/restaurant-planner/proposals';
 import { isCapabilityAvailable, explainCapabilityUnavailable, describeUnsupportedRequest } from '@/lib/restaurant-planner/tool-registry';
 import { getRestaurant } from '@/lib/restaurant-planner/tools/restaurant';
@@ -11,6 +12,7 @@ import { getConversationContext } from '@/lib/restaurant-planner/tools/conversat
 import type { ToolContext } from '@/lib/restaurant-planner/tools/types';
 import { checkRateLimit, incrementUsage, makeServiceClient, clientSafeError } from '@/lib/intelligence/generate-route-helpers';
 import { describeProposedAction } from '@/lib/dashboard-assistant/describe-action';
+import { describeProposedMenuEditAction } from '@/lib/dashboard-assistant/describe-menu-edit-action';
 import { generateRevenueOpportunities } from '@/lib/restaurant-planner/capabilities/revenue-intelligence';
 import { REVENUE_GOAL_LABEL } from '@/lib/restaurant-planner/types';
 
@@ -160,7 +162,7 @@ export async function POST(request: Request) {
     await incrementUsage(serviceClient, restaurantId, limits);
 
     let content: string;
-    let intent: 'answer' | 'clarification' | 'unsupported' | 'menu_discount_action' | 'revenue_opportunities';
+    let intent: 'answer' | 'clarification' | 'unsupported' | 'menu_discount_action' | 'revenue_opportunities' | 'menu_edit_action';
     let action: Json | null = null;
     let capability: string | null = null;
     let candidates: Json | null = null;
@@ -296,6 +298,66 @@ export async function POST(request: Request) {
 
             content = describeProposedAction(turn.output.action);
             intent = 'menu_discount_action';
+            capability = turn.output.capability;
+            action = turn.output.action as unknown as Json;
+            proposalGroupId = proposal.proposal_group_id;
+            proposalId = proposal.id;
+            proposalPayload = proposal;
+          }
+          break;
+        }
+        case 'menu_edit_action': {
+          // Same capability-gate/refersToProposalId/build-or-clarify shape
+          // as menu_discount_action above — the menu_edit sibling, swapping
+          // in capabilities/menu-edit.ts's buildProposal and
+          // describeProposedMenuEditAction. No new pattern introduced here.
+          const available = await isCapabilityAvailable(serviceClient, {
+            capabilityKey: turn.output.capability,
+            restaurantId,
+            ownerId: userId,
+          });
+          if (!available) {
+            content = explainCapabilityUnavailable(turn.output.capability);
+            intent = 'unsupported';
+            capability = turn.output.capability;
+            break;
+          }
+
+          let targetGroupId: string | undefined;
+          if (turn.output.refersToProposalId) {
+            const openGroup = await findOpenProposalGroup(authClient, {
+              proposalGroupId: turn.output.refersToProposalId,
+              conversationId: activeConversationId,
+              restaurantId,
+            });
+            targetGroupId = openGroup?.proposal_group_id;
+          }
+
+          const built = await buildMenuEditProposal(authClient, restaurantId, turn.output.action);
+
+          if (built.kind === 'unresolved') {
+            content = built.reason;
+            intent = 'clarification';
+            capability = turn.output.capability;
+            action = turn.output.action as unknown as Json;
+            candidates = (built.candidates as unknown as Json) ?? null;
+          } else {
+            const proposal = await insertProposalVersion(authClient, {
+              proposalGroupId: targetGroupId,
+              restaurantId,
+              conversationId: activeConversationId,
+              capability: turn.output.capability,
+              action: turn.output.action as unknown as Json,
+              resolvedSnapshot: built.resolveResult.items as unknown as Json,
+              confidence: built.confidence,
+              reasoning: built.reasoning,
+              planTasks: built.planTasks as unknown as Json,
+              status: targetGroupId ? 'modified' : 'draft',
+              createdBy: userId,
+            });
+
+            content = describeProposedMenuEditAction(turn.output.action);
+            intent = 'menu_edit_action';
             capability = turn.output.capability;
             action = turn.output.action as unknown as Json;
             proposalGroupId = proposal.proposal_group_id;

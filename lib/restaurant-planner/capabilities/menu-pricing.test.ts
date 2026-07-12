@@ -1,23 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { estimateDiscountImpact, computeConfidence, buildPlanTasks, explainProposal, revalidateProposal, makeMenuPricingDecisionCopyAdapter } from './menu-pricing';
 import {
-  estimateDiscountImpact,
-  computeConfidence,
-  buildPlanTasks,
-  explainProposal,
-  revalidateProposal,
-  composeExecutiveSummary,
-  composeWhyNow,
-  composeConfidenceEvidence,
-  composeConsiderations,
   explainProposalBullets,
   computeDecisionScore,
   composeDecisionSummary,
   composeTradeoffs,
-  composeAlternatives,
-  composeWhyThisRecommendation,
-  composeSuccessMetrics,
   composeMonitoringReminder,
-} from './menu-pricing';
+} from '../decision-intelligence';
 import type { ResolvableAction, ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
 import type { MenuDiscountAction } from '@/lib/intelligence/actions/menu-discount-schema';
 
@@ -41,6 +30,21 @@ function resolvedItem(overrides: Partial<ResolvedDiscountItem>): ResolvedDiscoun
     ...overrides,
   };
 }
+
+// The domain-specific composers (composeExecutiveSummary, composeWhyNow,
+// composeConfidenceEvidence, composeConsiderations, composeAlternatives,
+// composeWhyThisRecommendation, composeSuccessMetrics) now live behind
+// makeMenuPricingDecisionCopyAdapter (Decision Intelligence composition
+// layer — see decision-intelligence.ts). Most of these tests don't depend
+// on the specific action, so one representative set_discount action covers
+// them; composeAlternatives/composeWhyThisRecommendation specifically test
+// the set_discount-vs-clear_discount branch.
+const setDiscountAction: MenuDiscountAction = {
+  type: 'set_discount',
+  target: { scope: 'item', name: 'Cardamom Chai' },
+  discount: { discountType: 'percentage', value: 20 },
+};
+const clearDiscountAction: MenuDiscountAction = { type: 'clear_discount', target: { scope: 'item', name: 'Cardamom Chai' } };
 
 describe('estimateDiscountImpact', () => {
   it('returns no impact/margin/warnings for clear_discount', () => {
@@ -208,86 +212,94 @@ describe('revalidateProposal (V2 — pre-execution staleness check)', () => {
   });
 });
 
-describe('composeExecutiveSummary (V2 — backfilled)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeExecutiveSummary (V2 — backfilled)', () => {
+  const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+
   it('labels a low-confidence recommendation as experimental regardless of considerations or impact', () => {
-    const text = composeExecutiveSummary({ confidence: 'low', considerationCount: 0, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
+    const text = adapter.composeExecutiveSummary({ confidence: 'low', considerationCount: 0, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
     expect(text).toMatch(/Experimental recommendation/);
   });
 
   it('surfaces the consideration count when there are open considerations, regardless of confidence', () => {
-    const text = composeExecutiveSummary({ confidence: 'high', considerationCount: 2, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    const text = adapter.composeExecutiveSummary({ confidence: 'high', considerationCount: 2, impact: { revenueImpact: null, margin: null, warnings: [] } });
     expect(text).toContain('2 points worth reviewing');
   });
 
   it('uses singular phrasing for exactly one consideration', () => {
-    const text = composeExecutiveSummary({ confidence: 'high', considerationCount: 1, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    const text = adapter.composeExecutiveSummary({ confidence: 'high', considerationCount: 1, impact: { revenueImpact: null, margin: null, warnings: [] } });
     expect(text).toContain('one point worth reviewing');
   });
 
   it('cites the revenue impact for a clean high-confidence, no-consideration recommendation', () => {
-    const text = composeExecutiveSummary({ confidence: 'high', considerationCount: 0, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
+    const text = adapter.composeExecutiveSummary({ confidence: 'high', considerationCount: 0, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
     expect(text).toContain('Low-risk recommendation');
     expect(text).toContain('+6–10%');
   });
 
   it('falls back to a hard-to-measure phrase when there is no revenue impact figure', () => {
-    const text = composeExecutiveSummary({ confidence: 'medium', considerationCount: 0, impact: { revenueImpact: null, margin: null, warnings: [] } });
+    const text = adapter.composeExecutiveSummary({ confidence: 'medium', considerationCount: 0, impact: { revenueImpact: null, margin: null, warnings: [] } });
     expect(text).toContain('modest, hard-to-measure effect');
   });
 });
 
-describe('composeWhyNow (V2 — backfilled)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeWhyNow (V2 — backfilled)', () => {
+  const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+
   it('lists every applicable timing signal', () => {
-    const signals = composeWhyNow({ campaignCoverage: 'none', itemCoverage: 'none', hasRecentDiscount: false });
+    const signals = adapter.composeWhyNow({ campaignCoverage: 'none', itemCoverage: 'none', hasRecentActivity: false });
     expect(signals).toHaveLength(3);
   });
 
   it('omits a signal whose condition does not hold', () => {
-    const signals = composeWhyNow({ campaignCoverage: 'active', itemCoverage: 'none', hasRecentDiscount: false });
-    expect(signals.some((s) => s.includes('No active campaign'))).toBe(false);
+    const signals = adapter.composeWhyNow({ campaignCoverage: 'active', itemCoverage: 'none', hasRecentActivity: false });
+    expect(signals.some((s: string) => s.includes('No active campaign'))).toBe(false);
   });
 
   it('falls back to "no special timing factors" when every signal is absent', () => {
-    const signals = composeWhyNow({ campaignCoverage: 'active', itemCoverage: 'active', hasRecentDiscount: true });
+    const signals = adapter.composeWhyNow({ campaignCoverage: 'active', itemCoverage: 'active', hasRecentActivity: true });
     expect(signals).toEqual(['No special timing factors were detected for this recommendation.']);
   });
 });
 
-describe('composeConfidenceEvidence (V2 — backfilled)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeConfidenceEvidence (V2 — backfilled)', () => {
   it('marks all four checks met for a strong, fully-informed, adequately-ordered item', () => {
-    const evidence = composeConfidenceEvidence({ matchKind: 'item_exact', scheduleParseFailed: false, allPricesKnown: true, orderCount: 10 });
-    expect(evidence.every((e) => e.met)).toBe(true);
+    const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+    const evidence = adapter.composeConfidenceEvidence({ matchKind: 'item_exact', scheduleParseFailed: false, orderCount: 10 });
+    expect(evidence.every((e: { met: boolean }) => e.met)).toBe(true);
     expect(evidence).toHaveLength(4);
   });
 
   it('marks the match, pricing, schedule, and order-count checks unmet independently', () => {
-    const evidence = composeConfidenceEvidence({ matchKind: 'item_substring', scheduleParseFailed: true, allPricesKnown: false, orderCount: 1 });
-    expect(evidence.every((e) => !e.met)).toBe(true);
+    const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: false });
+    const evidence = adapter.composeConfidenceEvidence({ matchKind: 'item_substring', scheduleParseFailed: true, orderCount: 1 });
+    expect(evidence.every((e: { met: boolean }) => !e.met)).toBe(true);
   });
 });
 
-describe('composeConsiderations (V2 — backfilled)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeConsiderations (V2 — backfilled)', () => {
+  const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+
   it('passes warnings through untouched', () => {
-    const considerations = composeConsiderations({ warnings: ['Margin estimate unavailable.'], campaignOverlap: false, orderCount: 10 });
+    const considerations = adapter.composeConsiderations({ warnings: ['Margin estimate unavailable.'], campaignOverlap: false, orderCount: 10 });
     expect(considerations).toEqual(['Margin estimate unavailable.']);
   });
 
   it('appends a campaign-overlap consideration when one exists', () => {
-    const considerations = composeConsiderations({ warnings: [], campaignOverlap: true, orderCount: 10 });
+    const considerations = adapter.composeConsiderations({ warnings: [], campaignOverlap: true, orderCount: 10 });
     expect(considerations).toContain('An active campaign-level promotion already covers this category.');
   });
 
   it('appends a limited-data consideration below the minimum order threshold', () => {
-    const considerations = composeConsiderations({ warnings: [], campaignOverlap: false, orderCount: 2 });
-    expect(considerations.some((c) => c.includes('Limited historical sales data'))).toBe(true);
+    const considerations = adapter.composeConsiderations({ warnings: [], campaignOverlap: false, orderCount: 2 });
+    expect(considerations.some((c: string) => c.includes('Limited historical sales data'))).toBe(true);
   });
 
   it('returns an empty list when nothing is wrong', () => {
-    expect(composeConsiderations({ warnings: [], campaignOverlap: false, orderCount: 10 })).toEqual([]);
+    expect(adapter.composeConsiderations({ warnings: [], campaignOverlap: false, orderCount: 10 })).toEqual([]);
   });
 });
 
-describe('explainProposalBullets (V2 — backfilled)', () => {
+describe('explainProposalBullets (decision-intelligence.ts — shared, capability-agnostic)', () => {
   it('bullets the match explanation, item count, and revenue impact', () => {
     const bullets = explainProposalBullets({ matchKind: 'item_exact', itemCount: 1, scheduleParseFailed: false, impact: { revenueImpact: '+6–10%', margin: null, warnings: [] } });
     expect(bullets).toContain('This change affects 1 item.');
@@ -300,7 +312,7 @@ describe('explainProposalBullets (V2 — backfilled)', () => {
   });
 });
 
-describe('computeDecisionScore (V1 — Decision Intelligence Layer)', () => {
+describe('computeDecisionScore (decision-intelligence.ts — shared, capability-agnostic)', () => {
   it('is strong for high confidence, good data, strong evidence, and no considerations', () => {
     expect(computeDecisionScore({ confidence: 'high', evidenceMetCount: 4, dataQuality: 'good', considerationCount: 0 })).toBe('strong');
   });
@@ -321,7 +333,7 @@ describe('computeDecisionScore (V1 — Decision Intelligence Layer)', () => {
   });
 });
 
-describe('composeDecisionSummary (V1)', () => {
+describe('composeDecisionSummary (decision-intelligence.ts — shared, capability-agnostic)', () => {
   it('maps each tier to its owner-facing emoji and label', () => {
     expect(composeDecisionSummary({ tier: 'strong', supportingFacts: [], riskFacts: [] })).toMatchObject({ emoji: '🟢', label: 'Recommended' });
     expect(composeDecisionSummary({ tier: 'good', supportingFacts: [], riskFacts: [] })).toMatchObject({ emoji: '🟡', label: 'Worth Testing' });
@@ -344,7 +356,7 @@ describe('composeDecisionSummary (V1)', () => {
   });
 });
 
-describe('composeTradeoffs (V1)', () => {
+describe('composeTradeoffs (decision-intelligence.ts — shared, capability-agnostic)', () => {
   it('deduplicates repeated benefit and risk signals', () => {
     const result = composeTradeoffs({ benefitSignals: ['Low risk.', 'Low risk.'], riskSignals: ['Limited data.'] });
     expect(result.benefits).toEqual(['Low risk.']);
@@ -356,62 +368,78 @@ describe('composeTradeoffs (V1)', () => {
   });
 });
 
-describe('composeAlternatives (V1)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeAlternatives (V1)', () => {
+  const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+
   it('prefers real co-order evidence over generic templates', () => {
-    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['Rasmalai', 'Gulab Jamun'] });
+    const alternatives = adapter.composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['Rasmalai', 'Gulab Jamun'] });
     expect(alternatives).toHaveLength(2);
     expect(alternatives.every((a) => a.evidenceBacked)).toBe(true);
     expect(alternatives[0].text).toContain('Bundle Kashmiri Chai with Rasmalai');
   });
 
   it('caps evidence-backed alternatives at two even with more co-ordered items', () => {
-    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['A', 'B', 'C'] });
+    const alternatives = adapter.composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['A', 'B', 'C'] });
     expect(alternatives).toHaveLength(2);
   });
 
   it('falls back to generic, non-evidence-backed templates only when no co-order data exists', () => {
-    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: [] });
+    const alternatives = adapter.composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: [] });
     expect(alternatives).toHaveLength(2);
     expect(alternatives.every((a) => !a.evidenceBacked)).toBe(true);
   });
 
   it('uses a generic plural label for multi-item proposals', () => {
-    const alternatives = composeAlternatives({ itemNames: ['Kashmiri Chai', 'Masala Chai'], coOrderedNames: [] });
+    const alternatives = adapter.composeAlternatives({ itemNames: ['Kashmiri Chai', 'Masala Chai'], coOrderedNames: [] });
     expect(alternatives[0].text).toContain('these items');
+  });
+
+  it('returns no alternatives for clear_discount — removing a discount has no "alternative" to a discount', () => {
+    const clearAdapter = makeMenuPricingDecisionCopyAdapter(clearDiscountAction, { allPricesKnown: true });
+    expect(clearAdapter.composeAlternatives({ itemNames: ['Kashmiri Chai'], coOrderedNames: ['Rasmalai'] })).toEqual([]);
   });
 });
 
-describe('composeWhyThisRecommendation (V1)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeWhyThisRecommendation (V1)', () => {
+  const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+
   it('explains the direct-discount choice against real alternatives', () => {
-    const text = composeWhyThisRecommendation([{ text: 'Bundle Kashmiri Chai with Rasmalai — frequently ordered together', evidenceBacked: true }]);
+    const text = adapter.composeWhyThisRecommendation([{ text: 'Bundle Kashmiri Chai with Rasmalai — frequently ordered together', evidenceBacked: true }]);
     expect(text).toContain('Bundle Kashmiri Chai with Rasmalai');
     expect(text).toContain('Ask SpinBite can apply automatically today');
   });
 
   it('does not fabricate an alternative when none exist', () => {
-    const text = composeWhyThisRecommendation([]);
+    const text = adapter.composeWhyThisRecommendation([]);
     expect(text).toBe('No deterministic alternative was identified — this is the most direct way to reach the objective.');
+  });
+
+  it('is null for clear_discount, matching the pre-existing rule (never filler text for a removal)', () => {
+    const clearAdapter = makeMenuPricingDecisionCopyAdapter(clearDiscountAction, { allPricesKnown: true });
+    expect(clearAdapter.composeWhyThisRecommendation([])).toBeNull();
   });
 });
 
-describe('composeSuccessMetrics (V1)', () => {
+describe('makeMenuPricingDecisionCopyAdapter().composeSuccessMetrics (V1)', () => {
+  const adapter = makeMenuPricingDecisionCopyAdapter(setDiscountAction, { allPricesKnown: true });
+
   it('includes an item-order metric and average order value for a single item with no category', () => {
-    const metrics = composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: null });
+    const metrics = adapter.composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: null });
     expect(metrics).toEqual(['Orders containing Kashmiri Chai', 'Average order value']);
   });
 
   it('adds a category-revenue metric when a single category is known', () => {
-    const metrics = composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: 'Beverages' });
+    const metrics = adapter.composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: 'Beverages' });
     expect(metrics).toContain('Beverages category revenue');
   });
 
   it('never lists promotion redemption — menu_items specials have no redemption event', () => {
-    const metrics = composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: 'Beverages' });
-    expect(metrics.some((m) => m.toLowerCase().includes('redemption'))).toBe(false);
+    const metrics = adapter.composeSuccessMetrics({ itemNames: ['Kashmiri Chai'], categoryName: 'Beverages' });
+    expect(metrics.some((m: string) => m.toLowerCase().includes('redemption'))).toBe(false);
   });
 });
 
-describe('composeMonitoringReminder (V1)', () => {
+describe('composeMonitoringReminder (decision-intelligence.ts — shared, capability-agnostic)', () => {
   it('recommends a longer review window for a strong recommendation and a shorter one for a weak one', () => {
     expect(composeMonitoringReminder('strong')).toEqual({ days: 7, label: 'Check performance after 1 week.' });
     expect(composeMonitoringReminder('weak')).toEqual({ days: 1, label: 'Check performance after 1 day.' });

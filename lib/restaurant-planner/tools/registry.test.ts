@@ -32,9 +32,18 @@ describe('TOOL_REGISTRY', () => {
     expect(TOOL_REGISTRY.revalidateProposal).toBe(TOOL_REGISTRY.validateProposal);
   });
 
-  it('has exactly one write tool: applyPromotion', () => {
+  it('has exactly two write tools: applyPromotion and applyMenuEdit — one per capability with real write access', () => {
     const writeTools = Object.entries(TOOL_REGISTRY).filter(([, tool]) => tool.permission === 'write');
-    expect(writeTools.map(([key]) => key)).toEqual(['applyPromotion']);
+    expect(writeTools.map(([key]) => key).sort()).toEqual(['applyMenuEdit', 'applyPromotion']);
+  });
+
+  it('registers all 3 menu_agent tools, none of them the model-callable write tool by default expectation elsewhere in this suite', () => {
+    const names = ['createMenuEditDraft', 'previewMenuEdit', 'applyMenuEdit'];
+    for (const name of names) {
+      const tool = TOOL_REGISTRY[name];
+      expect(tool, name).toBeDefined();
+      expect(tool.capability, name).toBe('menu_agent');
+    }
   });
 
   it('registers all 7 Revenue Intelligence analytics tools as read-only, non-mutating, revenue_intelligence-tagged', () => {
@@ -84,5 +93,11 @@ describe('listToolsForCapability', () => {
 
   it('returns an empty array for a capability with no registered tools', () => {
     expect(listToolsForCapability('analytics_agent')).toEqual([]);
+  });
+
+  it('returns exactly the 3 menu_agent tools', () => {
+    const tools = listToolsForCapability('menu_agent');
+    expect(tools).toHaveLength(3);
+    expect(tools.every((t) => t.capability === 'menu_agent')).toBe(true);
   });
 });

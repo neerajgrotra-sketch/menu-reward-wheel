@@ -13,6 +13,7 @@ import { isProposalLive, isClarificationLive, hasResolvedOutcome, isOpportunityL
 import type { ConversationSummary } from '@/lib/dashboard-assistant/conversation-summary';
 import type { Database } from '@/lib/supabase/database.types';
 import type { RevenueGoalKey, RevenueOpportunity } from '@/lib/restaurant-planner/types';
+import { CAPABILITY_REGISTRY } from '@/lib/restaurant-planner/tool-registry';
 
 type ProposalRow = Database['public']['Tables']['restaurant_planner_proposals']['Row'];
 
@@ -729,20 +730,36 @@ function ChatTurn({
     );
   }
 
-  // 'menu_discount_action' is the one capability with a real ProposalCard
-  // today (lib/restaurant-planner/tool-registry.ts's CAPABILITY_REGISTRY —
-  // the other 8 entries are metadata-only stubs). 'unsupported' falls
-  // through to the default bubble below, same as 'answer'.
-  if (message.intent === 'menu_discount_action') {
+  // 'menu_discount_action' (menu_pricing) and 'menu_edit_action' (menu_agent)
+  // both render through the same capability-generic ProposalCard —
+  // lib/restaurant-planner/tool-registry.ts's CAPABILITY_REGISTRY supplies
+  // the preview/apply endpoints per capability (the other 7 registry
+  // entries are still metadata-only stubs). 'unsupported' falls through to
+  // the default bubble below, same as 'answer'.
+  if (message.intent === 'menu_discount_action' || message.intent === 'menu_edit_action') {
     if (dismissed) return withTimestamp(<div className={inertClass}>{message.content} — dismissed.</div>);
-    if (isProposalLive(message, messages) && conversationId) {
+    if (isProposalLive(message, messages) && conversationId && message.capability) {
+      const registryEntry = CAPABILITY_REGISTRY[message.capability as keyof typeof CAPABILITY_REGISTRY];
+      const endpoints = registryEntry && 'previewEndpoint' in registryEntry ? registryEntry : null;
+      if (!endpoints) return withTimestamp(<div className={inertClass}>{message.content}</div>);
+      // Schedule resolution ("19:00" -> a real timestamp using the browser's
+      // local time) only applies to menu_pricing's discount actions —
+      // menu_edit has no schedule concept, so its action passes through
+      // opaquely, exactly as the model produced it.
+      const action =
+        message.intent === 'menu_discount_action'
+          ? toResolvableAction(message.action as unknown as MenuDiscountAction)
+          : message.action;
       return (
         <div>
           <div className={bubbleClass}>{message.content}</div>
           <p className="mt-1 text-[10px] font-semibold text-stone-300">{timestamp}</p>
           <ProposalCard
             restaurantId={restaurantId}
-            action={toResolvableAction(message.action as unknown as MenuDiscountAction)}
+            action={action}
+            capability={message.capability}
+            previewEndpoint={endpoints.previewEndpoint}
+            applyEndpoint={endpoints.applyEndpoint}
             proposal={proposal}
             conversationId={conversationId}
             messageId={message.id}

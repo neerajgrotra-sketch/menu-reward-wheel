@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { ResolvableAction, ResolvedDiscountItem } from '@/lib/menu-discount-actions/resolve';
+import type { ProposalItemView, ProposalCopy } from '@/lib/restaurant-planner/proposal-view';
 import type { DashboardAssistantMessage } from '@/lib/dashboard-assistant/types';
 import type { ActionOutcomePayload } from '@/lib/dashboard-assistant/outcome';
 import type { Database } from '@/lib/supabase/database.types';
@@ -12,20 +12,36 @@ import { CONFIDENCE_STYLE, DECISION_TIER_STYLE } from './confidence-style';
 // for a restaurant owner: it should answer "what, why, why now, what
 // happens, how confident, can I safely act" without the owner reading the
 // surrounding chat. Every fact rendered here (confidence, impact, why-now
-// signals, considerations) is composed server-side from real data — see
-// discount-action/preview/route.ts and
-// lib/restaurant-planner/capabilities/menu-pricing.ts's compose* functions —
-// never fabricated client-side. Nothing about resolution, confidence
+// signals, considerations, and — as of the menu_edit generalization below —
+// title/recommendation/objective/schedule/item labels too) is composed
+// server-side from real data by whichever capability's preview route built
+// it — never fabricated client-side. Nothing about resolution, confidence
 // scoring, apply, or versioning changes here; this is presentation only.
 //
+// Capability-generic (menu_edit generalization): this component used to be
+// hardcoded to menu_pricing's ResolvableAction/ResolvedDiscountItem shapes
+// and a handful of client-side label functions despite the "never
+// fabricate client-side" claim above. It is now fully capability-opaque —
+// `action` is never inspected, only serialized into the preview/apply
+// request bodies — and every capability's preview route (see
+// discount-action/preview/route.ts and edit-action/preview/route.ts)
+// composes the same generic ProposalItemView[]/ProposalCopy shape
+// (lib/restaurant-planner/proposal-view.ts) via a small capability-specific
+// composer (lib/menu-discount-actions/proposal-copy.ts,
+// lib/menu-edit-actions/proposal-copy.ts). One consequence: item labels and
+// the header title are now only available once the background /preview
+// call resolves — previously a persisted proposal's raw snapshot could
+// render an instant approximation client-side; that snapshot is
+// capability-specific and can no longer safely be interpreted generically
+// here, so the loading state (already used by most of this card's other
+// sections) covers this gap too, typically for one fetch round-trip.
+//
 // V2 (proposal persistence): the `proposal` prop (a persisted
-// restaurant_planner_proposals row) is what makes the initial render instant
-// — matched items, confidence, and reasoning are already known from when the
-// message was created. A background /preview call (still made, now carrying
-// proposalId) refreshes impact/evidence and revalidates the snapshot against
-// live data — if something changed since the proposal was shown, Approve is
-// disabled and a warning explains why, rather than silently applying against
-// stale numbers.
+// restaurant_planner_proposals row) still makes confidence/reasoning
+// available instantly on reload (both are plain, capability-agnostic
+// strings persisted at proposal-build time) — only the item-level Before/
+// After view and the header/recommendation copy wait on the background
+// /preview call.
 
 type ProposalRow = Database['public']['Tables']['restaurant_planner_proposals']['Row'];
 type PlanTask = { id: string; label: string; status: 'pending' | 'completed' | 'blocked' | 'failed' };
@@ -41,7 +57,8 @@ type MonitoringReminder = { days: 1 | 3 | 7; label: string };
 type PreviewResponse =
   | {
       resolved: true;
-      items: ResolvedDiscountItem[];
+      items: ProposalItemView[];
+      copy: ProposalCopy;
       revenueImpact: string | null;
       margin: string | null;
       warnings: string[];
@@ -63,12 +80,6 @@ type PreviewResponse =
   | { resolved: false; reason: string; candidates?: string[] };
 
 type ApplyResponse = { applied: number; total: number; failed?: Array<{ name: string; error?: string }>; skippedNoOp?: string[] };
-
-// Visibility is static in Phase 1 — every menu_pricing promotion surfaces in
-// these two real places; there's no distinct "public menu" surface (the
-// public route customers reach via QR *is* the public menu) and no
-// per-proposal channel control yet.
-const VISIBILITY_CHANNELS = ['Public Menu', 'Promotion Banner'];
 
 const PLAN_TASK_ICON: Record<PlanTask['status'], string> = {
   completed: '✓',
@@ -95,7 +106,14 @@ const LIFECYCLE_STYLE: Record<Lifecycle, string> = {
 
 type Props = {
   restaurantId: string;
-  action: ResolvableAction;
+  // Never inspected — only ever JSON.stringify'd into the preview/apply
+  // request bodies. The capability-specific action shape (MenuDiscountAction,
+  // MenuEditAction, ...) is a concern of the route on the other end, not
+  // this card.
+  action: unknown;
+  capability: string;
+  previewEndpoint: string;
+  applyEndpoint: string;
   proposal?: ProposalRow | null;
   onDismiss: () => void;
   // When present, resolving this proposal (ambiguous / applied / cancelled)
@@ -118,100 +136,22 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function describeState(state: { specialEnabled: boolean; specialType: string | null; specialPercent: number | null; specialPrice: number | null }): string {
-  if (!state.specialEnabled) return 'No discount';
-  if (state.specialType === 'percentage') return `${state.specialPercent}% off`;
-  if (state.specialType === 'fixed_price') return `$${Number(state.specialPrice).toFixed(2)}`;
-  return 'Discount';
-}
-
-function scheduleLabel(action: ResolvableAction): string {
-  if (action.type === 'clear_discount') return 'Immediately';
-  const { specialStartAt, specialNoExpiry } = action.discount;
-  const start = specialStartAt ? `Starts ${new Date(specialStartAt).toLocaleString()}` : 'Immediately';
-  const end = specialNoExpiry ? 'No end date' : 'Ends automatically';
-  return `${start} · ${end}`;
-}
-
-function targetLabel(action: ResolvableAction): string {
-  const target = action.target;
-  switch (target.scope) {
-    case 'all':
-      return 'all menu items';
-    case 'category':
-      return `the "${target.name}" category`;
-    case 'item':
-      return `"${target.name}"`;
-    case 'items':
-      return target.names.map((n) => `"${n}"`).join(', ');
-    case 'name_contains':
-      return `items matching "${target.query}"`;
-  }
-}
-
-function recommendationLabel(action: ResolvableAction): string {
-  if (action.type === 'clear_discount') return `Remove the discount from ${targetLabel(action)}`;
-  const valueLabel =
-    action.discount.discountType === 'percentage' ? `a ${action.discount.value}% discount` : `a fixed price of $${action.discount.value}`;
-  return `Apply ${valueLabel} to ${targetLabel(action)}`;
-}
-
-// The card's header title — always ends in "Recommendation" per the
-// executive-proposal framing.
-function promotionLabel(action: ResolvableAction): string {
-  if (action.type === 'clear_discount') return 'Discount Removal Recommendation';
-  return action.discount.discountType === 'percentage'
-    ? `${action.discount.value}% Discount Recommendation`
-    : 'Fixed Price Recommendation';
-}
-
-// A short, lowercase restatement used only to prefill the "Modify" chat
-// draft — distinct from promotionLabel so that text doesn't have to be
-// scraped back out of the headline-style title.
-function shortPromotionLabel(action: ResolvableAction): string {
-  if (action.type === 'clear_discount') return 'remove the discount';
-  return action.discount.discountType === 'percentage'
-    ? `${action.discount.value}% discount`
-    : `fixed price of $${action.discount.value}`;
-}
-
-// Not a stored goal field (menu_pricing has none, unlike Revenue
-// Intelligence opportunities) — a templated, honest business framing of
-// "why discount this," not a measured claim.
-function objectiveLabel(action: ResolvableAction, items: ResolvedDiscountItem[]): string {
-  if (action.type === 'clear_discount') return 'Restore standard pricing';
-  const categoryNames = Array.from(new Set(items.map((i) => i.categoryName).filter(Boolean)));
-  if (categoryNames.length === 1) return `Increase ${categoryNames[0]} sales`;
-  return 'Increase overall menu sales';
-}
-
-function effectiveAfterPrice(item: ResolvedDiscountItem): number | null {
-  if (!item.after.specialEnabled) return item.price;
-  if (item.after.specialType === 'fixed_price') return item.after.specialPrice;
-  if (item.after.specialType === 'percentage' && item.price !== null && item.after.specialPercent !== null) {
-    return item.price * (1 - item.after.specialPercent / 100);
-  }
-  return null;
-}
-
-function ItemComparisonCard({ item }: { item: ResolvedDiscountItem }) {
-  const afterPrice = effectiveAfterPrice(item);
-  const badge = item.after.specialEnabled && item.after.specialType === 'percentage' ? `${item.after.specialPercent}% OFF` : null;
+function ItemComparisonCard({ item }: { item: ProposalItemView }) {
   return (
     <div className="rounded-xl border border-stone-100 bg-[#FBFAF8] p-3">
       <p className="truncate text-sm font-black text-[#1F1F1F]">{item.name}</p>
       <div className="mt-2 flex items-center gap-3">
         <div>
           <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Current</p>
-          <p className="text-base font-bold text-stone-400 line-through">{item.price !== null ? `$${item.price.toFixed(2)}` : '—'}</p>
+          <p className="text-base font-bold text-stone-400 line-through">{item.beforeLabel}</p>
         </div>
         <span aria-hidden="true" className="text-stone-300">→</span>
         <div>
           <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Recommended</p>
-          <p className="text-lg font-black text-[#1F8A5B]">{afterPrice !== null ? `$${afterPrice.toFixed(2)}` : describeState(item.after)}</p>
+          <p className="text-lg font-black text-[#1F8A5B]">{item.afterLabel}</p>
         </div>
-        {badge && (
-          <span className="ml-auto flex-none rounded-full bg-[#FFF0E0] px-2.5 py-1 text-xs font-black text-[#FF6B00]">{badge}</span>
+        {item.badge && (
+          <span className="ml-auto flex-none rounded-full bg-[#FFF0E0] px-2.5 py-1 text-xs font-black text-[#FF6B00]">{item.badge}</span>
         )}
       </div>
     </div>
@@ -234,6 +174,40 @@ function OutcomeCard({ label, value, tone }: { label: string; value: string; ton
       <p className={`mt-1 text-sm font-black ${tone === 'positive' ? 'text-[#1F8A5B]' : 'text-[#1F1F1F]'}`}>{value}</p>
     </div>
   );
+}
+
+// row.action's shape varies by capability (MenuDiscountAction vs.
+// MenuEditAction) — this stays a small, pure, client-side, JSON-only label
+// (no fabricated numbers, just reading fields already in the row), branched
+// on row.capability rather than assuming one shape.
+function versionChangeLabel(row: ProposalRow): string {
+  const action = row.action as unknown as Record<string, unknown>;
+  if (row.capability === 'menu_pricing') {
+    const discount = action.discount as { value?: number; discountType?: string } | undefined;
+    if (discount?.discountType === 'percentage' && typeof discount.value === 'number') return `${discount.value}% discount`;
+    return 'Discount change';
+  }
+  if (row.capability === 'menu_agent') {
+    switch (action.type) {
+      case 'set_price':
+        return typeof action.price === 'number' ? `Price set to $${(action.price as number).toFixed(2)}` : 'Price change';
+      case 'adjust_price':
+        return 'Price adjustment';
+      case 'rename_item':
+        return typeof action.name === 'string' ? `Renamed to "${action.name}"` : 'Rename';
+      case 'update_description':
+        return 'Description update';
+      case 'move_category':
+        return typeof action.toCategoryName === 'string' ? `Moved to "${action.toCategoryName}"` : 'Category move';
+      case 'set_availability':
+        return action.available ? 'Made visible' : 'Hidden';
+      case 'set_tag':
+        return 'Tag change';
+      default:
+        return 'Menu change';
+    }
+  }
+  return 'Change';
 }
 
 function VersionHistory({ restaurantId, proposal }: { restaurantId: string; proposal: ProposalRow }) {
@@ -274,27 +248,19 @@ function VersionHistory({ restaurantId, proposal }: { restaurantId: string; prop
       {expanded && (
         <div className="mt-2 space-y-2">
           {loading && <p className="text-sm font-semibold text-stone-400">Loading…</p>}
-          {history?.map((row) => {
-            const action = row.action as unknown as { discount?: { value?: number; discountType?: string } };
-            const changeLabel =
-              action?.discount?.discountType === 'percentage' && typeof action.discount.value === 'number'
-                ? `${action.discount.value}% discount`
-                : 'Discount change';
-            return (
-              <div key={row.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#FBFAF8] p-3 text-sm">
-                <span className="font-bold text-[#1F1F1F]">Version {row.version} · {changeLabel}</span>
-                <span className="flex-none text-xs font-semibold capitalize text-stone-400">{row.status}</span>
-              </div>
-            );
-          })}
+          {history?.map((row) => (
+            <div key={row.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#FBFAF8] p-3 text-sm">
+              <span className="font-bold text-[#1F1F1F]">Version {row.version} · {versionChangeLabel(row)}</span>
+              <span className="flex-none text-xs font-semibold capitalize text-stone-400">{row.status}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-export function ProposalCard({ restaurantId, action, proposal, onDismiss, conversationId, messageId, onResolved, onModify }: Props) {
-  const initialSnapshot = (proposal?.resolved_snapshot as unknown as ResolvedDiscountItem[] | null) ?? null;
+export function ProposalCard({ restaurantId, action, capability, previewEndpoint, applyEndpoint, proposal, onDismiss, conversationId, messageId, onResolved, onModify }: Props) {
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [refreshing, setRefreshing] = useState(true);
   const [error, setError] = useState('');
@@ -306,8 +272,11 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
   const [completedAt, setCompletedAt] = useState<number | null>(null);
 
   const planTasks = (proposal?.plan_tasks as unknown as PlanTask[] | null) ?? null;
-  const staleness = preview && preview.resolved ? preview.revalidation : undefined;
-  const items = preview && preview.resolved ? preview.items : initialSnapshot;
+  // Confidence and reasoning ARE capability-agnostic plain values persisted
+  // on the proposal row itself, so they stay available instantly on reload
+  // even before the background preview call resolves — unlike items/copy,
+  // which depend on a capability-specific composer this card can't safely
+  // interpret without going through the route.
   const confidence: Confidence | null = (preview && preview.resolved ? preview.confidence : (proposal?.confidence as Confidence | null)) ?? null;
 
   async function reportOutcome(payload: ActionOutcomePayload) {
@@ -332,7 +301,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
     async function load() {
       setError('');
       try {
-        const response = await fetch('/api/admin/menus/discount-action/preview', {
+        const response = await fetch(previewEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ restaurantId, action, proposalId: proposal?.id }),
@@ -344,10 +313,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
           await reportOutcome({ kind: 'ambiguous', reason: payload.reason, candidates: payload.candidates });
         }
       } catch (err) {
-        // A background refresh failing is not fatal if we already have an
-        // instant render from the persisted proposal — only surface an
-        // error state if there was nothing to show in the first place.
-        if (!cancelled && !initialSnapshot) setError(err instanceof Error ? err.message : "Couldn't check your menu right now.");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't check your menu right now.");
       } finally {
         if (!cancelled) setRefreshing(false);
       }
@@ -365,7 +331,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
     setLifecycle('executing');
     setApplying(true);
     try {
-      const response = await fetch('/api/admin/menus/discount-action/apply', {
+      const response = await fetch(applyEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurantId, action, proposalId: proposal?.id }),
@@ -390,11 +356,12 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
   }
 
   function handleModify() {
-    onModify?.(`Change this proposal: ${shortPromotionLabel(action)} — `);
+    const shortSummary = preview && preview.resolved ? preview.copy.shortSummary : 'this recommendation';
+    onModify?.(`Change this proposal: ${shortSummary} — `);
     onDismiss();
   }
 
-  if (!items && !error) {
+  if (!preview && !error) {
     return (
       <div className="mt-3 animate-[dash-fade-in_0.2s_ease-out] rounded-2xl border border-stone-200 bg-white p-4">
         <p className="text-sm font-semibold text-stone-400">Preparing a recommendation…</p>
@@ -416,7 +383,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
     );
   }
 
-  if (error && !items) {
+  if (error && !preview) {
     return (
       <div className="mt-3 animate-[dash-fade-in_0.2s_ease-out] rounded-2xl border border-stone-200 bg-white p-4">
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-red-50 p-3">
@@ -433,19 +400,20 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
     );
   }
 
+  // Both guards above have already returned for the null/unresolved/error
+  // cases, so `preview` is guaranteed resolved:true from here on.
   const resolvedPreview = preview && preview.resolved ? preview : null;
+  if (!resolvedPreview) return null;
+  const items = resolvedPreview.items;
+  const copy = resolvedPreview.copy;
   const durationLabel = approvedAt && completedAt ? `${((completedAt - approvedAt) / 1000).toFixed(1)}s` : null;
-  const afterApprovalSteps =
-    action.type === 'clear_discount'
-      ? ['Menu pricing updates', 'Customers immediately see the new price']
-      : ['Menu pricing updates', 'Customers immediately see the new price', 'Promotion becomes active'];
 
   return (
     <div className="mt-3 animate-[dash-fade-in_0.2s_ease-out] rounded-2xl border border-stone-200 bg-white p-4 md:p-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-xl font-black leading-tight text-[#1F1F1F] md:text-2xl">{promotionLabel(action)}</h3>
+          <h3 className="text-xl font-black leading-tight text-[#1F1F1F] md:text-2xl">{copy.title}</h3>
           <p className="mt-1 text-xs font-semibold text-stone-400">
             Prepared by Ask SpinBite{proposal?.created_at ? ` · ${new Date(proposal.created_at).toLocaleString()}` : ''}
           </p>
@@ -464,40 +432,38 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
       {/* Executive summary */}
       <div className="mt-4 rounded-xl bg-[#EFE9FB] p-3">
         <p className="text-sm font-bold leading-6 text-[#1F1F1F]">
-          {resolvedPreview ? resolvedPreview.executiveSummary : refreshing ? 'Weighing this recommendation…' : proposal?.reasoning ?? ''}
+          {refreshing ? 'Weighing this recommendation…' : resolvedPreview.executiveSummary}
         </p>
       </div>
 
       {/* Should I Do This? — the owner-facing decision verdict, distinct
           from (and shown separately above) the underlying Confidence badge. */}
-      {resolvedPreview && (
-        <div className="mt-4 rounded-xl border border-stone-100 bg-white p-3">
-          <p className="text-xs font-black uppercase tracking-wide text-stone-400">Should I Do This?</p>
-          <span
-            className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-base font-black ${DECISION_TIER_STYLE[resolvedPreview.decisionSummary.tier]}`}
-          >
-            <span aria-hidden="true">{resolvedPreview.decisionSummary.emoji}</span>
-            {resolvedPreview.decisionSummary.label}
-          </span>
-          <ul className="mt-2 space-y-1">
-            {resolvedPreview.decisionSummary.bullets.map((bullet, i) => (
-              <li key={i} className="flex gap-2 text-sm text-stone-600">
-                <span aria-hidden="true" className="text-stone-300">•</span>
-                {bullet}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div className="mt-4 rounded-xl border border-stone-100 bg-white p-3">
+        <p className="text-xs font-black uppercase tracking-wide text-stone-400">Should I Do This?</p>
+        <span
+          className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-base font-black ${DECISION_TIER_STYLE[resolvedPreview.decisionSummary.tier]}`}
+        >
+          <span aria-hidden="true">{resolvedPreview.decisionSummary.emoji}</span>
+          {resolvedPreview.decisionSummary.label}
+        </span>
+        <ul className="mt-2 space-y-1">
+          {resolvedPreview.decisionSummary.bullets.map((bullet, i) => (
+            <li key={i} className="flex gap-2 text-sm text-stone-600">
+              <span aria-hidden="true" className="text-stone-300">•</span>
+              {bullet}
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {/* Recommendation + Objective */}
       <Section title="Recommendation">
-        <p className="text-base font-bold text-[#1F1F1F]">{recommendationLabel(action)}</p>
-        {items && <p className="mt-1 text-sm font-semibold text-stone-500">Objective: {objectiveLabel(action, items)}</p>}
+        <p className="text-base font-bold text-[#1F1F1F]">{copy.recommendationText}</p>
+        <p className="mt-1 text-sm font-semibold text-stone-500">Objective: {copy.objectiveText}</p>
       </Section>
 
       {/* Before / After */}
-      {items && items.length > 0 && (
+      {items.length > 0 && (
         <Section title={`Before / After${items.length > 1 ? ` (${items.length} items)` : ''}`}>
           <div className="space-y-2">
             {items.slice(0, 8).map((item) => (
@@ -511,7 +477,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
       {/* Why I recommend this */}
       <Section title="Why I Recommend This">
         <ul className="space-y-1.5">
-          {(resolvedPreview?.reasoningBullets ?? (proposal?.reasoning ? proposal.reasoning.split(/(?<=\.)\s+/) : [])).map((bullet, i) => (
+          {resolvedPreview.reasoningBullets.map((bullet, i) => (
             <li key={i} className="flex gap-2 text-sm text-stone-600">
               <span aria-hidden="true" className="text-stone-300">•</span>
               {bullet}
@@ -521,21 +487,19 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
       </Section>
 
       {/* Why now */}
-      {resolvedPreview && (
-        <Section title="Why Now?">
-          <ul className="space-y-1.5">
-            {resolvedPreview.whyNow.map((bullet, i) => (
-              <li key={i} className="flex gap-2 text-sm text-stone-600">
-                <span aria-hidden="true" className="text-stone-300">•</span>
-                {bullet}
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
+      <Section title="Why Now?">
+        <ul className="space-y-1.5">
+          {resolvedPreview.whyNow.map((bullet, i) => (
+            <li key={i} className="flex gap-2 text-sm text-stone-600">
+              <span aria-hidden="true" className="text-stone-300">•</span>
+              {bullet}
+            </li>
+          ))}
+        </ul>
+      </Section>
 
       {/* Alternatives + Why This Recommendation */}
-      {resolvedPreview && resolvedPreview.alternatives.length > 0 && (
+      {resolvedPreview.alternatives.length > 0 && (
         <Section title="Alternative Approaches">
           <ul className="space-y-1.5">
             {resolvedPreview.alternatives.map((alt, i) => (
@@ -547,35 +511,40 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
           </ul>
         </Section>
       )}
-      {resolvedPreview?.whyThisRecommendation && (
+      {resolvedPreview.whyThisRecommendation && (
         <Section title="Why This Recommendation?">
           <p className="text-sm text-stone-600">{resolvedPreview.whyThisRecommendation}</p>
         </Section>
       )}
 
-      {/* Schedule + Visibility */}
-      <Section title="Schedule">
-        <p className="text-sm font-semibold text-[#1F1F1F]">{scheduleLabel(action)}</p>
-      </Section>
-      <Section title="Visibility">
-        <div className="flex flex-wrap gap-2">
-          {VISIBILITY_CHANNELS.map((channel) => (
-            <span key={channel} className="inline-flex items-center gap-1 rounded-full bg-[#E7F3EC] px-2.5 py-1 text-xs font-bold text-[#1F8A5B]">
-              <DashboardIcon name="check" className="h-3 w-3" /> {channel}
-            </span>
-          ))}
-        </div>
-        <p className="mt-1.5 text-xs text-stone-400">Every active promotion appears in both places — there&apos;s no per-promotion channel control yet.</p>
-      </Section>
+      {/* Schedule + Visibility — omitted entirely when the capability has no
+          such concept (e.g. menu_edit: immediate, permanent changes). */}
+      {copy.scheduleText && (
+        <Section title="Schedule">
+          <p className="text-sm font-semibold text-[#1F1F1F]">{copy.scheduleText}</p>
+        </Section>
+      )}
+      {copy.visibilityChannels && copy.visibilityChannels.length > 0 && (
+        <Section title="Visibility">
+          <div className="flex flex-wrap gap-2">
+            {copy.visibilityChannels.map((channel) => (
+              <span key={channel} className="inline-flex items-center gap-1 rounded-full bg-[#E7F3EC] px-2.5 py-1 text-xs font-bold text-[#1F8A5B]">
+                <DashboardIcon name="check" className="h-3 w-3" /> {channel}
+              </span>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-stone-400">Every active promotion appears in both places — there&apos;s no per-promotion channel control yet.</p>
+        </Section>
+      )}
 
       {/* Expected Outcome */}
       <Section title="Expected Outcome">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-          <OutcomeCard label="Revenue" value={resolvedPreview?.revenueImpact ?? 'Not available'} tone={resolvedPreview?.revenueImpact ? 'positive' : undefined} />
-          <OutcomeCard label="Margin" value={refreshing ? '…' : resolvedPreview?.margin ?? 'Not available'} />
-          <OutcomeCard label="Affected Items" value={items ? String(items.length) : '…'} />
+          <OutcomeCard label="Revenue" value={resolvedPreview.revenueImpact ?? 'Not available'} tone={resolvedPreview.revenueImpact ? 'positive' : undefined} />
+          <OutcomeCard label="Margin" value={refreshing ? '…' : resolvedPreview.margin ?? 'Not available'} />
+          <OutcomeCard label="Affected Items" value={String(items.length)} />
           <OutcomeCard label="Confidence" value={confidence ? `${confidence.charAt(0).toUpperCase()}${confidence.slice(1)}` : '…'} />
-          <OutcomeCard label="Data Quality" value={resolvedPreview ? (resolvedPreview.dataQuality === 'good' ? 'Good' : 'Limited') : '…'} />
+          <OutcomeCard label="Data Quality" value={resolvedPreview.dataQuality === 'good' ? 'Good' : 'Limited'} />
         </div>
       </Section>
 
@@ -585,79 +554,73 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-wide ${CONFIDENCE_STYLE[confidence] ?? 'bg-stone-100 text-stone-500'}`}>
             {confidence} confidence
           </span>
-          {resolvedPreview && (
-            <ul className="mt-2 space-y-1">
-              {resolvedPreview.confidenceEvidence.map((evidence, i) => (
-                <li key={i} className={`flex items-center gap-2 text-xs font-semibold ${evidence.met ? 'text-stone-500' : 'text-[#A9600B]'}`}>
-                  <span aria-hidden="true">{evidence.met ? '✓' : '⚠'}</span>
-                  {evidence.label}
-                </li>
-              ))}
-            </ul>
-          )}
+          <ul className="mt-2 space-y-1">
+            {resolvedPreview.confidenceEvidence.map((evidence, i) => (
+              <li key={i} className={`flex items-center gap-2 text-xs font-semibold ${evidence.met ? 'text-stone-500' : 'text-[#A9600B]'}`}>
+                <span aria-hidden="true">{evidence.met ? '✓' : '⚠'}</span>
+                {evidence.label}
+              </li>
+            ))}
+          </ul>
         </Section>
       )}
 
       {/* Things to consider */}
       <Section title="Things To Consider">
-        {resolvedPreview && resolvedPreview.considerations.length > 0 ? (
+        {resolvedPreview.considerations.length > 0 ? (
           <ul className="space-y-1">
             {resolvedPreview.considerations.map((consideration, i) => (
               <li key={i} className="text-sm font-semibold text-stone-500">⚠ {consideration}</li>
             ))}
           </ul>
         ) : (
-          <p className="text-sm font-semibold text-stone-400">{resolvedPreview ? 'No significant considerations detected.' : '…'}</p>
+          <p className="text-sm font-semibold text-stone-400">No significant considerations detected.</p>
         )}
       </Section>
 
       {/* Tradeoffs — a second, benefits-vs-tradeoffs lens on the same
           Why-Now/reasoning/considerations facts above, not new data. */}
-      {resolvedPreview && (
-        <Section title="Tradeoffs">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Benefits</p>
-              <ul className="mt-1 space-y-1">
-                {resolvedPreview.tradeoffs.benefits.length > 0 ? (
-                  resolvedPreview.tradeoffs.benefits.map((benefit, i) => (
-                    <li key={i} className="text-sm font-semibold text-[#1F8A5B]">✓ {benefit}</li>
-                  ))
-                ) : (
-                  <li className="text-sm font-semibold text-stone-400">No specific benefits identified.</li>
-                )}
-              </ul>
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Tradeoffs</p>
-              <ul className="mt-1 space-y-1">
-                {resolvedPreview.tradeoffs.tradeoffs.length > 0 ? (
-                  resolvedPreview.tradeoffs.tradeoffs.map((tradeoff, i) => (
-                    <li key={i} className="text-sm font-semibold text-stone-500">• {tradeoff}</li>
-                  ))
-                ) : (
-                  <li className="text-sm font-semibold text-stone-400">No significant tradeoffs detected.</li>
-                )}
-              </ul>
-            </div>
+      <Section title="Tradeoffs">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Benefits</p>
+            <ul className="mt-1 space-y-1">
+              {resolvedPreview.tradeoffs.benefits.length > 0 ? (
+                resolvedPreview.tradeoffs.benefits.map((benefit, i) => (
+                  <li key={i} className="text-sm font-semibold text-[#1F8A5B]">✓ {benefit}</li>
+                ))
+              ) : (
+                <li className="text-sm font-semibold text-stone-400">No specific benefits identified.</li>
+              )}
+            </ul>
           </div>
-        </Section>
-      )}
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-wide text-stone-400">Tradeoffs</p>
+            <ul className="mt-1 space-y-1">
+              {resolvedPreview.tradeoffs.tradeoffs.length > 0 ? (
+                resolvedPreview.tradeoffs.tradeoffs.map((tradeoff, i) => (
+                  <li key={i} className="text-sm font-semibold text-stone-500">• {tradeoff}</li>
+                ))
+              ) : (
+                <li className="text-sm font-semibold text-stone-400">No significant tradeoffs detected.</li>
+              )}
+            </ul>
+          </div>
+        </div>
+      </Section>
 
       {/* Success Metrics */}
-      {resolvedPreview && (
-        <Section title="Success Metrics">
-          <p className="text-xs font-semibold text-stone-400">Monitor:</p>
-          <ul className="mt-1 space-y-1">
-            {resolvedPreview.successMetrics.map((metric, i) => (
-              <li key={i} className="text-sm font-semibold text-stone-600">• {metric}</li>
-            ))}
-          </ul>
-        </Section>
-      )}
+      <Section title="Success Metrics">
+        <p className="text-xs font-semibold text-stone-400">Monitor:</p>
+        <ul className="mt-1 space-y-1">
+          {resolvedPreview.successMetrics.map((metric, i) => (
+            <li key={i} className="text-sm font-semibold text-stone-600">• {metric}</li>
+          ))}
+        </ul>
+      </Section>
 
-      {staleness && !staleness.ok && (
-        <div className="mt-4 rounded-xl bg-[#FBEAE6] p-3 text-sm font-bold text-[#C1442D]">{staleness.reason}</div>
+      {resolvedPreview.revalidation && !resolvedPreview.revalidation.ok && (
+        <div className="mt-4 rounded-xl bg-[#FBEAE6] p-3 text-sm font-bold text-[#C1442D]">{resolvedPreview.revalidation.reason}</div>
       )}
 
       {planTasks && planTasks.length > 0 && (
@@ -675,7 +638,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
       {lifecycle === 'draft' && (
         <Section title="What Happens After Approval?">
           <ul className="space-y-1">
-            {afterApprovalSteps.map((step) => (
+            {copy.afterApprovalSteps.map((step) => (
               <li key={step} className="flex items-center gap-2 text-sm font-semibold text-stone-500">
                 <DashboardIcon name="check" className="h-3.5 w-3.5 flex-none text-[#1F8A5B]" />
                 {step}
@@ -685,7 +648,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
         </Section>
       )}
 
-      {lifecycle === 'draft' && resolvedPreview && (
+      {lifecycle === 'draft' && (
         <Section title="Suggested Review">
           <p className="text-sm font-semibold text-[#1F1F1F]">{resolvedPreview.monitoringReminder.label}</p>
         </Section>
@@ -698,7 +661,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
             <p className="mt-1 text-sm font-semibold text-[#C1442D]">Couldn&apos;t update: {applyResult.failed.map((f) => f.name).join(', ')}</p>
           )}
           {applyResult.skippedNoOp && applyResult.skippedNoOp.length > 0 && (
-            <p className="mt-1 text-xs font-semibold text-stone-400">Already had this exact discount, skipped: {applyResult.skippedNoOp.join(', ')}</p>
+            <p className="mt-1 text-xs font-semibold text-stone-400">Already matched this exact change, skipped: {applyResult.skippedNoOp.join(', ')}</p>
           )}
         </Section>
       )}
@@ -720,7 +683,7 @@ export function ProposalCard({ restaurantId, action, proposal, onDismiss, conver
             <button
               type="button"
               onClick={handleApply}
-              disabled={applying || Boolean(staleness && !staleness.ok) || !items}
+              disabled={applying || Boolean(resolvedPreview.revalidation && !resolvedPreview.revalidation.ok) || items.length === 0}
               className="flex min-h-[44px] items-center gap-1.5 rounded-full bg-[#FF6B00] px-5 py-2.5 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF6B00] disabled:opacity-50"
             >
               <DashboardIcon name="check" className="h-3.5 w-3.5" />
