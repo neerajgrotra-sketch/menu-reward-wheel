@@ -200,11 +200,50 @@ export function revalidateProposal(snapshot: ResolvedMenuEditItem[] | null, live
 
 // --- apply (write) -------------------------------------------------------
 
-export type ApplyOutcome = { id: string; name: string; success: boolean; error?: string };
-export type ApplyMenuEditResult = { applied: number; total: number; failed?: ApplyOutcome[]; skippedNoOp?: string[] };
+export type ApplyOutcome = { id: string; name: string; success: boolean; error?: string; description?: string };
+export type ApplyMenuEditResult = {
+  applied: number;
+  total: number;
+  failed?: ApplyOutcome[];
+  skippedNoOp?: string[];
+  appliedItems?: Array<{ name: string; description: string }>;
+};
 
 function isNoOp(item: ResolvedMenuEditItem): boolean {
   return patchesEqual(item.before, item.after);
+}
+
+function tagChangeLabel(tag: string): string {
+  return tag === 'chef_special' ? 'Chef Special' : tag === 'popular' ? 'Popular' : 'Featured';
+}
+
+// Human-readable summary of what actually changed for one resolved item,
+// post-write — the menu_edit sibling of menu-pricing.ts's
+// describeAppliedItem. Reads the concrete before/after EditPatch rather than
+// the proposed action, so it stays correct even though EditPatch only ever
+// carries the one field a given action type touches.
+export function describeAppliedItem(item: ResolvedMenuEditItem): string {
+  const { before, after } = item;
+  if (after.price !== undefined) {
+    const fromLabel = before.price !== undefined && before.price !== null ? `$${before.price.toFixed(2)}` : 'its price';
+    const toLabel = after.price !== null ? `$${after.price.toFixed(2)}` : 'unset';
+    return `${item.name}: ${fromLabel} → ${toLabel}`;
+  }
+  if (after.name !== undefined) return `${item.name} renamed to "${after.name}"`;
+  if (after.description !== undefined) return `${item.name}: description updated`;
+  if (after.category_id !== undefined) return `${item.name}: moved to ${item.categoryChange?.after ?? 'a new category'}`;
+  if (after.available !== undefined) return `${item.name}: ${after.available ? 'now visible' : 'now hidden'} on the menu`;
+  if (after.is_featured !== undefined) return `${item.name}: ${after.is_featured ? 'marked' : 'unmarked'} as Featured`;
+  if (after.tags !== undefined) {
+    const beforeTags = before.tags ?? [];
+    const afterTags = after.tags;
+    const added = afterTags.filter((t) => !beforeTags.includes(t));
+    const removed = beforeTags.filter((t) => !afterTags.includes(t));
+    if (added.length > 0) return `${item.name}: marked as ${added.map(tagChangeLabel).join(', ')}`;
+    if (removed.length > 0) return `${item.name}: ${removed.map(tagChangeLabel).join(', ')} tag removed`;
+    return `${item.name}: tags updated`;
+  }
+  return `${item.name}: updated`;
 }
 
 export async function applyMenuEditProposal(
@@ -220,13 +259,14 @@ export async function applyMenuEditProposal(
   const skippedNoOp = items.filter(isNoOp).map((item) => item.name);
 
   const outcomes = await Promise.all(realWrites.map((item) => applyOne(authClient, restaurantId, actorUserId, item)));
-  const applied = outcomes.filter((o) => o.success).length;
+  const succeeded = outcomes.filter((o) => o.success);
   const failed = outcomes.filter((o) => !o.success);
   return {
-    applied,
+    applied: succeeded.length,
     total: items.length,
     failed: failed.length > 0 ? failed : undefined,
     skippedNoOp: skippedNoOp.length > 0 ? skippedNoOp : undefined,
+    appliedItems: succeeded.length > 0 ? succeeded.map((o) => ({ name: o.name, description: o.description! })) : undefined,
   };
 }
 
@@ -262,7 +302,7 @@ async function applyOne(
     console.error('[menu-edit/applyMenuEditProposal] Failed to write change log:', logResult.error.message);
   }
 
-  return { id: item.id, name: item.name, success: true };
+  return { id: item.id, name: item.name, success: true, description: describeAppliedItem(item) };
 }
 
 // --- Decision Intelligence — menu_edit's DecisionCopyAdapter -------------
